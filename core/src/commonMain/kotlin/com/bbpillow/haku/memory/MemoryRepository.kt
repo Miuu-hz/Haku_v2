@@ -7,6 +7,9 @@ interface MemoryRepository {
   fun readDay(day: String): List<MemoryRecord>
   fun deleteDay(day: String): Boolean
 
+  /** Remove one daily record (user delete from the timeline). [day] is the file's UTC day, see [MemoryFormat.dayOf]. */
+  fun deleteDaily(day: String, id: String): Boolean
+
   // curated core (long-term)
   fun writeCoreFact(input: CoreFactInput): MemoryRecord
   fun updateCoreFact(category: String, id: String, newText: String): MemoryRecord?

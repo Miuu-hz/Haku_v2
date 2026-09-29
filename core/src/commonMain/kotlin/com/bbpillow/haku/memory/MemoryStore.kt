@@ -32,6 +32,7 @@ class MemoryStore(
 
   override fun readDay(day: String): List<MemoryRecord> = read(dailyPath(day)).records
   override fun deleteDay(day: String): Boolean = remove(dailyPath(day))
+  override fun deleteDaily(day: String, id: String): Boolean = deleteRecord(dailyPath(day), id)
 
   // curated core
   override fun writeCoreFact(input: CoreFactInput): MemoryRecord {
