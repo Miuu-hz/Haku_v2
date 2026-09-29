@@ -38,5 +38,5 @@ class FakeLocalModel(
   }
 
   override fun cancel() { cancelled = true }
-  override fun unload() { loaded = false }
+  override suspend fun unload() { loaded = false }
 }

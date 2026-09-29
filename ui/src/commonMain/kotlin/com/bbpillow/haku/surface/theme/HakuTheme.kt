@@ -6,6 +6,7 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -61,15 +62,32 @@ private val weights = listOf(FontWeight.Normal, FontWeight.Medium, FontWeight.Se
 // ponytail: Compose has no per-glyph fallback between two families, so Anuphan (Thai + Latin)
 // is the body font and Outfit (Latin only) is kept for display text and numbers.
 @Composable
-private fun anuphan() = FontFamily(weights.map { Font(Res.font.anuphan_variable, it) })
+private fun anuphan(): FontFamily = weights.map { Font(Res.font.anuphan_variable, it) }.let { remember(it) { FontFamily(it) } }
 
 @Composable
-private fun outfit() = FontFamily(weights.map { Font(Res.font.outfit_variable, it) })
+private fun outfit(): FontFamily = weights.map { Font(Res.font.outfit_variable, it) }.let { remember(it) { FontFamily(it) } }
+
+private val hakuShapes = Shapes(small = HakuRadius.Small, medium = HakuRadius.Card, large = HakuRadius.Card)
+
+private fun hakuTypography(body: FontFamily, display: FontFamily) = Typography(
+  displayLarge = TextStyle(fontFamily = display, fontWeight = FontWeight.Bold, fontSize = 40.sp),
+  headlineMedium = TextStyle(fontFamily = body, fontWeight = FontWeight.SemiBold, fontSize = 26.sp),
+  titleLarge = TextStyle(fontFamily = display, fontWeight = FontWeight.SemiBold, fontSize = 26.sp, lineHeight = 30.sp), // .big numbers
+  titleMedium = TextStyle(fontFamily = body, fontWeight = FontWeight.SemiBold, fontSize = 17.sp),
+  titleSmall = TextStyle(fontFamily = body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, lineHeight = 22.sp), // card h5
+  bodyLarge = TextStyle(fontFamily = body, fontSize = 16.sp, lineHeight = 24.sp),
+  bodyMedium = TextStyle(fontFamily = body, fontSize = 14.sp, lineHeight = 21.sp),
+  bodySmall = TextStyle(fontFamily = body, fontSize = 13.sp, lineHeight = 19.sp), // .lbl
+  labelLarge = TextStyle(fontFamily = body, fontWeight = FontWeight.Medium, fontSize = 14.sp),
+  labelMedium = TextStyle(fontFamily = body, fontWeight = FontWeight.Medium, fontSize = 12.sp, letterSpacing = 0.7.sp), // .sec-lbl
+  labelSmall = TextStyle(fontFamily = body, fontSize = 12.sp, lineHeight = 16.sp), // chips, badges
+)
 
 @Composable
 fun HakuTheme(content: @Composable () -> Unit) {
   val body = anuphan()
   val display = outfit()
+  val typography = remember(body, display) { hakuTypography(body, display) }
   MaterialTheme(
     colorScheme = lightColorScheme(
       primary = HakuColors.Ink, // black capsule buttons
@@ -84,20 +102,8 @@ fun HakuTheme(content: @Composable () -> Unit) {
       outline = HakuColors.Line,
       error = HakuColors.Coral,
     ),
-    shapes = Shapes(small = HakuRadius.Small, medium = HakuRadius.Card, large = HakuRadius.Card),
-    typography = Typography(
-      displayLarge = TextStyle(fontFamily = display, fontWeight = FontWeight.Bold, fontSize = 40.sp),
-      headlineMedium = TextStyle(fontFamily = body, fontWeight = FontWeight.SemiBold, fontSize = 26.sp),
-      titleLarge = TextStyle(fontFamily = display, fontWeight = FontWeight.SemiBold, fontSize = 26.sp, lineHeight = 30.sp), // .big numbers
-      titleMedium = TextStyle(fontFamily = body, fontWeight = FontWeight.SemiBold, fontSize = 17.sp),
-      titleSmall = TextStyle(fontFamily = body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, lineHeight = 22.sp), // card h5
-      bodyLarge = TextStyle(fontFamily = body, fontSize = 16.sp, lineHeight = 24.sp),
-      bodyMedium = TextStyle(fontFamily = body, fontSize = 14.sp, lineHeight = 21.sp),
-      bodySmall = TextStyle(fontFamily = body, fontSize = 13.sp, lineHeight = 19.sp), // .lbl
-      labelLarge = TextStyle(fontFamily = body, fontWeight = FontWeight.Medium, fontSize = 14.sp),
-      labelMedium = TextStyle(fontFamily = body, fontWeight = FontWeight.Medium, fontSize = 12.sp, letterSpacing = 0.7.sp), // .sec-lbl
-      labelSmall = TextStyle(fontFamily = body, fontSize = 12.sp, lineHeight = 16.sp), // chips, badges
-    ),
+    shapes = hakuShapes,
+    typography = typography,
     content = content,
   )
 }

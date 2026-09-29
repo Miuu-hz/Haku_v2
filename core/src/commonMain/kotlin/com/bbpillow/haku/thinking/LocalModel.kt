@@ -27,7 +27,8 @@ interface LocalModel {
 
   fun cancel()
 
-  fun unload()
+  /** Releases native resources; like [load], keeps blocking work off the caller's thread. */
+  suspend fun unload()
 }
 
 data class LoadOutput(val loadMillis: Long)
