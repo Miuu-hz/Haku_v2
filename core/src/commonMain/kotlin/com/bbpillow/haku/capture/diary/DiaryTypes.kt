@@ -9,7 +9,23 @@ import com.bbpillow.haku.memory.Provenance
 /** Ending particle the assistant uses (D15). Asked once at onboarding, then enforced on every line. */
 enum class EndingParticle(val text: String) { NONE(""), KRAP("ครับ"), KA("ค่ะ") }
 
-data class DiaryStyle(val particle: EndingParticle = EndingParticle.NONE)
+/** How the assistant calls the user (D15): "คุณ", the nickname, or nothing. */
+enum class AddressForm { NONE, KHUN, NICKNAME }
+
+/** The user's speech-style choice from onboarding (B4). [nickname] is used only with [AddressForm.NICKNAME]. */
+data class DiaryStyle(
+  val particle: EndingParticle = EndingParticle.NONE,
+  val address: AddressForm = AddressForm.NONE,
+  val nickname: String = "",
+) {
+  /** "คุณ", the nickname, or null when the user chose not to be addressed (or left the nickname blank). */
+  val addressName: String?
+    get() = when (address) {
+      AddressForm.NONE -> null
+      AddressForm.KHUN -> "คุณ"
+      AddressForm.NICKNAME -> nickname.trim().ifEmpty { null }
+    }
+}
 
 /** Tunables. Starting values, adjust with real weeks of data (as PlaceThresholds). */
 object DiaryThresholds {

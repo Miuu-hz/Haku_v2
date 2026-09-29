@@ -1,0 +1,148 @@
+package com.bbpillow.haku.surface.home
+
+import com.bbpillow.haku.capture.CaptureEventRepository
+import com.bbpillow.haku.capture.CaptureQueryInput
+import com.bbpillow.haku.capture.PlaceCategory
+import com.bbpillow.haku.capture.PlaceRecognitionInput
+import com.bbpillow.haku.capture.PlaceRecognizer
+import com.bbpillow.haku.capture.PlaceRepository
+import com.bbpillow.haku.capture.diary.DiaryComposer
+import com.bbpillow.haku.capture.diary.DiaryStyle
+import com.bbpillow.haku.language.ThaiDateFormat
+import com.bbpillow.haku.memory.MemoryFormat
+
+/** Part of the day the brief is shaped for (P3.1): morning looks back at yesterday, midday and evening at today. */
+enum class BriefPeriod { MORNING, MIDDAY, EVENING }
+
+/**
+ * Numbers for the story day, all measured. [outOfHomeFraction]/[outOfHomeMinutes] are null without a confirmed home
+ * or without any recorded stay; [steps] is null until a step source exists. Never filled with estimates.
+ */
+data class HomeStats(
+  val placeCount: Int,
+  val outOfHomeFraction: Float? = null,
+  val outOfHomeMinutes: Int? = null,
+  val steps: Int? = null,
+)
+
+/** A4 learning card. Nothing produces it yet (P5.x); the slot stays empty until then. */
+data class LearningCard(val title: String, val summary: String, val topic: String, val source: String)
+
+/**
+ * Everything the Home Brief draws. [storyLines] are the first diary lines of [storyDay] (rule-based, P2.6) until the
+ * model-written summary (P2.7) exists; empty = "no summary yet". [isDayOne] = nothing recorded yet at all (A6).
+ */
+data class HomeBriefUiState(
+  val period: BriefPeriod,
+  val greeting: String,
+  val headline: String,
+  val storyTitle: String,
+  val storyDay: String,
+  val storyHeader: String,
+  val storyLines: List<String>,
+  val storyLineCount: Int,
+  val stats: HomeStats?,
+  val learning: LearningCard? = null,
+  val isDayOne: Boolean = false,
+)
+
+/**
+ * Builds the Home Brief from the user's own diary and stays (P3.1). No model call: three parts of the day give three
+ * different briefs from the same data. Stateless; the screen only holds the returned state.
+ */
+class HomeBriefPresenter(
+  private val diary: DiaryComposer,
+  private val events: CaptureEventRepository,
+  private val places: PlaceRepository,
+  private val tzOffsetMinutes: Int,
+) {
+  fun load(nowUtcMs: Long, style: DiaryStyle = DiaryStyle()): HomeBriefUiState {
+    val localMs = nowUtcMs + tzOffsetMinutes * MIN_MS
+    val today = MemoryFormat.dayOf(localMs)
+    val hour = ((localMs % DAY_MS) / HOUR_MS).toInt()
+    val period = periodOf(hour)
+    // before dawn the evening brief still talks about the day that just ended
+    val storyDay = if (period == BriefPeriod.MORNING || hour < MORNING_START_HOUR) plusDays(today, -1) else today
+    val lines = diary.readDay(storyDay, tzOffsetMinutes)
+
+    val storyStart = dayStartUtc(storyDay)
+    val storyEnd = minOf(storyStart + DAY_MS, nowUtcMs)
+    val stats = statsFor(storyStart, storyEnd)
+    val isDayOne = lines.isEmpty() && stats == null && diary.readDay(today, tzOffsetMinutes).isEmpty() &&
+      events.query(CaptureQueryInput(dayStartUtc(today) - DAY_MS, nowUtcMs)).isEmpty()
+
+    val name = style.addressName?.let { " $it" }.orEmpty()
+    return HomeBriefUiState(
+      period = period,
+      greeting = when (period) {
+        BriefPeriod.MORNING -> "อรุณสวัสดิ์$name"
+        BriefPeriod.MIDDAY -> "สวัสดีตอนบ่าย$name"
+        BriefPeriod.EVENING -> "สวัสดีตอนเย็น$name"
+      },
+      headline = when {
+        isDayOne -> "Haku กำลังเรียนรู้วันของคุณ"
+        period == BriefPeriod.MORNING -> "เมื่อวานเป็นยังไงบ้าง"
+        period == BriefPeriod.MIDDAY -> "บ่ายนี้มีอะไรบ้าง"
+        else -> "วันนี้เป็นยังไงบ้าง"
+      },
+      storyTitle = when {
+        storyDay != today -> "เมื่อวาน"
+        period == BriefPeriod.MIDDAY -> "วันนี้จนถึงตอนนี้"
+        else -> "เรื่องของวันนี้"
+      },
+      storyDay = storyDay,
+      storyHeader = ThaiDateFormat.dayHeader(storyDay),
+      storyLines = lines.take(STORY_LINES).map { it.text },
+      storyLineCount = lines.size,
+      stats = stats,
+      isDayOne = isDayOne,
+    )
+  }
+
+  /**
+   * Stays in [from, to): number of places, and time away from the confirmed home within the span the stays cover.
+   * Null when no stay touched the window.
+   * ponytail: time between the first and last stay counts as "out" unless at home, so a phone left off at home reads as out; ceiling accepted until P2 capture gaps are marked.
+   */
+  private fun statsFor(from: Long, to: Long): HomeStats? {
+    if (to <= from) return null
+    val known = places.list()
+    val recognized = PlaceRecognizer.recognize(
+      PlaceRecognitionInput(PlaceRecognizer.pairDwells(events.query(CaptureQueryInput(from - DAY_MS, to))), known, tzOffsetMinutes),
+    )
+    val visits = recognized.visits
+      .map { it.copy(startUtcMs = maxOf(it.startUtcMs, from), endUtcMs = minOf(it.endUtcMs, to)) }
+      .filter { it.endUtcMs > it.startUtcMs }
+    if (visits.isEmpty()) return null
+
+    val homeIds = known.filter { it.confirmed && it.category == PlaceCategory.HOME }.map { it.id }.toSet()
+    val placeCount = visits.map { it.placeId }.distinct().size
+    if (homeIds.isEmpty()) return HomeStats(placeCount)
+    val covered = visits.maxOf { it.endUtcMs } - visits.minOf { it.startUtcMs }
+    val home = visits.filter { it.placeId in homeIds }.sumOf { it.endUtcMs - it.startUtcMs }
+    val out = (covered - home).coerceAtLeast(0)
+    return HomeStats(placeCount, out.toFloat() / covered, (out / MIN_MS).toInt())
+  }
+
+  private fun periodOf(hour: Int) = when (hour) {
+    in MORNING_START_HOUR until MIDDAY_START_HOUR -> BriefPeriod.MORNING
+    in MIDDAY_START_HOUR until EVENING_START_HOUR -> BriefPeriod.MIDDAY
+    else -> BriefPeriod.EVENING
+  }
+
+  private fun dayStartUtc(day: String): Long =
+    requireNotNull(MemoryFormat.parseUtc("${day}T00:00:00.000Z")) { "bad day: $day" } - tzOffsetMinutes * MIN_MS
+
+  private fun plusDays(day: String, n: Int): String =
+    MemoryFormat.dayOf(requireNotNull(MemoryFormat.parseUtc("${day}T00:00:00.000Z")) { "bad day: $day" } + n * DAY_MS)
+
+  companion object {
+    const val MORNING_START_HOUR = 4
+    const val MIDDAY_START_HOUR = 11
+    const val EVENING_START_HOUR = 17
+    const val STORY_LINES = 3
+    private const val MIN_MS = 60_000L
+    private const val HOUR_MS = 3_600_000L
+    private const val DAY_MS = 86_400_000L
+  }
+}
