@@ -15,6 +15,7 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "0.0.1"
+    testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
   compileOptions {
@@ -29,6 +30,8 @@ dependencies {
   implementation(compose.material3)
   implementation(libs.androidx.activity.compose)
   implementation(libs.kotlinx.coroutines.android)
+  androidTestImplementation(libs.androidx.test.runner)
+  androidTestImplementation(libs.androidx.test.ext.junit)
 }
 
 kotlin {
