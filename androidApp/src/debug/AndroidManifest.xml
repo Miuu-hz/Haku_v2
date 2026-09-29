@@ -15,6 +15,10 @@
     <activity
       android:name=".AgentSpikeActivity"
       android:exported="true" />
+    <!-- P2.7 evening summary check (diary lines -> real model -> checker), logcat tag HakuSummary -->
+    <activity
+      android:name=".SummarySpikeActivity"
+      android:exported="true" />
     <!-- P2.2/P2.5 capture switch + dump until onboarding exists, see docs/permissions.md -->
     <receiver
       android:name=".CaptureDebugReceiver"
