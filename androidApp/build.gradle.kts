@@ -32,6 +32,8 @@ dependencies {
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.litertlm.android)
   implementation(libs.androidx.sqlite.bundled)
+  implementation(libs.play.services.location)
+  implementation(libs.okio)
   androidTestImplementation(libs.androidx.test.runner)
   androidTestImplementation(libs.androidx.test.ext.junit)
 }

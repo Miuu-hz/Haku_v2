@@ -11,5 +11,9 @@
     <activity
       android:name=".SpikeActivity"
       android:exported="true" />
+    <!-- P2.2/P2.5 capture switch + dump until onboarding exists, see docs/permissions.md -->
+    <receiver
+      android:name=".CaptureDebugReceiver"
+      android:exported="true" />
   </application>
 </manifest>
