@@ -41,15 +41,31 @@ internal class FakePlaces(private val places: List<PlaceRecord>) : PlaceReposito
 
 internal class FakeLedger : DiaryLedgerRepository {
   val rows = mutableMapOf<String, DiaryLedgerEntry>()
+  private val typeOf = mutableMapOf<String, String>()
+  private val strikes = mutableMapOf<String, Int>()
   override fun find(lineId: String) = rows[lineId]
   override fun findByRecord(memoryDay: String, recordId: String) =
     rows.values.firstOrNull { it.memoryDay == memoryDay && it.memoryRecordId == recordId }
-  override fun recordWritten(lineId: String, memoryDay: String, memoryRecordId: String) {
+  override fun recordWritten(lineId: String, memoryDay: String, memoryRecordId: String, typeKey: String) {
+    if (rows[lineId] != null) return
     rows[lineId] = DiaryLedgerEntry(lineId, memoryDay, memoryRecordId, false)
+    typeOf[lineId] = typeKey
   }
-  override fun markDeleted(lineId: String) {
+  override fun markDeleted(lineId: String, countsAsStrike: Boolean) {
+    if (rows[lineId]?.deleted == true) return
     rows[lineId] = (rows[lineId] ?: DiaryLedgerEntry(lineId, "", "", false)).copy(deleted = true)
+    val type = typeOf[lineId].orEmpty()
+    if (countsAsStrike && type.isNotEmpty()) strikes[type] = (strikes[type] ?: 0) + 1
   }
+  override fun restore(lineId: String, memoryDay: String, memoryRecordId: String): Boolean {
+    val e = rows[lineId]?.takeIf { it.deleted } ?: return false
+    rows[lineId] = e.copy(memoryDay = memoryDay, memoryRecordId = memoryRecordId, deleted = false)
+    typeOf[lineId]?.let { t -> strikes[t] = maxOf((strikes[t] ?: 0) - 1, 0) }
+    return true
+  }
+  override fun isSuppressed(typeKey: String) = (strikes[typeKey] ?: 0) >= DiaryThresholds.SUPPRESS_AFTER_DELETES
+  override fun suppressedTypes() = strikes.filter { it.value >= DiaryThresholds.SUPPRESS_AFTER_DELETES }.map { SuppressedLineType(it.key, it.value) }
+  override fun unsuppress(typeKey: String) { strikes.remove(typeKey) }
 }
 
 class DiaryComposerTest {

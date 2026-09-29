@@ -35,10 +35,13 @@ object DiaryThresholds {
   const val MAX_TRAVEL_MS = 90 * 60_000L
   const val LONG_STAY_MS = 2 * 3_600_000L
   const val MAX_LINES = 12
+
+  /** P3.2: after this many user deletions of one line type the diary stops writing that type. */
+  const val SUPPRESS_AFTER_DELETES = 3
 }
 
 /** How a place is shown. Only user-confirmed places carry a label/category; anything else is neutral. */
-data class PlaceRef(val label: String? = null, val category: PlaceCategory = PlaceCategory.OTHER)
+data class PlaceRef(val label: String? = null, val category: PlaceCategory = PlaceCategory.OTHER, val placeId: String? = null)
 
 enum class DiaryLineKind { DEPART, ARRIVE, CALENDAR }
 
@@ -49,8 +52,12 @@ sealed interface DiaryEpisode {
   val kind: DiaryLineKind
   val priority: Int
 
+  /** Line-type key for delete-three-times suppression, see [LineTypeKey]. */
+  val typeKey: String
+
   data class Departure(override val timeUtcMs: Long, val from: PlaceRef, override val sourceEventIds: List<String>) : DiaryEpisode {
     override val kind get() = DiaryLineKind.DEPART
+    override val typeKey get() = LineTypeKey.place(kind, from)
     override val priority get() = 1
   }
 
@@ -63,6 +70,7 @@ sealed interface DiaryEpisode {
     override val sourceEventIds: List<String>,
   ) : DiaryEpisode {
     override val kind get() = DiaryLineKind.ARRIVE
+    override val typeKey get() = LineTypeKey.place(kind, at)
     override val priority get() = if ((stayMs ?: 0L) >= DiaryThresholds.LONG_STAY_MS) 3 else 2
   }
 
@@ -73,6 +81,7 @@ sealed interface DiaryEpisode {
     override val sourceEventIds: List<String>,
   ) : DiaryEpisode {
     override val kind get() = DiaryLineKind.CALENDAR
+    override val typeKey get() = LineTypeKey.calendar(title)
     override val priority get() = 4
   }
 }
@@ -99,6 +108,7 @@ data class DiaryLineRecord(
   val text: String,
   val sourceEventIds: List<String>,
   val provenance: Provenance = Provenance.INFERRED_FROM_USER_DATA,
+  val typeKey: String = "",
 )
 
 /** [header] is the Buddhist Era display header; it is never stored. */
@@ -116,3 +126,20 @@ data class DiaryComposeOutput(
 
 /** What the ledger remembers about one line. A deleted line stays in the ledger forever (tombstone). */
 data class DiaryLedgerEntry(val lineId: String, val memoryDay: String, val memoryRecordId: String, val deleted: Boolean)
+
+/**
+ * What counts as "the same type of line" for P3.2 suppression. Coarse enough that three deletions happen within days
+ * (a whole kind would silence every arrival because of one unwanted gym line), fine enough to be what the user meant:
+ *  - arrival/departure: kind + place id ("stop telling me I arrived at the store"; home and work stay untouched)
+ *  - calendar: normalized title (case and spacing ignored), so a recurring "standup" is one type
+ * Unconfirmed places still key by id, so the user can silence a place without ever naming it.
+ */
+object LineTypeKey {
+  fun place(kind: DiaryLineKind, ref: PlaceRef): String = "${kind.name}:${ref.placeId.orEmpty()}"
+
+  fun calendar(title: String): String =
+    "${DiaryLineKind.CALENDAR.name}:" + title.trim().lowercase().split(Regex("\\s+")).joinToString(" ")
+}
+
+/** A line type the diary has stopped writing, for the future settings screen. [deletes] = strikes counted. */
+data class SuppressedLineType(val typeKey: String, val deletes: Int)
