@@ -88,3 +88,13 @@ adb logcat -d -s HakuIndex
 - วัดแบต: `adb shell dumpsys batterystats --reset` ก่อนเริ่ม แล้ว `--charged com.bbpillow.haku` วันรุ่งขึ้น เป้า < 5% ต่อวัน
 - ผ่านเมื่อ: ช่วงอยู่ที่ใดที่หนึ่งตรงกับที่จดเกิน 80% และนัดในปฏิทินขึ้นในไดอารีครบ
 - ยังไม่ทำ: ช่วงเวลาไม่แตะเครื่อง · เวลาหน้าจอรวมหมวด (ต้องใช้สิทธิ์ UsageStats) · ฐานข้อมูลยังไม่เข้ารหัส (D11)
+
+## 11. P1.2 แกนเอเจนต์ (ทดสอบบน Fold5 หลังข้อ 1 · ~5 นาที)
+```bash
+adb logcat -c; MSYS_NO_PATHCONV=1 adb shell am start -n com.bbpillow.haku/.AgentSpikeActivity --es model /data/local/tmp/haku/gemma-4-E2B-it.litertlm --es backend gpu
+adb logcat -s HakuAgent
+```
+ผ่านเมื่อ: คุยโต้ตอบได้และเห็น `TOOL_CALLS: 1` (โมเดลเรียกเครื่องมือดูเวลา) ถ้าได้ 0 แปลว่า Gemma 4 E2B ยังไม่เรียกเครื่องมือเอง — บอก Claude จะลองเปิด constrained decoding
+คำถาม:
+- ตอนนี้เอเจนต์กับไดอารีโหลดโมเดลแยกกัน ถ้ารันพร้อมกันจะโหลดสองรอบ ควรใช้ engine เดียวกัน (สัมพันธ์กับ D8 ตัวเลือก Gemma โหมด agent)
+- ไฟล์ `NOTICE` ระบุเจ้าของลิขสิทธิ์ว่า "BBPillow" — ชื่อนิติบุคคลที่ถูกต้องคืออะไร
