@@ -30,6 +30,10 @@ class DiaryRulesTest {
     assertEquals("วันจันทร์ที่ 7 กันยายน พ.ศ. 2569", ThaiDateFormat.dayHeader("2026-09-07"))
     assertEquals("วันอาทิตย์ที่ 1 มกราคม พ.ศ. 2566", ThaiDateFormat.dayHeader("2023-01-01"))
     assertEquals("วันพฤหัสบดีที่ 29 กุมภาพันธ์ พ.ศ. 2567", ThaiDateFormat.dayHeader("2024-02-29"))
+    assertEquals("พฤ", ThaiDateFormat.shortWeekday("2026-09-24"))
+    assertEquals("อา", ThaiDateFormat.shortWeekday("2023-01-01"))
+    assertEquals("23 ก.ย.", ThaiDateFormat.shortDate("2026-09-23"))
+    assertEquals("1 ม.ค.", ThaiDateFormat.shortDate("2023-01-01"))
   }
 
   private val home = PlaceRecord("h", 1.0, 1.0, confirmed = true, category = PlaceCategory.HOME)
