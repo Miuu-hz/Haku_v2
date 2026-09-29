@@ -34,6 +34,26 @@ class MemoryStore(
   override fun deleteDay(day: String): Boolean = remove(dailyPath(day))
   override fun deleteDaily(day: String, id: String): Boolean = deleteRecord(dailyPath(day), id)
 
+  override fun listDays(): List<String> =
+    if (fs.exists(root / "daily")) fs.list(root / "daily").map { it.name }.filter { it.endsWith(".md") }
+      .map { it.removeSuffix(".md") }.filter(dayRule::matches).sorted() else emptyList()
+
+  override fun find(ref: MemoryRef): MemoryRecord? = when (ref.level) {
+    MemoryLevel.DAILY -> readDay(ref.group)
+    MemoryLevel.CORE -> readCategory(ref.group)
+    MemoryLevel.STANDING -> readStanding()
+    MemoryLevel.INTENTION -> readIntentions()
+  }.firstOrNull { it.id == ref.id }
+
+  override fun promote(from: MemoryRef, to: PromotionTarget): MemoryRecord? {
+    require(from.level == MemoryLevel.DAILY || from.level == MemoryLevel.INTENTION) { "cannot promote from ${from.level}" }
+    val src = find(from) ?: return null
+    return when (to) {
+      is PromotionTarget.Core -> writeCoreFact(CoreFactInput(to.category, src.text, src.provenance, src.atEpochMs))
+      PromotionTarget.Standing -> addStanding(NoteInput(src.text, src.provenance, src.atEpochMs))
+    }
+  }
+
   // curated core
   override fun writeCoreFact(input: CoreFactInput): MemoryRecord {
     requirePermanent(input.provenance)

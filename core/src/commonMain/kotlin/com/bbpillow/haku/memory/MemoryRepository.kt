@@ -10,6 +10,19 @@ interface MemoryRepository {
   /** Remove one daily record (user delete from the timeline). [day] is the file's UTC day, see [MemoryFormat.dayOf]. */
   fun deleteDaily(day: String, id: String): Boolean
 
+  /** UTC days that have a daily file, ascending. */
+  fun listDays(): List<String>
+
+  /** Look one record up by address (search hit -> file record). */
+  fun find(ref: MemoryRef): MemoryRecord?
+
+  /**
+   * The only path that copies a record into long-term memory. Provenance is taken from the source record,
+   * never from the caller; EXTERNAL/SYSTEM sources throw [ProvenanceNotAllowedException] (P1.7).
+   * Returns null when [from] does not exist. Source must be DAILY or INTENTION.
+   */
+  fun promote(from: MemoryRef, to: PromotionTarget): MemoryRecord?
+
   // curated core (long-term)
   fun writeCoreFact(input: CoreFactInput): MemoryRecord
   fun updateCoreFact(category: String, id: String, newText: String): MemoryRecord?

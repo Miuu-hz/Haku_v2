@@ -9,6 +9,12 @@ interface SearchRepository {
   fun indexAll(inputs: List<IndexRecordInput>)
 
   fun remove(id: String): Boolean
+
+  /** Drop every row of one file (level + group, e.g. a deleted day). Returns rows removed. */
+  fun removeGroup(level: com.bbpillow.haku.memory.MemoryLevel, group: String): Int
+
+  /** Empty the index (rebuild from files). */
+  fun clear()
   fun count(): Int
 
   /** FTS on segmented words ranked by bm25; exact-substring fallback when that finds nothing. */
