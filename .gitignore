@@ -1,0 +1,9 @@
+graphify-out/
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+*.litertlm
+*.task
