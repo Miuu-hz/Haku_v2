@@ -11,10 +11,12 @@ kotlin {
   sourceSets {
     commonMain.dependencies {
       implementation(libs.kotlinx.coroutines.core)
+      implementation(libs.okio)
     }
     commonTest.dependencies {
       implementation(kotlin("test"))
       implementation(libs.kotlinx.coroutines.test)
+      implementation(libs.okio.fakefilesystem)
     }
   }
 }
