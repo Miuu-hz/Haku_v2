@@ -31,6 +31,7 @@ dependencies {
   implementation(libs.androidx.activity.compose)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.litertlm.android)
+  implementation(libs.androidx.sqlite.bundled)
   androidTestImplementation(libs.androidx.test.runner)
   androidTestImplementation(libs.androidx.test.ext.junit)
 }

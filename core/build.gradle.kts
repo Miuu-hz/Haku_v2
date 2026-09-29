@@ -5,6 +5,8 @@ plugins {
 
 kotlin {
   androidTarget { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+  // Host target: runs the SQLite tests without an emulator (sqlite-bundled ships desktop natives).
+  jvm()
   iosArm64()
   iosSimulatorArm64()
 
@@ -12,6 +14,10 @@ kotlin {
     commonMain.dependencies {
       implementation(libs.kotlinx.coroutines.core)
       implementation(libs.okio)
+      api(libs.androidx.sqlite)
+    }
+    jvmTest.dependencies {
+      implementation(libs.androidx.sqlite.bundled)
     }
     commonTest.dependencies {
       implementation(kotlin("test"))
