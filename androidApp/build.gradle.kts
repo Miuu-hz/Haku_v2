@@ -29,6 +29,7 @@ dependencies {
   implementation(compose.material3)
   implementation(libs.androidx.activity.compose)
   implementation(libs.kotlinx.coroutines.android)
+  implementation(libs.litertlm.android)
 }
 
 kotlin {

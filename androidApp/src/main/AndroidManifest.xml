@@ -18,5 +18,9 @@
     <activity
       android:name=".ShowcaseActivity"
       android:exported="true" />
+    <!-- Debug: P0.4 piece A spike runner, see docs/FOR-YOU.md -->
+    <activity
+      android:name=".SpikeActivity"
+      android:exported="true" />
   </application>
 </manifest>
