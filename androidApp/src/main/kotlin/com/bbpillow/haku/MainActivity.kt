@@ -23,6 +23,9 @@ import com.bbpillow.haku.surface.theme.HakuRadius
 import com.bbpillow.haku.surface.theme.HakuTheme
 
 // ponytail: placeholder screen to prove the build and theme on device; replaced by P0.4 spike screens.
+// ponytail: TimelineScreen/TransparencyScreen (P3.2/P3.4) are not wired here yet; they only run on fake data in the
+// debug ShowcaseActivity. Wire them with TimelinePresenter(DiaryComposer, MemoryStore, tz) and
+// TransparencyPresenter(MemoryStore, tz) once app navigation exists; call the presenters off the main thread (file IO).
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
