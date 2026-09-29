@@ -34,9 +34,20 @@ object HakuColors {
   val Peach = Color(0xFFFFE1CC)
   val Mint = Color(0xFFD5F5E6)
   val Coral = Color(0xFFFF7A6B)
+  val Track = Color(0xFFEEEFF5) // donut track
+  val Shadow = Color(0xFF1E1E46) // rgba(30,30,70) used by every card shadow
 
   /** --grad: blue → violet, left to right. */
   val Gradient = Brush.horizontalGradient(listOf(Blue, Violet))
+}
+
+/** 3D squircle icon tones (.t-amber … .t-coral): light top, deep bottom, shadow in the deep tone. */
+enum class HakuTone(val light: Color, val deep: Color) {
+  Amber(Color(0xFFFFE3A3), Color(0xFFF2B544)),
+  Blue(Color(0xFFA9C8FF), Color(0xFF4F8DFF)),
+  Violet(Color(0xFFD0C0FF), Color(0xFF8467FF)),
+  Mint(Color(0xFFA6EFCB), Color(0xFF2FBF84)),
+  Coral(Color(0xFFFFC6B8), Color(0xFFFF7A6B)),
 }
 
 object HakuRadius {
@@ -77,10 +88,15 @@ fun HakuTheme(content: @Composable () -> Unit) {
     typography = Typography(
       displayLarge = TextStyle(fontFamily = display, fontWeight = FontWeight.Bold, fontSize = 40.sp),
       headlineMedium = TextStyle(fontFamily = body, fontWeight = FontWeight.SemiBold, fontSize = 26.sp),
+      titleLarge = TextStyle(fontFamily = display, fontWeight = FontWeight.SemiBold, fontSize = 26.sp, lineHeight = 30.sp), // .big numbers
       titleMedium = TextStyle(fontFamily = body, fontWeight = FontWeight.SemiBold, fontSize = 17.sp),
+      titleSmall = TextStyle(fontFamily = body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, lineHeight = 22.sp), // card h5
       bodyLarge = TextStyle(fontFamily = body, fontSize = 16.sp, lineHeight = 24.sp),
       bodyMedium = TextStyle(fontFamily = body, fontSize = 14.sp, lineHeight = 21.sp),
+      bodySmall = TextStyle(fontFamily = body, fontSize = 13.sp, lineHeight = 19.sp), // .lbl
       labelLarge = TextStyle(fontFamily = body, fontWeight = FontWeight.Medium, fontSize = 14.sp),
+      labelMedium = TextStyle(fontFamily = body, fontWeight = FontWeight.Medium, fontSize = 12.sp, letterSpacing = 0.7.sp), // .sec-lbl
+      labelSmall = TextStyle(fontFamily = body, fontSize = 12.sp, lineHeight = 16.sp), // chips, badges
     ),
     content = content,
   )
