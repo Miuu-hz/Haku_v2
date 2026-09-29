@@ -11,6 +11,10 @@
     <activity
       android:name=".SpikeActivity"
       android:exported="true" />
+    <!-- P1.2 agent chat check (one Thai prompt + getCurrentTime tool), logcat tag HakuAgent -->
+    <activity
+      android:name=".AgentSpikeActivity"
+      android:exported="true" />
     <!-- P2.2/P2.5 capture switch + dump until onboarding exists, see docs/permissions.md -->
     <receiver
       android:name=".CaptureDebugReceiver"

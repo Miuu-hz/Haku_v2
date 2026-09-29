@@ -1,0 +1,11 @@
+Haku
+Copyright 2026 BBPillow
+
+This product includes software derived from Google AI Edge Gallery 1.0.19
+(https://github.com/google-ai-edge/gallery), Copyright 2026 Google LLC,
+licensed under the Apache License, Version 2.0
+(http://www.apache.org/licenses/LICENSE-2.0).
+Derived files keep Google's license header and state what was modified:
+  androidApp/src/main/kotlin/com/bbpillow/haku/platform/agent/LiteRtAgentSession.kt
+  androidApp/src/main/kotlin/com/bbpillow/haku/platform/agent/ToolDefinition.kt
+  core/src/commonMain/kotlin/com/bbpillow/haku/thinking/AgentSession.kt

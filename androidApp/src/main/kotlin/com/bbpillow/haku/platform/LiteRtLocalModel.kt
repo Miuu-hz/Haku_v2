@@ -34,28 +34,8 @@ class LiteRtLocalModel : LocalModel {
 
   override suspend fun load(config: ModelConfig) {
     unload()
-    withContext(Dispatchers.Default) {
-      val e = Engine(
-        EngineConfig(
-          modelPath = config.modelPath,
-          backend = if (config.backend == ModelBackend.Gpu) Backend.GPU() else Backend.CPU(),
-          maxNumTokens = config.maxTokens,
-          cacheDir = config.cacheDir,
-        )
-      )
-      try {
-        e.initialize()
-        conversationConfig = ConversationConfig(
-          samplerConfig = SamplerConfig(config.topK, config.topP, config.temperature),
-          systemInstruction = null,
-          tools = emptyList(),
-        )
-        engine = e
-      } catch (t: Throwable) {
-        runCatching { e.close() }
-        throw t
-      }
-    }
+    engine = openEngine(config)
+    conversationConfig = ConversationConfig(samplerConfig = samplerConfig(config), systemInstruction = null, tools = emptyList())
   }
 
   // Stateless contract: a fresh Conversation per call so history never carries over
@@ -78,7 +58,7 @@ class LiteRtLocalModel : LocalModel {
       },
       emptyMap(),
     )
-    awaitClose { if (!finished.get()) cancel() }
+    awaitClose { if (!finished.get()) this@LiteRtLocalModel.cancel() } // bare cancel() would hit ProducerScope.cancel, not the native stop
   }.buffer(Channel.UNLIMITED).flowOn(Dispatchers.Default)
 
   override fun cancel() {
@@ -97,3 +77,24 @@ class LiteRtLocalModel : LocalModel {
     Unit
   }
 }
+
+/** Creates and initializes an [Engine] off the caller's thread; shared with the agent session. */
+internal suspend fun openEngine(config: ModelConfig): Engine = withContext(Dispatchers.Default) {
+  val e = Engine(
+    EngineConfig(
+      modelPath = config.modelPath,
+      backend = if (config.backend == ModelBackend.Gpu) Backend.GPU() else Backend.CPU(),
+      maxNumTokens = config.maxTokens,
+      cacheDir = config.cacheDir,
+    )
+  )
+  try {
+    e.initialize()
+    e
+  } catch (t: Throwable) {
+    runCatching { e.close() }
+    throw t
+  }
+}
+
+internal fun samplerConfig(config: ModelConfig) = SamplerConfig(config.topK, config.topP, config.temperature)
