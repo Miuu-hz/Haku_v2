@@ -1,17 +1,21 @@
 package com.bbpillow.haku.thinking
 
+import kotlin.concurrent.Volatile
 import kotlin.time.Duration
 import kotlin.time.DurationUnit
 import kotlin.time.TimeSource
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.takeWhile
 
 /** Wraps any [LocalModel] and measures load time, TTFT and tokens/sec with a monotonic clock. */
 class LocalModelClient(
   private val model: LocalModel,
   private val clock: TimeSource = TimeSource.Monotonic,
 ) {
-  private var cancelRequested = false
+  /** Set by [cancel] (even before collection starts), consumed and cleared by the generation it applies to. */
+  @Volatile private var cancelRequested = false
 
   suspend fun load(config: ModelConfig): LoadOutput {
     val start = clock.markNow()
@@ -20,13 +24,20 @@ class LocalModelClient(
   }
 
   fun generate(input: GenerateInput): Flow<GenerateEvent> = flow {
-    cancelRequested = false
+    try {
+      generateMeasured(input)
+    } finally {
+      cancelRequested = false
+    }
+  }
+
+  private suspend fun FlowCollector<GenerateEvent>.generateMeasured(input: GenerateInput) {
     val start = clock.markNow()
     val text = StringBuilder()
     var chunks = 0
     var firstAt = Duration.ZERO
     var lastAt = Duration.ZERO
-    model.generate(input).collect { chunk ->
+    model.generate(input).takeWhile { !cancelRequested }.collect { chunk ->
       if (chunk.isNotEmpty()) {
         val now = start.elapsedNow()
         if (chunks == 0) firstAt = now
@@ -53,5 +64,5 @@ class LocalModelClient(
     model.cancel()
   }
 
-  fun unload() = model.unload()
+  suspend fun unload() = model.unload()
 }

@@ -14,13 +14,5 @@
         <category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
     </activity>
-    <!-- Debug: component kit showcase, launch with adb shell am start -n com.bbpillow.haku/.ShowcaseActivity -->
-    <activity
-      android:name=".ShowcaseActivity"
-      android:exported="true" />
-    <!-- Debug: P0.4 piece A spike runner, see docs/FOR-YOU.md -->
-    <activity
-      android:name=".SpikeActivity"
-      android:exported="true" />
   </application>
 </manifest>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only tools, merged into debug builds only. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <application>
+    <!-- Component kit showcase, launch with adb shell am start -n com.bbpillow.haku/.ShowcaseActivity -->
+    <activity
+      android:name=".ShowcaseActivity"
+      android:exported="true" />
+    <!-- P0.4 piece A spike runner, see docs/FOR-YOU.md -->
+    <activity
+      android:name=".SpikeActivity"
+      android:exported="true" />
+  </application>
+</manifest>

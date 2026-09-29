@@ -100,11 +100,23 @@ class LocalModelClientTest {
     assertEquals(2, out.metrics.chunkCount)
   }
 
-  @Test fun cancelFlagResetsOnNextGenerate() = runTest {
+  @Test fun cancelBeforeFirstChunkMarksCancelled() = runTest {
     val (client, _) = setup(chunks = listOf("a", "b"))
     client.load(config)
     client.cancel()
-    assertFalse(client.metrics().cancelled)
+    val m = client.metrics()
+    assertTrue(m.cancelled)
+    assertEquals(0, m.chunkCount)
+  }
+
+  @Test fun cancelFlagDoesNotLeakIntoNextGenerate() = runTest {
+    val (client, _) = setup(chunks = listOf("a", "b"))
+    client.load(config)
+    client.cancel()
+    assertTrue(client.metrics().cancelled)
+    val next = client.metrics()
+    assertFalse(next.cancelled)
+    assertEquals(2, next.chunkCount)
   }
 
   @Test fun runtimeErrorSurfacesAfterPartialTokens() = runTest {

@@ -15,16 +15,22 @@ import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
 import java.util.concurrent.CancellationException
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 
 // Modelled on Google AI Edge Gallery LlmChatModelHelper (Apache 2.0): Engine -> Conversation -> sendMessageAsync.
 class LiteRtLocalModel : LocalModel {
-  private var engine: Engine? = null
-  private var conversation: Conversation? = null
+  @Volatile private var engine: Engine? = null
+  @Volatile private var conversationConfig: ConversationConfig? = null
+  @Volatile private var conversation: Conversation? = null
 
   override suspend fun load(config: ModelConfig) {
     unload()
@@ -39,12 +45,10 @@ class LiteRtLocalModel : LocalModel {
       )
       try {
         e.initialize()
-        conversation = e.createConversation(
-          ConversationConfig(
-            samplerConfig = SamplerConfig(config.topK, config.topP, config.temperature),
-            systemInstruction = null,
-            tools = emptyList(),
-          )
+        conversationConfig = ConversationConfig(
+          samplerConfig = SamplerConfig(config.topK, config.topP, config.temperature),
+          systemInstruction = null,
+          tools = emptyList(),
         )
         engine = e
       } catch (t: Throwable) {
@@ -54,32 +58,42 @@ class LiteRtLocalModel : LocalModel {
     }
   }
 
+  // Stateless contract: a fresh Conversation per call so history never carries over
+  // (Gallery LlmChatModelHelper.resetConversation: close old, createConversation).
   override fun generate(input: GenerateInput): Flow<String> = callbackFlow {
-    val conv = checkNotNull(conversation) { "model not loaded" }
-    var finished = false
+    val e = checkNotNull(engine) { "model not loaded" }
+    conversation?.let { runCatching { it.close() } }
+    val conv = e.createConversation(checkNotNull(conversationConfig))
+    conversation = conv
+    val finished = AtomicBoolean(false)
     conv.sendMessageAsync(
       Contents.of(listOf(Content.Text(input.prompt))),
       object : MessageCallback {
-        override fun onMessage(message: Message) { trySend(message.toString()) }
-        override fun onDone() { finished = true; close() }
+        override fun onMessage(message: Message) { trySend(message.toString()) } // never fails: unlimited buffer below
+        override fun onDone() { finished.set(true); close() }
         override fun onError(throwable: Throwable) {
-          finished = true
+          finished.set(true)
           if (throwable is CancellationException) close() else close(throwable)
         }
       },
       emptyMap(),
     )
-    awaitClose { if (!finished) cancel() }
-  }
+    awaitClose { if (!finished.get()) cancel() }
+  }.buffer(Channel.UNLIMITED).flowOn(Dispatchers.Default)
 
   override fun cancel() {
     try { conversation?.cancelProcess() } catch (_: IllegalStateException) { /* conversation already closed */ }
   }
 
-  override fun unload() {
-    runCatching { conversation?.close() }
-    runCatching { engine?.close() }
+  // Native close blocks, so it runs off the caller's thread and is not skipped when the caller is cancelled.
+  override suspend fun unload() = withContext(Dispatchers.Default + NonCancellable) {
+    val conv = conversation
+    val e = engine
     conversation = null
+    conversationConfig = null
     engine = null
+    runCatching { conv?.close() }
+    runCatching { e?.close() }
+    Unit
   }
 }
