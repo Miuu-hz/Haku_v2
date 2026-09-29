@@ -55,3 +55,11 @@ adb logcat -s HakuSpike:I
 - branch `wt/memory` (P1.3 ชั้นไฟล์ความจำ) และ `wt/fixes` (แก้ตาม code review 6 ข้อ รวมถึงการสนทนาถูกใช้ซ้ำใน spike ซึ่งทำให้ผลวัดเพี้ยน) — ยังไม่ได้รวมเข้า main **ควรรวม wt/fixes ก่อนทดสอบข้อ 1**
 - worktree อยู่ที่ `F:\Haku Project\haku-v2-wt-memory` และ `haku-v2-wt-fixes`
 - อัปเดต: `wt/memory` เสร็จแล้ว (commit 46109a4 เทสต์ 19/19) ข้อที่ต้องยืนยัน: ยังไม่ได้ทำการตรวจชนกันตอนเขียนไฟล์และการเข้ารหัส (ไว้ D11) · คำสั่งประจำตัวรับเฉพาะที่มาจากผู้ใช้ · 4 หมวดหลัก you/topics/areas/projects หนึ่งหมวดหนึ่งไฟล์ · ข้อความที่ผู้ใช้พิมพ์นอกบล็อกบันทึกในไฟล์จะหายเมื่อระบบเขียนไฟล์นั้นใหม่
+
+## 8. วัดชิ้น ข บน Z Fold5 (~5 นาที ทำต่อจากข้อ 1 ได้เลย)
+```bash
+./gradlew --no-daemon :androidApp:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bbpillow.haku.SearchIndexBenchmarkTest
+adb logcat -d -s HakuIndex
+```
+ผ่านเมื่อ p95 < 50 ms (บนเครื่องพัฒนาได้ 2.78 ms แต่ตัวเลขนี้ใช้แทนมือถือไม่ได้) ส่งผลใน logcat ให้ Claude
+- เรื่องที่ยังไม่ได้พิสูจน์: ICU ตัดคำข้อความบันทึกจริงถูกไหม ถ้าตัดคำค้นต่างจากตัวบันทึก ระบบจะถอยไปค้นแบบข้อความตรง ซึ่งเจอแต่ไม่มีการจัดอันดับ

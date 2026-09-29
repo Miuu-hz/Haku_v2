@@ -20,7 +20,7 @@ class NormalizerTest {
     val chars = word.toCharArray()
     val i = chars.indices.first { chars[it] in '\u0E48'..'\u0E4B' }
     chars[i] = chars[i - 1].also { chars[i - 1] = chars[i] }
-    return String(chars)
+    return chars.concatToString()
   }
 
   /** Each pair: (a differently-encoded text, the text it must equal after normalization). */
