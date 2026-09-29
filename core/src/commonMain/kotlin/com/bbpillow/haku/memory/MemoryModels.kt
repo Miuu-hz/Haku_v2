@@ -32,6 +32,24 @@ data class CoreFactInput(
 /** Standing instruction or pending intention. */
 data class NoteInput(val text: String, val provenance: Provenance, val atEpochMs: Long)
 
+/** The four memory files' levels (D4). Every record lives at exactly one. */
+enum class MemoryLevel { DAILY, CORE, STANDING, INTENTION }
+
+/**
+ * Address of one record: [group] is the UTC day for DAILY, the category slug for CORE, empty otherwise.
+ * Search hits carry this so any line shown to the model links back to its file record.
+ */
+data class MemoryRef(val level: MemoryLevel, val group: String, val id: String) {
+  /** Stable unique key used as the search-index id. */
+  val key: String get() = "${level.name}|$group|$id"
+}
+
+/** Where a record is promoted to. Long-term targets only accept provenance with canBePermanent (P1.7). */
+sealed interface PromotionTarget {
+  data class Core(val category: String) : PromotionTarget
+  data object Standing : PromotionTarget
+}
+
 /** What a context assembler sees for a category without reading the whole file. */
 data class CategorySummary(val slug: String, val description: String, val factCount: Int)
 
