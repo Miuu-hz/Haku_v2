@@ -110,3 +110,11 @@ Claude ตัดสินแทนแล้ว: สิทธิ์ทุกต�
 คำถามที่เหลือ:
 - ขั้นยืนยันสถานที่แรก (B7) ตอนติดตั้งใหม่มักไม่มีข้อมูลพอ — ให้โผล่บนหน้าแรกทีหลังเมื่อระบบเดาได้ไหม
 - ตั้งชื่ออื่นให้สถานที่ที่ระบบเดาว่าเป็นบ้าน/ที่ทำงาน ควรเก็บประเภทเดิมหรือเปลี่ยนเป็น "อื่น ๆ"
+
+## 15. สรุปเย็นด้วยโมเดล P2.7 (ทดสอบบน Fold5 หลังเก็บข้อมูลจริงได้หนึ่งวัน)
+```bash
+MSYS_NO_PATHCONV=1 adb shell am start -n com.bbpillow.haku/.SummarySpikeActivity --es day 2026-10-01 --es model /data/local/tmp/haku/gemma-4-E2B-it.litertlm --es backend gpu --es particle krap
+adb logcat -s HakuSummary
+```
+ดู SOURCE: `MODEL` = ใช้คำของโมเดล · `TEMPLATE` = โมเดลแต่งข้อมูลเกินจริง ระบบจึงใช้แม่แบบแทน (ดูเหตุผลใน rejectedReasons)
+ตรวจถ้อยคำคำสั่งที่ส่งให้โมเดลใน `core/.../thinking/summary/SummaryPromptBuilder.kt` · ตัวตรวจตั้งใจเข้มไว้ก่อน อาจปฏิเสธประโยคที่ถูกบ้าง — ดูอัตราปฏิเสธจากของจริงก่อนผ่อน
