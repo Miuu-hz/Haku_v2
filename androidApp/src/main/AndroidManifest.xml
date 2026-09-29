@@ -1,7 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+  <!-- P2.2 / P2.5 capture. Why each one is needed and its PDPA notice: docs/permissions.md -->
+  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+  <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+  <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+  <uses-permission android:name="android.permission.READ_CALENDAR" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
   <application
+    android:name=".HakuApplication"
     android:allowBackup="false"
     android:label="Haku"
     android:supportsRtl="true"
@@ -14,5 +23,19 @@
         <category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
     </activity>
+
+    <!-- Play services wake-ups (activity transitions + open-stay geofence), via our own PendingIntent only. -->
+    <receiver
+      android:name=".platform.capture.LocationWakeReceiver"
+      android:exported="false" />
+    <!-- Re-register after reboot / update; acts only if capture was started before. -->
+    <receiver
+      android:name=".platform.capture.BootReceiver"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+      </intent-filter>
+    </receiver>
   </application>
 </manifest>

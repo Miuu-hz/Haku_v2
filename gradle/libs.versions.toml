@@ -10,6 +10,7 @@ androidxTestRunner = "1.6.2"
 androidxTestExtJunit = "1.2.1"
 okio = "3.16.0"
 androidxSqlite = "2.6.1"
+playServicesLocation = "21.3.0"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -22,6 +23,7 @@ okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
 okio-fakefilesystem = { module = "com.squareup.okio:okio-fakefilesystem", version.ref = "okio" }
 androidx-sqlite = { module = "androidx.sqlite:sqlite", version.ref = "androidxSqlite" }
 androidx-sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "androidxSqlite" }
+play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
 
 [plugins]
