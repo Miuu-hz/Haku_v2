@@ -173,8 +173,8 @@ class OnboardingPresenter(
       return "${name}วันนี้มีสามนัด$tail นัดแรก 09:30"
     }
 
-    /** Safe defaults (P3.6): only what the diary cannot work without is pre-selected; the rest the user turns on. */
-    val DEFAULT_PERMISSIONS = setOf(PermissionKind.LOCATION, PermissionKind.ACTIVITY)
+    /** PDPA s.19: consent is never pre-ticked, every permission starts off and the user turns each one on. */
+    val DEFAULT_PERMISSIONS = emptySet<PermissionKind>()
 
     /** Wording follows docs/permissions.md (purpose and consequence, PDPA s.19/s.23). */
     val PERMISSIONS = listOf(
