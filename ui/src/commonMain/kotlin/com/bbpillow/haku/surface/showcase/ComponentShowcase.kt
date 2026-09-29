@@ -1,18 +1,13 @@
 package com.bbpillow.haku.surface.showcase
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -53,62 +48,11 @@ private val NavItems = listOf(
   NavItem(HakuIcons.Grid, "ความจำ"),
 )
 
-/** Screen 1 of haku-mockup.html (Home Brief, evening) followed by every kit component. Debug only. */
+/** Every kit component, for eyeballing against haku-mockup.html. Debug only. The Home Brief lives in surface/home. */
 @Composable
 fun ComponentShowcase(modifier: Modifier = Modifier) {
-  BoxWithConstraints(modifier.fillMaxSize()) {
-    val screenHeight = maxHeight
-    ScreenBackdrop(Modifier.fillMaxSize()) {
-      Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        HomeBriefScreen(Modifier.height(screenHeight))
-        KitGallery(Modifier.safeDrawingPadding().padding(horizontal = 20.dp, vertical = 24.dp))
-      }
-    }
-  }
-}
-
-@Composable
-private fun HomeBriefScreen(modifier: Modifier = Modifier) {
-  var tab by remember { mutableIntStateOf(0) }
-  Box(modifier.fillMaxWidth().safeDrawingPadding().padding(horizontal = 20.dp)) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      ScreenTitle("วันนี้เป็นยังไงบ้าง", eyebrow = "สวัสดีตอนเย็น มิ้นท์")
-      HighlightCard(Modifier.fillMaxWidth()) {
-        Text("เรื่องของวันนี้", style = MaterialTheme.typography.titleSmall)
-        Text(
-          "ออกจากบ้าน 08:12 แวะร้านกาแฟหน้าออฟฟิศ ประชุมทีมขายช่วงบ่าย แล้วปิดวันที่ฟิตเนสหนึ่งชั่วโมง",
-          style = MaterialTheme.typography.bodyMedium,
-          color = HakuColors.Muted,
-        )
-        Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-          StatChip("ตำแหน่ง 6")
-          StatChip("ปฏิทิน 2")
-          StatChip("บันทึก 1")
-        }
-      }
-      Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        SurfaceCard(Modifier.weight(1f).fillMaxHeight()) {
-          DonutChart(0.7f, Modifier.align(Alignment.CenterHorizontally))
-          Text("เวลานอกบ้าน 9 ชม.", style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted, modifier = Modifier.align(Alignment.CenterHorizontally))
-        }
-        PastelBoard(HakuColors.Butter, Modifier.weight(1f).fillMaxHeight()) {
-          IconTile(HakuIcons.Walk, HakuTone.Amber)
-          Spacer(Modifier.weight(1f))
-          Text("7,420", style = MaterialTheme.typography.titleLarge)
-          Text("ก้าว · เดิน 32 นาที", style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
-        }
-      }
-      PastelBoard(HakuColors.Lilac, Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-          IconTile(HakuIcons.Book, HakuTone.Violet)
-          Column {
-            Text("เรื่องน่ารู้วันนี้", style = MaterialTheme.typography.titleSmall)
-            Text("ทำไมเดินหลังอาหารช่วยเรื่องน้ำตาล", style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
-          }
-        }
-      }
-    }
-    FloatingNav(NavItems, tab, { tab = it }, Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp))
+  ScreenBackdrop(modifier.fillMaxSize()) {
+    KitGallery(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 24.dp))
   }
 }
 
