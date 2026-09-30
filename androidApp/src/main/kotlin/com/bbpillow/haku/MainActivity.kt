@@ -62,6 +62,7 @@ private fun AppRoot(graph: AppGraph, activity: FragmentActivity) {
       LaunchedEffect(Unit) {
         graph.downloader.resumeIfPartial(profile.model)
         NightlyWorker.schedule(activity) // onboarded from here on; KEEP = no-op after the first time
+        graph.billing.refresh() // P9.4 restore on start; offline = keep the saved plan within its 7-day grace
       }
       MainShell(graph, activity)
     }

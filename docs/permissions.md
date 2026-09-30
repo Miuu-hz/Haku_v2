@@ -32,6 +32,21 @@ Google Play ตรวจ `ACCESS_BACKGROUND_LOCATION` เข้มที่ส�
 > location fix per wake-up. Locations never leave the device, are not shared with third parties or used for ads, and the
 > user can view and delete any recorded place in the app. Capture only starts after an in-app disclosure and explicit opt-in.
 
+## การซื้อ Haku Plus (P9.4) · PDPA
+
+Billing Library เพิ่มสิทธิ์ `com.android.vending.BILLING` ให้เอง (manifest merge) เป็นสิทธิ์ปกติ ไม่มีหน้าต่างขอสิทธิ์
+
+| ข้อมูล | อยู่ที่ไหน | PDPA |
+|---|---|---|
+| การชำระเงิน บัตร บัญชี Google คำสั่งซื้อ | Google Play เท่านั้น (Google ดูแลข้อมูลการชำระเงินตามนโยบายของ Google) Haku ไม่เห็นและไม่เก็บ | Haku ไม่ได้เก็บ · หน้า Plus แจ้งว่าชำระผ่าน Google Play |
+| สถานะสิทธิ์ `filesDir/entitlement.txt`: แผน · รหัสสินค้า · เวลาที่ตรวจล่าสุด · SHA-256 ของ purchase token · รหัสติดตั้งสุ่ม · กลุ่มราคา A/B | ในเครื่องเท่านั้น (`allowBackup=false`) ไม่มีเซิร์ฟเวอร์ของ Haku | ฐาน ม.24(3) ปฏิบัติตามสัญญา · เก็บเท่าที่จำเป็น ม.22: ไม่เก็บ token ดิบ logcat มีแค่รหัสผลลัพธ์ · รหัสติดตั้งสุ่มไม่ผูกกับตัวตน ใช้แค่เลือกกลุ่มราคา |
+| ทดสอบราคา (กลุ่ม A/B) | กลุ่มคำนวณจากรหัสติดตั้งในเครื่อง ไม่ส่งออก · ผลวัด (อัตราซื้อต่อกลุ่ม) ดูจากรายงานของ Play Console ตาม base plan `price-a` / `price-b` | ไม่มี profiling ในแอป · ถ้าวันหนึ่งจะส่งผลทดลองออกจากเครื่อง ต้องขอความยินยอมแยก (ม.19) และนับใน egress |
+
+- ฝั่ง Haku ไม่ส่งข้อมูลออก: คำขอทั้งหมดไปที่แอป Play Store ในเครื่อง ซึ่งคุยกับ Google เอง ตัวนับ egress จึงไม่เพิ่ม
+- ไม่จ่ายหรือเลิกสมัคร = เหลือมุมมองแบบฟรี ความจำ ไดอารี และสถิติไม่ถูกล็อกหรือลบ (สัญญาที่หน้า Plus)
+- "ลืมทุกอย่าง" ไม่ลบไฟล์สิทธิ์ เพราะเป็นหลักฐานการซื้อ ไม่ใช่ความจำ (ถ้าหายก็กู้คืนจาก Play ได้เมื่อออนไลน์)
+- ไม่มีการตรวจฝั่งเซิร์ฟเวอร์ (ไม่มี backend): ข้อดีด้าน PDPA คือไม่มีข้อมูลการซื้อบนเซิร์ฟเวอร์ให้ต้องดูแล ข้อเสียคือเครื่องที่ root อาจปลอมสิทธิ์ได้ (ดู ponytail ใน `PlayBilling`)
+
 ## ทดสอบใน debug build (ก่อนมี onboarding)
 
 ```sh

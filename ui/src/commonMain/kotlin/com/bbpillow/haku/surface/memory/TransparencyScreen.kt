@@ -46,6 +46,8 @@ fun TransparencyScreen(
   onForgetEverything: () -> Unit = {},
   /** Ask the OS for a place to save the export (Android: ACTION_CREATE_DOCUMENT); the user picks it, so it is not egress. */
   onExport: () -> Unit = {},
+  /** P9.4: the Haku Plus screen. */
+  onOpenPlus: () -> Unit = {},
   modifier: Modifier = Modifier,
   contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
 ) {
@@ -84,6 +86,7 @@ fun TransparencyScreen(
     item { WhereDataLivesCard(Modifier.padding(top = 8.dp)) }
     item {
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        CapsuleButton("Haku Plus", onOpenPlus, outline = true)
         CapsuleButton("ส่งออกความจำทั้งหมดเป็นไฟล์", onExport, outline = true)
         CapsuleButton("ลืมทุกอย่าง", { typed = ""; forgettingAll = true })
       }

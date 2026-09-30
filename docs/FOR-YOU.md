@@ -197,3 +197,26 @@ adb logcat -s HakuSummary
 - ดูรายงาน: แท็บความจำ (Transparency) เลื่อนลงเห็นหัวข้อ "รายงานการย่อยความจำ" 7 คืนล่าสุด คืนล่าสุดอยู่บนสุด · ไฟล์ทะเบียนของ Dream (วัน `0000-00-00`) ไม่แสดงและไม่อยู่ในไฟล์ส่งออก แต่ "ลืมทุกอย่าง" ลบให้
 - แก้บั๊ก: ขั้นจัดของไม่ลบบรรทัดไดอารีอีกแล้ว (ลบเฉพาะข้อความที่ผู้ใช้พิมพ์ซ้ำทุกตัวอักษร สำเนาจากภายนอก และสิ่งที่ตั้งใจจะทำ) · "ลืมทุกอย่าง" ล้างชื่อเล่นด้วย (PDPA) คงสไตล์คำลงท้าย/โมเดล/ล็อก
 - คำถามตัดสินใจ: ยังไม่มีโมเดลช่วยเรียบเรียงข้อเท็จจริง (ใช้แม่แบบ) · ต้องการปุ่ม "ย่อยใหม่" ในหน้าความจำไหม
+
+## 23. Haku Plus บน Google Play (P9.4 · ต้องตั้งใน Play Console ก่อนซื้อได้)
+โค้ดพร้อมแล้ว (`platform/billing/PlayBilling` · `PlusProducts` · หน้า Haku Plus) แต่จนกว่าจะตั้งข้างล่าง หน้า Plus จะขึ้น "กำลังโหลดราคาจาก Google Play" และกดซื้อไม่ได้ แอปยังใช้ได้ปกติเป็นแผนฟรี
+
+ตั้ง Play Console (ครั้งเดียว):
+1. สร้างบัญชีนักพัฒนา + **payments profile / merchant account** (ต้องมีก่อนสร้างสินค้าแบบจ่ายเงิน) แล้ว Create app ชื่อ Haku, package `com.bbpillow.haku`
+2. ทำ upload key แล้วใส่ `signingConfig` ให้ release (ตอนนี้ `assembleRelease` ได้ไฟล์ที่ยังไม่เซ็น) → `./gradlew --no-daemon :androidApp:bundleRelease` → อัปโหลด AAB เข้า **Testing → Internal testing** (Play ต้องเห็น build ที่มีสิทธิ์ BILLING ก่อนถึงจะสร้าง subscription ได้) · เพิ่มอีเมลผู้ทดสอบในรายชื่อ internal testers แล้วเปิดลิงก์ opt-in บน Fold5 ด้วยบัญชีนั้น
+3. **Monetize → Subscriptions** สร้าง 2 ตัว รหัสต้องตรงเป๊ะ: `haku_plus_monthly` และ `haku_plus_yearly`
+   - ในแต่ละตัวสร้าง base plan 2 อันชื่อ `price-a` และ `price-b` (auto-renewing, รายเดือน P1M / รายปี P1Y) = การทดสอบราคาสองระดับ ตัวอย่างสมมติฐาน: A = ฿99/เดือน · ฿990/ปี, B = ฿79/เดือน · ฿790/ปี (ตัดสินเอง) แต่ละเครื่องได้กลุ่มเดียวตลอด (จากรหัสติดตั้งสุ่ม)
+   - ถ้าจะมี **ราคาผู้สนับสนุนรุ่นแรก**: เพิ่ม offer ใน base plan นั้น ใส่ tag `founder` (เช่นส่วนลดช่วงแรก หรือ developer-determined สำหรับกลุ่มแรก) แอปจะเลือก offer นี้ก่อนถ้าผู้ใช้มีสิทธิ์
+   - Activate ทั้ง base plan และ offer · ถ้ามีแค่ `price-a` แอปจะใช้อันที่มี ไม่ซ่อนสินค้า
+4. **Settings → License testing** ใส่อีเมล Google ที่ใช้บน Fold5 (License response: RESPOND_NORMALLY) → ซื้อจริงไม่ตัดเงิน และรอบต่ออายุเร็ว (รายเดือน = 5 นาที, รายปี = 30 นาที ต่ออายุได้ 6 รอบ)
+
+ทดสอบบน Fold5:
+- ติดตั้งจากลิงก์ internal testing (ชัวร์สุด) หรือ debug build ที่ package เดียวกันก็มักใช้ได้ ถ้าขึ้น "This version of the application is not configured for billing" ให้ลงจากลิงก์ internal testing แทน · ลงชื่อเข้า Play Store ด้วยบัญชี license tester
+- **ซื้อ**: หน้าแรก การ์ด "สรุปสัปดาห์นี้" กดชิป "เทียบกับสัปดาห์ก่อนใน Haku Plus" (หรือแท็บความจำ → ปุ่ม Haku Plus) → เห็นราคาจาก Play (ไม่ใช่ตัวเลขที่เขียนในแอป) → สมัคร → เลือกบัตรทดสอบ "Test card, always approves" → ข้อความ "ขอบคุณที่สนับสนุน Haku" · กลับหน้าแรก การ์ดสัปดาห์ต้องไม่มีชิปล็อกแล้ว (มีบรรทัดเทียบสัปดาห์ก่อนถ้าข้อมูลพอ)
+- ตรวจ acknowledge: รอเกิน 5 นาทีแล้วเช็ก Play Console → Order management ต้องไม่ถูกคืนเงินอัตโนมัติ (ถ้าไม่ acknowledge Play คืนเงินใน 3 วัน / เร็วกว่าในโหมดทดสอบ)
+- **กู้คืน**: ล้างข้อมูลแอป (Settings → Apps → Haku → Storage → Clear data) เปิดใหม่ผ่าน onboarding → เปิดหน้า Plus กด "กู้คืนการซื้อ" → "กู้คืน Haku Plus แล้ว" (ปกติแค่เปิดแอปก็กู้คืนเองแล้ว)
+- **ออฟไลน์ 7 วัน**: ซื้อแล้ว เปิด Airplane mode → ยังเป็น Plus · ทดสอบหมดเวลาไม่ต้องรอจริง: ใน airplane mode ตั้งเวลาเครื่องไปข้างหน้า 8 วัน (ปิด automatic date) แล้วเปิดแอป → การ์ดสัปดาห์กลับเป็นแบบฟรี ข้อมูลเดิมครบ → เปิดเน็ตและเวลาอัตโนมัติ เปิดแอปใหม่ → กลับเป็น Plus
+- **ยกเลิก**: Play Store → Payments & subscriptions → ยกเลิก → หลังหมดรอบ (5 นาทีในโหมดทดสอบ) เปิดแอปออนไลน์ → กลับเป็นฟรี ไดอารี/ความจำ/สถิติสัปดาห์นี้ยังอยู่ครบ
+- logcat: `adb logcat -s HakuBilling` เห็นแค่รหัสผลลัพธ์ (ไม่มี token) · ไฟล์ `files/entitlement.txt` เก็บ `token_sha256` ไม่ใช่ token ดิบ (ดูได้ด้วย `adb shell run-as com.bbpillow.haku cat files/entitlement.txt` ใน debug build)
+
+คำถามตัดสินใจ: ราคากลุ่ม B · ส่วนลดผู้สนับสนุนรุ่นแรกเท่าไรและนานเท่าไร · ยังไม่มีการตรวจฝั่งเซิร์ฟเวอร์ (เครื่อง root ปลอมสิทธิ์ได้ ดู `docs/permissions.md`) รับได้ในช่วงนี้ไหม · ระดับ Plus+Home Node และองค์กรยังไม่มีสินค้า (ทำเมื่อมีชั้น 7 / P9.5)

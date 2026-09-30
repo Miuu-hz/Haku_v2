@@ -1,6 +1,7 @@
 package com.bbpillow.haku
 
-import android.content.Context
+import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +32,7 @@ import com.bbpillow.haku.surface.home.HomeBriefScreen
 import com.bbpillow.haku.surface.home.HomeBriefUiState
 import com.bbpillow.haku.surface.memory.TransparencyScreen
 import com.bbpillow.haku.surface.memory.TransparencyUiState
+import com.bbpillow.haku.surface.plus.PlusScreen
 import com.bbpillow.haku.surface.timeline.TimelineScreen
 import com.bbpillow.haku.surface.timeline.TimelineUiState
 import kotlinx.coroutines.launch
@@ -45,25 +48,50 @@ private const val DAY_MS = 86_400_000L
 /** Room under the lists so the last row clears the floating nav. */
 private val TabPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 100.dp)
 
-/** Three tabs over one [FloatingNav]. Each tab loads from its presenter on the DB thread and holds only the returned state. */
+/**
+ * Three tabs over one [FloatingNav]. Each tab loads from its presenter on the DB thread and holds only the returned state.
+ * Haku Plus (P9.4) opens over the tabs from Home's weekly chip or the Memory tab; back closes it.
+ */
 @Composable
-fun MainShell(graph: AppGraph, context: Context) {
+fun MainShell(graph: AppGraph, activity: Activity) {
   var tab by rememberSaveable { mutableIntStateOf(0) }
   var day by rememberSaveable { mutableStateOf<String?>(null) }
+  var plusOpen by rememberSaveable { mutableStateOf(false) }
+  BackHandler(enabled = plusOpen) { plusOpen = false }
   Box(Modifier.fillMaxSize()) {
+    if (plusOpen) {
+      PlusTab(graph, activity) { plusOpen = false }
+      return@Box
+    }
     when (tab) {
-      0 -> HomeTab(graph, CaptureController.isEnabled(context)) { day = it; tab = 1 }
+      0 -> HomeTab(graph, CaptureController.isEnabled(activity), { day = it; tab = 1 }, { plusOpen = true })
       1 -> TimelineTab(graph, day) { day = it }
-      else -> MemoryTab(graph)
+      else -> MemoryTab(graph) { plusOpen = true }
     }
     FloatingNav(NavItems, tab, { tab = it }, Modifier.align(Alignment.BottomCenter).padding(horizontal = 20.dp, vertical = 12.dp))
   }
 }
 
 @Composable
-private fun HomeTab(graph: AppGraph, isCapturing: Boolean, onOpenDay: (String) -> Unit) {
+private fun PlusTab(graph: AppGraph, activity: Activity, onClose: () -> Unit) {
+  val state by graph.billing.ui.collectAsState()
+  val scope = rememberCoroutineScope()
+  LaunchedEffect(Unit) { graph.billing.refresh() } // fresh prices and status each time it opens
+  PlusScreen(
+    state,
+    onBuy = { graph.billing.buy(activity, it) },
+    onRestore = { scope.launch { graph.billing.restore() } },
+    onBack = onClose,
+    contentPadding = TabPadding,
+  )
+}
+
+@Composable
+private fun HomeTab(graph: AppGraph, isCapturing: Boolean, onOpenDay: (String) -> Unit, onOpenPlus: () -> Unit) {
   var state by remember { mutableStateOf<HomeBriefUiState?>(null) }
-  LaunchedEffect(Unit) {
+  // reload when the plan changes (file read at start, a purchase, a restore)
+  val entitlements by graph.billing.entitlements.collectAsState()
+  LaunchedEffect(entitlements.plan) {
     val now = System.currentTimeMillis()
     state = graph.safeIo {
       // the brief reads yesterday in the morning and today later on; write both before reading
@@ -81,6 +109,7 @@ private fun HomeTab(graph: AppGraph, isCapturing: Boolean, onOpenDay: (String) -
     onReadLearning = {},
     onDismissLearning = { state = s.copy(learning = null) },
     contentPadding = TabPadding,
+    onOpenPlus = onOpenPlus,
   )
 }
 
@@ -102,7 +131,7 @@ private fun TimelineTab(graph: AppGraph, selected: String?, onSelectDay: (String
 }
 
 @Composable
-private fun MemoryTab(graph: AppGraph) {
+private fun MemoryTab(graph: AppGraph, onOpenPlus: () -> Unit) {
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
   var state by remember { mutableStateOf<TransparencyUiState?>(null) }
@@ -121,6 +150,7 @@ private fun MemoryTab(graph: AppGraph) {
     onForgetCategory = { slug -> scope.launch { graph.safeIo { transparency.forgetCategory(slug) }?.let { state = it } } },
     onForgetEverything = { scope.launch { graph.safeIo { transparency.forgetEverything() }?.let { state = it } } },
     onExport = { picker.launch("haku-memory.md") },
+    onOpenPlus = onOpenPlus,
     contentPadding = TabPadding,
   )
 }

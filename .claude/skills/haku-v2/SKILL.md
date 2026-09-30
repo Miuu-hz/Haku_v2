@@ -58,6 +58,10 @@ description: >
 [8c สถิติ] capture/stats/StatsCalculator (ตัวเลขที่วัดได้เท่านั้น, null = ไม่แสดง) → StatsSummarizer + Entitlements (FREE=สัปดาห์นี้,
    PLUS=เดือน/ปี/เทียบ) → StatsTemplates ไทย → การ์ดหน้าแรก
 
+[8e Plus] androidApp/platform/billing/PlayBilling (Play Billing: restore ตอนเปิด · ซื้อ · acknowledge) → surface/plus/EntitlementRules
+   (PLUS ถ้าตรวจกับ Play ล่าสุด <7 วัน ไม่งั้น FREE ข้อมูลไม่แตะ) → EntitlementStore `filesDir/entitlement.txt` (token เก็บแค่ SHA-256)
+   → StateFlow<Entitlements> → AppGraph.entitlements (ด่านสถิติ) · ราคาจาก Play เท่านั้น · กลุ่มราคา A/B จากรหัสติดตั้ง
+
 [8d ลืม] Timeline ลบ/แก้ → tombstone + ทิ้งสรุปเย็นวันนั้น · Transparency: ลืมข้อ/หมวด/ทุกอย่าง (surface/memory/ForgetEverything:
    tombstone event ทุกตัวแล้วลบ, places, ledger, summaries, memory+index) · ส่งออก MemoryExport.markdown (ผู้ใช้กดเอง ไม่นับเป็นข้อมูลออก)
 
@@ -78,7 +82,7 @@ description: >
 - งานคู่ขนาน: git worktree ต่อ subagent ที่ path สั้น `F:\Haku Project\hk-wt-<ชื่อ>` (Windows path ยาวลบไม่ได้) → merge `--no-ff` → ลบ worktree
 
 ## ยังไม่มี / รอเครื่องจริง
-ผลวัดบน Z Fold5 (ชิ้น ก ข ง · จับข้อมูลหนึ่งวัน · เอเจนต์เรียกเครื่องมือ · สองบทสนทนาบน engine เดียว) · EmbeddingGemma (P1.5) · ชำระเงิน (P9.4) ·
+ผลวัดบน Z Fold5 (ชิ้น ก ข ง · จับข้อมูลหนึ่งวัน · เอเจนต์เรียกเครื่องมือ · สองบทสนทนาบน engine เดียว) · EmbeddingGemma (P1.5) · ชำระเงิน P9.4 กับ Play Console จริง ·
 เข้ารหัส DB/ไฟล์ (D11) · ชั้น 4–9 · ดูรายการเต็มใน `docs/CHECKLIST.md`
 
 ## วิธีดูแลไฟล์นี้
