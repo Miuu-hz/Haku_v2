@@ -52,6 +52,8 @@ fun HomeBriefScreen(
   onReadLearning: (LearningCard) -> Unit,
   onDismissLearning: (LearningCard) -> Unit,
   modifier: Modifier = Modifier,
+  /** The weekly card's Haku Plus chip (P9.4). */
+  onOpenPlus: () -> Unit = {},
   contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
 ) {
   LazyColumn(modifier.fillMaxWidth(), contentPadding = contentPadding, verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -62,7 +64,7 @@ fun HomeBriefScreen(
     item { ScreenTitle(state.headline, eyebrow = state.greeting) }
     item { StoryCard(state, onOpenDay) }
     state.stats?.let { stats -> item { StatsRow(stats) } }
-    state.weekly?.let { card -> item { WeeklyBoard(card) } }
+    state.weekly?.let { card -> item { WeeklyBoard(card, onOpenPlus) } }
     state.learning?.let { card -> item { LearningBoard(card, onReadLearning, onDismissLearning) } }
     item { CaptureStatus(isCapturing) }
   }
@@ -130,12 +132,14 @@ private fun StatsRow(stats: HomeStats) {
 
 /** A5: this week's measured lines; FREE sees a quiet note that the week-over-week comparison is Plus. */
 @Composable
-private fun WeeklyBoard(card: WeeklyCard) {
+private fun WeeklyBoard(card: WeeklyCard, onOpenPlus: () -> Unit) {
   SurfaceCard(Modifier.fillMaxWidth()) {
     Text("สรุปสัปดาห์นี้", style = MaterialTheme.typography.titleSmall)
     Spacer(Modifier.height(6.dp))
     card.lines.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted) }
-    if (card.comparisonLocked) StatChip("เทียบกับสัปดาห์ก่อนใน Haku Plus", Modifier.padding(top = 10.dp))
+    if (card.comparisonLocked) {
+      StatChip("เทียบกับสัปดาห์ก่อนใน Haku Plus", Modifier.padding(top = 10.dp).clip(HakuRadius.Pill).clickable(role = Role.Button, onClick = onOpenPlus))
+    }
   }
 }
 

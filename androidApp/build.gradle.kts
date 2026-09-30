@@ -40,6 +40,7 @@ dependencies {
   implementation(libs.androidx.biometric)
   implementation(libs.androidx.fragment)
   implementation(libs.androidx.work.runtime)
+  implementation(libs.play.billing.ktx)
   androidTestImplementation(libs.androidx.test.runner)
   androidTestImplementation(libs.androidx.test.ext.junit)
 }

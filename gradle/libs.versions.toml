@@ -15,6 +15,7 @@ biometric = "1.1.0"
 # biometric 1.1.0 pulls fragment 1.2.5, whose FragmentActivity rejects the Activity Result API request codes
 fragment = "1.7.1"
 work = "2.10.1"
+billing = "9.1.0"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -32,6 +33,7 @@ androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "b
 androidx-fragment = { module = "androidx.fragment:fragment", version.ref = "fragment" }
 androidx-work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
+play-billing-ktx = { module = "com.android.billingclient:billing-ktx", version.ref = "billing" }
 
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

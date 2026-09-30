@@ -22,12 +22,14 @@ import com.bbpillow.haku.memory.index.IndexedMemoryRepository
 import com.bbpillow.haku.memory.index.SearchIndexStore
 import com.bbpillow.haku.platform.IcuWordSegmenter
 import com.bbpillow.haku.platform.ModelDownloader
+import com.bbpillow.haku.platform.billing.PlayBilling
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.surface.home.HomeBriefPresenter
 import com.bbpillow.haku.surface.memory.ForgetEverything
 import com.bbpillow.haku.surface.memory.TransparencyPresenter
 import com.bbpillow.haku.surface.onboarding.OnboardingPresenter
 import com.bbpillow.haku.surface.onboarding.ProfileStore
+import com.bbpillow.haku.surface.plus.EntitlementStore
 import com.bbpillow.haku.surface.timeline.TimelinePresenter
 import com.bbpillow.haku.thinking.ModelBackend
 import com.bbpillow.haku.thinking.ModelConfig
@@ -52,8 +54,13 @@ class AppGraph(private val app: Application) {
   /** Outlives activities (fold/unfold, backgrounding) so the model download keeps going. */
   val scope = CoroutineScope(SupervisorJob())
 
-  // ponytail: every install is FREE until billing exists; P9.4 replaces this with the Play Billing entitlement.
-  val entitlements = object : Entitlements { override val plan = Plan.FREE }
+  /** P9.4 Haku Plus. Built on first use (not in worker processes that never ask); the file goes through the capture thread. */
+  val billing by lazy {
+    PlayBilling(app, EntitlementStore(FileSystem.SYSTEM, app.filesDir.resolve("entitlement.txt").path.toPath()), CaptureController.dispatcher, scope)
+  }
+
+  /** What the stats gate asks; follows [PlayBilling.entitlements], so a purchase or an expired grace shows on the next load. */
+  val entitlements = object : Entitlements { override val plan: Plan get() = billing.entitlements.value.plan }
 
   val downloader by lazy { ModelDownloader(requireNotNull(app.getExternalFilesDir("models")) { "no app-specific storage" }, scope) }
 
