@@ -33,9 +33,11 @@ import com.google.android.gms.tasks.Tasks
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.asCoroutineDispatcher
 
 /**
- * App-level switch for P2.2/P2.5 capture. Nothing runs until [start] is called explicitly (onboarding later; for now the
+ * App-level switch for P2.2/P2.5 capture. Nothing runs until [start] is called explicitly (end of onboarding, or the
  * debug receiver, see docs/permissions.md). No GPS stream: Activity Recognition transitions and one geofence around the
  * open stay wake the app, and each wake-up takes at most one balanced-power fix.
  */
@@ -51,6 +53,9 @@ object CaptureController {
 
   /** Every DB touch runs here, one at a time (the store is not thread-safe). Receivers hand work over with [runAsync]. */
   private val io = Executors.newSingleThreadExecutor()
+
+  /** The same single thread as a coroutine dispatcher: the app shell's stores share [connection] and must queue here too. */
+  val dispatcher: CoroutineDispatcher = io.asCoroutineDispatcher()
   private var connection: SQLiteConnection? = null
   private var recorder: CaptureRecorder? = null
 

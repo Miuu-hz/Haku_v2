@@ -34,6 +34,8 @@ dependencies {
   implementation(libs.androidx.sqlite.bundled)
   implementation(libs.play.services.location)
   implementation(libs.okio)
+  implementation(libs.androidx.biometric)
+  implementation(libs.androidx.fragment)
   androidTestImplementation(libs.androidx.test.runner)
   androidTestImplementation(libs.androidx.test.ext.junit)
 }

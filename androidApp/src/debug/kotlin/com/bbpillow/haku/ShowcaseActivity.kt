@@ -56,7 +56,7 @@ import com.bbpillow.haku.surface.timeline.TimelineUiState
  * Tabs at the top: kit, timeline, memory, home, onboarding. Open straight on a tab with `--ei tab N` (1 timeline,
  * 2 memory, 3 home, 4 onboarding).
  */
-// ponytail: fake in-memory state only; MainActivity is wired to TimelinePresenter/TransparencyPresenter when navigation lands.
+// ponytail: fake in-memory state only; the real screens over real data are in MainActivity (MainShell / OnboardingHost).
 class ShowcaseActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
