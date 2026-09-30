@@ -41,6 +41,7 @@ class DiaryComposer(
       val known = ledger.find(line.id)
       when {
         known?.deleted == true -> suppressed++
+        known == null && ledger.isSuppressed(line.typeKey) -> suppressed++ // 3 strikes (P3.2): no tombstone, so un-suppress brings the type back
         known != null -> existing++
         write(line) -> written += line
         else -> existing++
@@ -59,17 +60,36 @@ class DiaryComposer(
   }
 
   /** User deleted a line: remove it from the daily log and remember it so it is never regenerated. */
-  fun deleteLine(lineId: String): Boolean {
+  fun deleteLine(lineId: String, countsAsStrike: Boolean = true): Boolean {
     val entry = ledger.find(lineId)
     if (entry?.deleted == true) return false
     if (entry != null) memory.deleteDaily(entry.memoryDay, entry.memoryRecordId)
-    ledger.markDeleted(lineId)
+    ledger.markDeleted(lineId, countsAsStrike)
     return entry != null
   }
 
   /** Same, from the daily-log record the timeline shows. False when the record is not a diary line. */
-  fun deleteRecord(memoryDay: String, recordId: String): Boolean =
-    ledger.findByRecord(memoryDay, recordId)?.let { deleteLine(it.lineId) } ?: false
+  fun deleteRecord(memoryDay: String, recordId: String, countsAsStrike: Boolean = true): Boolean =
+    ledger.findByRecord(memoryDay, recordId)?.let { deleteLine(it.lineId, countsAsStrike) } ?: false
+
+  /** The ledger line id behind a daily-log record; null when the record is not a live diary line. */
+  fun lineIdOf(memoryDay: String, recordId: String): String? =
+    ledger.findByRecord(memoryDay, recordId)?.takeIf { !it.deleted }?.lineId
+
+  /**
+   * Undo [deleteLine] within the session (the caller still has the record's time and text): re-appends the record,
+   * clears the tombstone, returns the strike. False when the line was not deleted.
+   */
+  fun undoDelete(lineId: String, atEpochMs: Long, text: String, provenance: Provenance): Boolean {
+    if (ledger.find(lineId)?.deleted != true) return false
+    val record = memory.appendDaily(DailyEventInput(text, provenance, atEpochMs))
+    return ledger.restore(lineId, MemoryFormat.dayOf(atEpochMs), record.id)
+  }
+
+  /** Settings: line types the diary has stopped writing, and the way back. */
+  fun suppressedTypes(): List<SuppressedLineType> = ledger.suppressedTypes()
+
+  fun unsuppress(typeKey: String) = ledger.unsuppress(typeKey)
 
   /** True when newly appended; false when an identical record was already there (ledger write lost in a crash). */
   private fun write(line: DiaryLineRecord): Boolean {
@@ -78,7 +98,7 @@ class DiaryComposer(
       it.atEpochMs == line.timeUtcMs && it.text == line.text && it.provenance == Provenance.INFERRED_FROM_USER_DATA
     }
     val record = twin ?: memory.appendDaily(DailyEventInput(line.text, line.provenance, line.timeUtcMs))
-    ledger.recordWritten(line.id, memoryDay, record.id)
+    ledger.recordWritten(line.id, memoryDay, record.id, line.typeKey)
     return twin == null
   }
 

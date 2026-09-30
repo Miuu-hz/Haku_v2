@@ -22,6 +22,7 @@ object DiaryRenderer {
         timeUtcMs = e.timeUtcMs,
         text = "${hhmm(e.timeUtcMs)} $body${style.particle.text}",
         sourceEventIds = e.sourceEventIds,
+        typeKey = e.typeKey,
       )
     }
     return DiaryDayOutput(day, ThaiDateFormat.dayHeader(day), lines)

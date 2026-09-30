@@ -51,9 +51,28 @@ class TimelinePresenter(
     },
   )
 
-  /** Remove the line; a generated diary line is also remembered so it is never written again (asset C3). */
+  // ponytail: last delete only, per presenter instance; a multi-level undo stack when the UI needs one
+  private var lastDeleted: Pair<TimelineLine, String?>? = null
+
+  /**
+   * Remove the line; a generated diary line is also remembered so it is never written again (asset C3), and counts
+   * one strike toward stopping that line type (3 strikes, P3.2). [undoDelete] takes it back.
+   */
   fun delete(state: TimelineUiState, line: TimelineLine): TimelineUiState {
+    val lineId = diary.lineIdOf(line.memoryDay, line.recordId)
     remove(line)
+    lastDeleted = line to lineId
+    return load(state.day, state.today)
+  }
+
+  /** Bring back the most recent [delete] (snackbar undo): same text and time, strike returned. No-op when nothing to undo. */
+  fun undoDelete(state: TimelineUiState): TimelineUiState {
+    val (line, lineId) = lastDeleted ?: return state
+    lastDeleted = null
+    val text = "${line.time} ${line.text}"
+    if (lineId == null || !diary.undoDelete(lineId, line.atEpochMs, text, line.provenance)) {
+      memory.appendDaily(DailyEventInput(text, line.provenance, line.atEpochMs))
+    }
     return load(state.day, state.today)
   }
 
@@ -66,12 +85,12 @@ class TimelinePresenter(
     if (text.isEmpty() || text == line.text) return state
     // append before removing, so a crash in between duplicates a line instead of losing the user's text
     memory.appendDaily(DailyEventInput("${line.time} $text", Provenance.USER_TYPED, line.atEpochMs))
-    remove(line)
+    remove(line, countsAsStrike = false) // replaced by the user's own words, not rejected
     return load(state.day, state.today)
   }
 
-  private fun remove(line: TimelineLine) {
-    if (!diary.deleteRecord(line.memoryDay, line.recordId)) memory.deleteDaily(line.memoryDay, line.recordId)
+  private fun remove(line: TimelineLine, countsAsStrike: Boolean = true) {
+    if (!diary.deleteRecord(line.memoryDay, line.recordId, countsAsStrike)) memory.deleteDaily(line.memoryDay, line.recordId)
   }
 
   private fun plusDays(day: String, n: Int): String =
