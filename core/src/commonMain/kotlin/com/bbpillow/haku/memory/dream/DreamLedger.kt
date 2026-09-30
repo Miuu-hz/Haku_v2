@@ -1,5 +1,6 @@
 package com.bbpillow.haku.memory.dream
 
+import com.bbpillow.haku.memory.DREAM_LEDGER_DAY
 import com.bbpillow.haku.memory.MemoryRepository
 
 /**
@@ -53,6 +54,6 @@ internal class DreamLedger(private val memory: MemoryRepository) {
   }
 
   companion object {
-    const val LEDGER_DAY = "0000-00-00"
+    const val LEDGER_DAY = DREAM_LEDGER_DAY
   }
 }

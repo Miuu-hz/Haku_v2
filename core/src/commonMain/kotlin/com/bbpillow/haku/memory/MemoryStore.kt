@@ -110,9 +110,10 @@ class MemoryStore(
     return if (fs.exists(path)) fs.read(path) { readUtf8() } else null
   }
 
+  /** The reserved [DREAM_LEDGER_DAY] file is Dream's own bookkeeping, never a report: it is not listed. */
   override fun listDreamDays(): List<String> =
     if (fs.exists(root / "dreams")) fs.list(root / "dreams").map { it.name }.filter { it.endsWith(".md") }
-      .map { it.removeSuffix(".md") }.filter(dayRule::matches).sorted() else emptyList()
+      .map { it.removeSuffix(".md") }.filter { dayRule.matches(it) && it != DREAM_LEDGER_DAY }.sorted() else emptyList()
 
   override fun deleteAll() {
     listOf("daily", "core", "dreams").forEach { fs.deleteRecursively(root / it, mustExist = false) }

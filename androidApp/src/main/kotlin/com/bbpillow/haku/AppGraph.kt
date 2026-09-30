@@ -17,6 +17,7 @@ import com.bbpillow.haku.capture.stats.StatsSummarizer
 import com.bbpillow.haku.language.TextPipeline
 import com.bbpillow.haku.memory.MemoryFormat
 import com.bbpillow.haku.memory.MemoryStore
+import com.bbpillow.haku.memory.dream.DreamEngine
 import com.bbpillow.haku.memory.index.IndexedMemoryRepository
 import com.bbpillow.haku.memory.index.SearchIndexStore
 import com.bbpillow.haku.platform.IcuWordSegmenter
@@ -72,7 +73,7 @@ class AppGraph(private val app: Application) {
     val summaries = EveningSummaryStore(FileSystem.SYSTEM, app.filesDir.resolve("summaries").path.toPath())
     val home = HomeBriefPresenter(diary, events, places, tz, summaries, StatsSummarizer(entitlements))
     val timeline = TimelinePresenter(diary, memory, summaries, tz)
-    val transparency = TransparencyPresenter(memory, ForgetEverything(events, places, ledger, summaries, memory), tz)
+    val transparency = TransparencyPresenter(memory, ForgetEverything(events, places, ledger, summaries, memory, profile), tz)
     val onboarding = OnboardingPresenter(profile, places)
 
     /**
@@ -82,6 +83,12 @@ class AppGraph(private val app: Application) {
     fun compose(day: String) {
       diary.compose(DiaryComposeInput(day, tz, profile.load().style))
     }
+
+    /**
+     * A fresh engine per run on purpose: it caches Dream's ledger at construction, and forget-everything must not be
+     * undone by a stale copy written back. ponytail: template wording only; pass a FactPhraser over the model later.
+     */
+    fun dreamEngine() = DreamEngine(memory, TextPipeline(IcuWordSegmenter()))
 
     /** B7: recognize the last two weeks of stays, keep the places, and return one unconfirmed home/work guess. */
     fun firstPlaceGuess(nowUtcMs: Long): PlaceGuessOutput? {

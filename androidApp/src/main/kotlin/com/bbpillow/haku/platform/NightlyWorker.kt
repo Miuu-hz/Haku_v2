@@ -11,10 +11,13 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.bbpillow.haku.BuildConfig
+import com.bbpillow.haku.AppGraph
 import com.bbpillow.haku.HakuApplication
 import com.bbpillow.haku.capture.diary.DiaryStyle
+import com.bbpillow.haku.memory.dream.DreamInput
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.thinking.LocalModelClient
+import com.bbpillow.haku.thinking.ModelConfig
 import com.bbpillow.haku.thinking.summary.EveningSummarizer
 import com.bbpillow.haku.thinking.summary.EveningSummaryInput
 import com.bbpillow.haku.thinking.summary.NightlyPlan
@@ -25,11 +28,11 @@ import kotlinx.coroutines.withContext
 
 /**
  * P2.7 "runs while charging, screen off": composes the rule-based diary for yesterday and today, then the evening
- * summary with the downloaded model for the days [NightlyPlan] picks. Idempotent (diary ledger, summary stored once).
+ * summary with the downloaded model for the days [NightlyPlan] picks, then Dream (no model) for local yesterday. Idempotent (diary ledger, summary stored once).
  * The model is loaded only when a day needs it and released at the end, so the shared engine never outlives the job.
  */
 class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-  private class Facts(val style: DiaryStyle, val lines: Map<String, List<String>>, val stored: Set<String>)
+  private class Facts(val style: DiaryStyle, val lines: Map<String, List<String>>, val stored: Set<String>, val dreamed: Set<String>)
 
   override suspend fun doWork(): Result {
     val graph = (applicationContext as HakuApplication).graph
@@ -40,20 +43,24 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
       val profile = profile.load()
       if (!NightlyPlan.shouldCompose(profile.onboarded)) return@io null
       days.forEach { compose(it) }
-      Facts(profile.style, days.associateWith { d -> diary.readDay(d, tz).map { it.text } }, days.filter { summaries.find(it) != null }.toSet())
+      Facts(profile.style, days.associateWith { d -> diary.readDay(d, tz).map { it.text } }, days.filter { summaries.find(it) != null }.toSet(), memory.listDreamDays().toSet())
     } ?: return Result.success().also { log("not onboarded, skipped") }
 
     val config = graph.modelConfig()
-    val plan = NightlyPlan.plan(NightlyPlanInput(true, config != null, now, tz, facts.lines.mapValues { it.value.size }, facts.stored))
+    val plan = NightlyPlan.plan(NightlyPlanInput(true, config != null, now, tz, facts.lines.mapValues { it.value.size }, facts.stored, facts.dreamed))
     log("diary composed for $days; model=${config != null} summarize=${plan.summarizeDays}")
-    if (config == null || plan.summarizeDays.isEmpty()) return Result.success()
+    if (config != null && plan.summarizeDays.isNotEmpty()) summarize(graph, config, plan.summarizeDays, facts)
+    dream(graph, plan.dreamDay)
+    return Result.success()
+  }
 
+  private suspend fun summarize(graph: AppGraph, config: ModelConfig, summarizeDays: List<String>, facts: Facts) {
     val model = LiteRtLocalModel()
     try {
       val client = LocalModelClient(model)
       client.load(config)
       val summarizer = EveningSummarizer(client, graph.io { summaries })
-      for (day in plan.summarizeDays) {
+      for (day in summarizeDays) {
         // store reads/writes on the DB thread; the model itself runs on Default and only suspends this one
         val out = withContext(CaptureController.dispatcher) {
           summarizer.summarize(EveningSummaryInput(day, facts.lines.getValue(day), facts.style))
@@ -68,7 +75,22 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     } finally {
       model.unload()
     }
-    return Result.success()
+  }
+
+  /**
+   * P1.8 after diary and summary: memory consolidation for [day] (local yesterday, used as the Dream day, see
+   * NightlyPlan.plan). Idempotent (engine returns the stored report). Never fails the job: the diary is already safe.
+   */
+  private suspend fun dream(graph: AppGraph, day: String?) {
+    if (day == null) return
+    try {
+      val out = withContext(CaptureController.dispatcher) { graph.onCaptureThread().dreamEngine().dream(DreamInput(day)) }
+      log("dream $day alreadyRan=${out.alreadyRan} tidied=${out.tidied.size} promoted=${out.promoted.size} held=${out.heldBack.size}")
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Log.e(TAG, "nightly dream failed: ${e::class.simpleName}")
+    }
   }
 
   private fun log(msg: String) {

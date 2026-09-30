@@ -13,10 +13,15 @@ data class NightlyPlanInput(
   val tzOffsetMinutes: Int,
   val lineCounts: Map<String, Int>,
   val storedSummaryDays: Set<String>,
+  /** Days that already have a Dream report (MemoryRepository.listDreamDays; the ledger day is never in it). */
+  val dreamedDays: Set<String> = emptySet(),
 )
 
-/** [summarizeDays] empty = do not load the model at all. */
-data class NightlyPlanOutput(val summarizeDays: List<String>)
+/**
+ * [summarizeDays] empty = do not load the model at all. [dreamDay] = the night Dream should run for (null = skip);
+ * it is the local yesterday date used as-is as the Dream day (see [NightlyPlan.plan]).
+ */
+data class NightlyPlanOutput(val summarizeDays: List<String>, val dreamDay: String? = null)
 
 /**
  * P2.7 nightly rules, pure. The job composes the diary for [candidateDays] only when onboarded ([shouldCompose]),
@@ -39,12 +44,21 @@ object NightlyPlan {
 
   fun shouldCompose(onboarded: Boolean): Boolean = onboarded
 
+  /**
+   * Dream (P1.8) needs no model (template wording), so it is planned independently of [NightlyPlanInput.modelReady].
+   * D17: Dream's day is the user's local yesterday date taken as-is. Dream reads daily files (UTC days) up to and
+   * including that name, which covers all of local yesterday east of UTC (Bangkok: local 00:00-07:00 sits in the
+   * previous UTC file, 07:00-24:00 in the same one) and the report is named by the date the user lived. Once per
+   * night: skipped when that day already has a report (DreamEngine is idempotent too; this avoids even building it).
+   */
   fun plan(input: NightlyPlanInput): NightlyPlanOutput {
-    if (!input.onboarded || !input.modelReady) return NightlyPlanOutput(emptyList())
+    if (!input.onboarded) return NightlyPlanOutput(emptyList())
     val (yesterday, today) = candidateDays(input.nowUtcMs, input.tzOffsetMinutes)
+    val dreamDay = yesterday.takeIf { it !in input.dreamedDays }
+    if (!input.modelReady) return NightlyPlanOutput(emptyList(), dreamDay)
     val localHour = ((input.nowUtcMs + input.tzOffsetMinutes * MIN_MS).mod(DAY_MS) / HOUR_MS).toInt()
     val days = listOfNotNull(yesterday, today.takeIf { localHour >= TODAY_FROM_HOUR })
       .filter { (input.lineCounts[it] ?: 0) > 0 && it !in input.storedSummaryDays }
-    return NightlyPlanOutput(days)
+    return NightlyPlanOutput(days, dreamDay)
   }
 }
