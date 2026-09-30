@@ -22,7 +22,7 @@
 
 package com.bbpillow.haku.platform.agent
 
-import com.bbpillow.haku.platform.openEngine
+import com.bbpillow.haku.platform.SharedEngines
 import com.bbpillow.haku.platform.samplerConfig
 import com.bbpillow.haku.thinking.AgentConfig
 import com.bbpillow.haku.thinking.AgentEvent
@@ -46,6 +46,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -63,18 +65,20 @@ class LiteRtAgentSession(private val tools: List<ToolDefinition>) : AgentSession
   @Volatile private var sink: ((AgentEvent) -> Unit)? = null
 
   private val toolContext = ToolExecutionContext { call -> sink?.invoke(AgentEvent.ToolCalled(call)) }
+  /** start/close one at a time, so a racing second start cannot drop the first engine reference. */
+  private val starting = Mutex()
 
-  override suspend fun start(config: AgentConfig) {
-    close()
+  override suspend fun start(config: AgentConfig) = starting.withLock {
+    release()
     tools.forEach { it.onAttach(toolContext) } // Gallery RuntimeToolDispatcher.setupExecutionContext
-    val e = openEngine(config.model)
+    val e = SharedEngines.acquire(config.model)
+    engine = e
     try {
       conversation = withContext(Dispatchers.Default) { e.createConversation(conversationConfig(config)) }
     } catch (t: Throwable) {
-      runCatching { e.close() }
+      release() // give the engine reference back
       throw t
     }
-    engine = e
     this.config = config
   }
 
@@ -117,14 +121,16 @@ class LiteRtAgentSession(private val tools: List<ToolDefinition>) : AgentSession
     try { conversation?.cancelProcess() } catch (_: IllegalStateException) { /* conversation already closed */ }
   }
 
-  override suspend fun close() = withContext(Dispatchers.Default + NonCancellable) {
+  override suspend fun close() = withContext(NonCancellable) { starting.withLock { release() } }
+
+  private suspend fun release() = withContext(Dispatchers.Default + NonCancellable) {
     val conv = conversation
     val e = engine
     conversation = null
     engine = null
     config = null
     runCatching { conv?.close() }
-    runCatching { e?.close() }
+    e?.let { SharedEngines.release(it) }
     Unit
   }
 

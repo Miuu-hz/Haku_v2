@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 // Modelled on Google AI Edge Gallery LlmChatModelHelper (Apache 2.0): Engine -> Conversation -> sendMessageAsync.
@@ -31,10 +33,12 @@ class LiteRtLocalModel : LocalModel {
   @Volatile private var engine: Engine? = null
   @Volatile private var conversationConfig: ConversationConfig? = null
   @Volatile private var conversation: Conversation? = null
+  /** load/unload one at a time, so a racing second load cannot drop the first engine reference. */
+  private val loading = Mutex()
 
-  override suspend fun load(config: ModelConfig) {
-    unload()
-    engine = openEngine(config)
+  override suspend fun load(config: ModelConfig) = loading.withLock {
+    release()
+    engine = SharedEngines.acquire(config)
     conversationConfig = ConversationConfig(samplerConfig = samplerConfig(config), systemInstruction = null, tools = emptyList())
   }
 
@@ -65,21 +69,55 @@ class LiteRtLocalModel : LocalModel {
     try { conversation?.cancelProcess() } catch (_: IllegalStateException) { /* conversation already closed */ }
   }
 
+  override suspend fun unload() = withContext(NonCancellable) { loading.withLock { release() } }
+
   // Native close blocks, so it runs off the caller's thread and is not skipped when the caller is cancelled.
-  override suspend fun unload() = withContext(Dispatchers.Default + NonCancellable) {
+  private suspend fun release() = withContext(Dispatchers.Default + NonCancellable) {
     val conv = conversation
     val e = engine
     conversation = null
     conversationConfig = null
     engine = null
     runCatching { conv?.close() }
-    runCatching { e?.close() }
+    e?.let { SharedEngines.release(it) }
     Unit
   }
 }
 
-/** Creates and initializes an [Engine] off the caller's thread; shared with the agent session. */
-internal suspend fun openEngine(config: ModelConfig): Engine = withContext(Dispatchers.Default) {
+/**
+ * One [Engine] per model file + backend + token limit for the whole process, shared by [LiteRtLocalModel] and the agent
+ * session (a multi-GB model loaded twice would not fit). Ref-counted: closed when the last user releases it.
+ * Opening happens under the lock, so concurrent first loads wait for one engine instead of each opening their own.
+ */
+internal object SharedEngines {
+  private data class Key(val path: String, val backend: ModelBackend, val maxTokens: Int)
+  private class Entry(val key: Key, val engine: Engine, var refs: Int)
+
+  private val lock = Mutex()
+  private val open = mutableListOf<Entry>()
+
+  suspend fun acquire(config: ModelConfig): Engine = lock.withLock {
+    val key = Key(config.modelPath, config.backend, config.maxTokens)
+    open.firstOrNull { it.key == key }?.let { it.refs++; return@withLock it.engine }
+    // NonCancellable: a cancelled caller must not drop an engine that finished initializing
+    val e = withContext(NonCancellable) { openEngine(config) }
+    open += Entry(key, e, 1)
+    e
+  }
+
+  suspend fun release(engine: Engine) = withContext(Dispatchers.Default + NonCancellable) {
+    lock.withLock {
+      val entry = open.firstOrNull { it.engine === engine } ?: return@withLock
+      if (--entry.refs > 0) return@withLock
+      open -= entry
+      runCatching { engine.close() }
+    }
+    Unit
+  }
+}
+
+/** Creates and initializes an [Engine] off the caller's thread. Use [SharedEngines], not this, to get one. */
+private suspend fun openEngine(config: ModelConfig): Engine = withContext(Dispatchers.Default) {
   val e = Engine(
     EngineConfig(
       modelPath = config.modelPath,
