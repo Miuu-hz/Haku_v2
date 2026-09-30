@@ -88,4 +88,21 @@ class CaptureRecorderTest {
     assertEquals(CaptureSource.CalendarEntry("ประชุมทีม"), stored.first().source)
     assertEquals(t0 + hour, stored.first().endUtcMs)
   }
+
+  @Test fun rescheduledRetitledAndCancelledEventsReplaceTheStoredRows() {
+    val from = t0 - hour
+    val to = t0 + 48 * hour
+    recorder.recordCalendar(listOf(CalendarRowInput(1, t0, t0 + hour, "หมอฟัน"), CalendarRowInput(2, t0, t0 + hour, "ประชุม")), from, to)
+    // 1 moved two hours later, 2 cancelled, 3 new
+    recorder.recordCalendar(listOf(CalendarRowInput(1, t0 + 2 * hour, t0 + 3 * hour, "หมอฟัน"), CalendarRowInput(3, t0, t0 + hour, "กาแฟ")), from, to)
+    assertEquals(listOf("calendar-3-$t0", "calendar-1-${t0 + 2 * hour}"), all().map { it.id })
+    // title edit on the same instance replaces the text
+    assertEquals(1, recorder.recordCalendar(listOf(CalendarRowInput(3, t0, t0 + hour, "กาแฟกับแม่")), from, to))
+    assertEquals(listOf(CaptureSource.CalendarEntry("กาแฟกับแม่")), all().filter { it.id == "calendar-3-$t0" }.map { it.source })
+    // unchanged re-read: nothing new, and a user-deleted row stays deleted
+    assertEquals(0, recorder.recordCalendar(listOf(CalendarRowInput(3, t0, t0 + hour, "กาแฟกับแม่")), from, to))
+    store.delete("calendar-3-$t0")
+    assertEquals(0, recorder.recordCalendar(listOf(CalendarRowInput(3, t0, t0 + hour, "กาแฟกับแม่")), from, to))
+    assertTrue(all().none { it.id == "calendar-3-$t0" })
+  }
 }

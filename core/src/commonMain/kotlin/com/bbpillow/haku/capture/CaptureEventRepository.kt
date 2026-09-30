@@ -15,6 +15,12 @@ interface CaptureEventRepository {
   /** User-initiated delete; remembers the id so it is never written back. */
   fun delete(id: String): Boolean
 
+  /**
+   * Calendar re-read: replaces every calendar row whose time is in [[fromUtcMs], [toUtcMs]) with [events], so edits,
+   * reschedules and cancellations land. User-deleted ids stay deleted. Returns how many stored rows are new or changed.
+   */
+  fun replaceCalendar(fromUtcMs: Long, toUtcMs: Long, events: List<CaptureEvent>): Int
+
   /** Age-based retention. Not a user deletion, so nothing is remembered. Returns rows removed. */
   fun purgeBefore(cutoffUtcMs: Long): Int
 }

@@ -29,6 +29,10 @@ internal class FakeEvents(events: List<CaptureEvent>) : CaptureEventRepository {
     all.filter { it.timeUtcMs >= input.fromUtcMs && it.timeUtcMs < input.toUtcMs }.sortedWith(compareBy({ it.timeUtcMs }, { it.id }))
   override fun count() = all.size
   override fun delete(id: String) = all.removeAll { it.id == id }
+  override fun replaceCalendar(fromUtcMs: Long, toUtcMs: Long, events: List<CaptureEvent>): Int {
+    all.removeAll { it.source is CaptureSource.CalendarEntry && it.timeUtcMs >= fromUtcMs && it.timeUtcMs < toUtcMs }
+    return events.count(::append)
+  }
   override fun purgeBefore(cutoffUtcMs: Long) = 0
 }
 

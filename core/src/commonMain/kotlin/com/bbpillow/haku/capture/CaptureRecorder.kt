@@ -47,12 +47,20 @@ class CaptureRecorder(private val events: CaptureEventRepository) {
     return recordSignal(kind, timeUtcMs, confidence)
   }
 
-  /** Stores appointments; returns how many were new. All-day, cancelled, declined and untitled entries are skipped. */
-  fun recordCalendar(rows: List<CalendarRowInput>): Int = events.appendAll(
-    rows.filter { !it.allDay && !it.canceled && !it.declined && !it.title.isNullOrBlank() }.map {
+  /**
+   * Stores appointments and returns how many are new or changed. All-day, cancelled, declined and untitled entries are
+   * skipped. Rows stored inside the read window [[windowFromUtcMs], [windowToUtcMs]) are replaced, so a reschedule,
+   * a retitle or a cancellation in the calendar shows up here; pass the window the platform queried.
+   * ponytail: without a window only the span of the given rows is replaced, so a moved event is not caught then.
+   */
+  fun recordCalendar(rows: List<CalendarRowInput>, windowFromUtcMs: Long? = null, windowToUtcMs: Long? = null): Int {
+    val from = windowFromUtcMs ?: rows.minOfOrNull { it.beginUtcMs } ?: return 0
+    val to = windowToUtcMs ?: (rows.maxOf { it.beginUtcMs } + 1)
+    val real = rows.filter { !it.allDay && !it.canceled && !it.declined && !it.title.isNullOrBlank() }.map {
       CaptureEvent(CaptureIds.calendar(it.eventId, it.beginUtcMs), it.beginUtcMs, CaptureSource.CalendarEntry(it.title!!.trim()), endUtcMs = it.endUtcMs)
-    },
-  )
+    }
+    return events.replaceCalendar(from, to, real)
+  }
 
   companion object {
     // ponytail: a stay or charge older than a week is treated as closed/unknown; widen if phones sit untouched longer.
