@@ -1,7 +1,9 @@
 package com.bbpillow.haku.capture.diary
 
+import com.bbpillow.haku.capture.CaptureEvent
 import com.bbpillow.haku.capture.CaptureEventRepository
 import com.bbpillow.haku.capture.CaptureQueryInput
+import com.bbpillow.haku.capture.CaptureSource
 import com.bbpillow.haku.capture.PlaceRecognitionInput
 import com.bbpillow.haku.capture.PlaceRecognizer
 import com.bbpillow.haku.capture.PlaceRepository
@@ -33,6 +35,7 @@ class DiaryComposer(
     )
     val episodes = EpisodeBuilder.build(DiaryBuildInput(start, end, captured, recognized.places, recognized.visits))
     val rendered = DiaryRenderer.render(input.day, input.tzOffsetMinutes, input.style, episodes)
+    removeSupersededDepartures(captured, recognized.visits.map { it.endUtcMs }.toSet(), start, end)
 
     val written = mutableListOf<DiaryLineRecord>()
     var existing = 0
@@ -47,6 +50,19 @@ class DiaryComposer(
       }
     }
     return DiaryComposeOutput(rendered.header, written, existing, suppressed)
+  }
+
+  /**
+   * A stay that grew (the user came back within the merge gap) leaves a written "ออกจาก" line whose end event no longer
+   * ends a stay. That line is stale, not deleted by the user: drop it from the log without a tombstone.
+   */
+  private fun removeSupersededDepartures(captured: List<CaptureEvent>, visitEnds: Set<Long>, from: Long, to: Long) {
+    captured.filter { it.source == CaptureSource.DwellEnd && it.timeUtcMs in from until to && it.timeUtcMs !in visitEnds }
+      .groupBy({ it.timeUtcMs }, { it.id })
+      .forEach { (time, ids) ->
+        val entry = ledger.find(DiaryLineIds.of(DiaryLineKind.DEPART, ids, time)) ?: return@forEach
+        if (!entry.deleted && entry.memoryDay.isNotEmpty()) memory.deleteDaily(entry.memoryDay, entry.memoryRecordId)
+      }
   }
 
   /** The local day's records from the daily log, oldest first. */

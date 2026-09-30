@@ -23,7 +23,7 @@ object EpisodeBuilder {
         val gap = visits.getOrNull(i - 1)?.let { v.startUtcMs - it.endUtcMs }
         val travel = gap?.takeIf { it in DiaryThresholds.MIN_TRAVEL_MS..DiaryThresholds.MAX_TRAVEL_MS }
         val stay = (v.endUtcMs - v.startUtcMs).takeIf { v.endUtcMs <= input.dayEndUtcMs }
-        episodes += DiaryEpisode.Arrival(v.startUtcMs, ref, travel, stay, starts[v.startUtcMs].orEmpty() + ends[v.endUtcMs].orEmpty())
+        episodes += DiaryEpisode.Arrival(v.startUtcMs, ref, travel, stay, starts[v.startUtcMs].orEmpty())
       }
       if (v.endUtcMs in day) {
         val walkToNext = visits.getOrNull(i + 1)?.let { it.startUtcMs - v.endUtcMs < DiaryThresholds.MIN_TRAVEL_MS } ?: false
