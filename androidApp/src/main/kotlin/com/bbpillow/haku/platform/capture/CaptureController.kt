@@ -106,11 +106,14 @@ object CaptureController {
     }
   }
 
-  /** The app's capture database. Capture thread only. ponytail: plain SQLite for now; D11 encryption wiring comes with onboarding. */
-  fun connection(context: Context): SQLiteConnection = connection
+  /**
+   * The app's capture database. Opened once (synchronized, so a racing first call cannot open a second connection);
+   * every use of it must still run on [dispatcher]. ponytail: plain SQLite for now; D11 encryption wiring comes with onboarding.
+   */
+  @Synchronized fun connection(context: Context): SQLiteConnection = connection
     ?: BundledSQLiteDriver().open(File(context.noBackupFilesDir, "haku.db").path).also { connection = it }
 
-  fun recorder(context: Context): CaptureRecorder =
+  @Synchronized fun recorder(context: Context): CaptureRecorder =
     recorder ?: CaptureRecorder(CaptureEventStore(connection(context))).also { recorder = it }
 
   /** Keep the geofence on the open stay: fence a new one, drop it when the stay ended. */

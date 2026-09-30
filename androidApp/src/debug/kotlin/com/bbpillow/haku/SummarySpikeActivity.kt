@@ -3,16 +3,10 @@ package com.bbpillow.haku
 import android.app.Activity
 import android.os.Bundle
 import android.util.Log
-import com.bbpillow.haku.capture.CaptureEventStore
-import com.bbpillow.haku.capture.PlaceStore
 import com.bbpillow.haku.capture.diary.DiaryComposeInput
-import com.bbpillow.haku.capture.diary.DiaryComposer
-import com.bbpillow.haku.capture.diary.DiaryLedgerStore
 import com.bbpillow.haku.capture.diary.DiaryStyle
 import com.bbpillow.haku.capture.diary.EndingParticle
-import com.bbpillow.haku.memory.MemoryStore
 import com.bbpillow.haku.platform.LiteRtLocalModel
-import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.thinking.LocalModelClient
 import com.bbpillow.haku.thinking.ModelBackend
 import com.bbpillow.haku.thinking.ModelConfig
@@ -46,12 +40,14 @@ class SummarySpikeActivity : Activity() {
       val client = LocalModelClient(model)
       try {
         val style = DiaryStyle(particle)
-        val db = CaptureController.connection(this)
-        val memory = MemoryStore(FileSystem.SYSTEM, filesDir.resolve("memory").path.toPath())
-        val composer = DiaryComposer(CaptureEventStore(db), PlaceStore(db), memory, DiaryLedgerStore(db))
         val tz = ZoneId.systemDefault().rules.getOffset(LocalDate.parse(day).atStartOfDay()).totalSeconds / 60
-        composer.compose(DiaryComposeInput(day, tz, style))
-        val lines = composer.readDay(day, tz).map { it.text }
+        // the app's own stores, on the DB thread (one connection, MemoryStore read-modify-write)
+        val lines = runBlocking {
+          (application as HakuApplication).graph.io {
+            diary.compose(DiaryComposeInput(day, tz, style))
+            diary.readDay(day, tz).map { it.text }
+          }
+        }
         Log.i(TAG, "day=$day lines=${lines.size} particle=$particle model=$modelPath backend=$backend")
         lines.forEach { Log.i(TAG, "FACT $it") }
         val cache = if (modelPath.startsWith("/data/local/tmp")) getExternalFilesDir(null)?.absolutePath else null
