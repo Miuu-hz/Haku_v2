@@ -161,3 +161,11 @@ adb logcat -s HakuSummary
 - รอพิกัดสูงสุด 8 วินาทีต่อการปลุก — ดู logcat ว่าไม่มีคำเตือน broadcast timeout
 - ปิดสิทธิ์ตำแหน่งเบื้องหลัง → ระบบไม่ตั้ง geofence ใช้แค่การเปลี่ยนกิจกรรม ดูว่าการออกจากที่ยังถูกจับได้
 - รีบูตเครื่อง / อัปเดตแอป → การจับข้อมูลกลับมาทำงานเอง
+
+## 19. งานกลางคืน P2.7 (NightlyWorker · ทดสอบบน Fold5)
+- ตั้งเองครั้งแรกที่เข้าหน้าหลักหลัง onboarding: ทุก 3 ชม. เมื่อ **ชาร์จ + เครื่องว่าง (จอดับสักพัก) + แบตไม่ต่ำ** ทำไดอารีเมื่อวาน/วันนี้ แล้วสรุปเย็นด้วยโมเดลถ้าไฟล์โมเดลโหลดครบ (วันนี้สรุปหลัง 21:00 เท่านั้น เพราะสรุปเก็บครั้งเดียวต่อวัน)
+- สั่งรันทันทีแบบไม่สนเงื่อนไข (debug): `adb shell am broadcast -n com.bbpillow.haku/.CaptureDebugReceiver -a com.bbpillow.haku.debug.NIGHTLY` แล้ว `adb logcat -s HakuNightly`
+- สั่งงานจริงตัวที่ตั้งไว้ (ทดสอบเงื่อนไข): `adb shell dumpsys jobscheduler | grep -B2 -A10 com.bbpillow.haku` หา `#u0a…/<JOB_ID>` ของ SystemJobService แล้ว `adb shell cmd jobscheduler run -f com.bbpillow.haku <JOB_ID>` (`-f` = ข้ามเงื่อนไข) · จำลองเครื่องว่าง: `adb shell cmd deviceidle force-idle` / คืน `adb shell cmd deviceidle unforce`
+- ที่ต้องเห็น: `diary composed for [เมื่อวาน, วันนี้]; model=true summarize=[...]` ตามด้วย `summary <วัน> source=MODEL` และ metrics (< 30 วินาที/วัน) · รันซ้ำคืนเดียวกันต้องได้ `summarize=[]` (ไม่โหลดโมเดล) · หลังงานจบ RAM ของแอปต้องลดลง (Android Studio profiler หรือ `adb shell dumpsys meminfo com.bbpillow.haku`) = engine ถูกปล่อยแล้ว
+- หน้าแรก: การ์ดเรื่องของวันแสดงข้อความสรุปแทนสามบรรทัดแรก และมีการ์ด "สรุปสัปดาห์นี้" (แผนฟรี: ไม่เทียบสัปดาห์ก่อน มีชิป Haku Plus)
+- ถ้าเห็น `source=TEMPLATE rejected=[...]` ทุกคืนสำหรับวันเดิม = โมเดลไม่ผ่านตัวตรวจซ้ำ ๆ งานจะลองใหม่ทุกรอบที่ชาร์จ บอก Claude ให้ใส่บันทึกจำนวนครั้ง

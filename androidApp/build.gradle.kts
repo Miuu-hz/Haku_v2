@@ -39,6 +39,7 @@ dependencies {
   implementation(libs.okio)
   implementation(libs.androidx.biometric)
   implementation(libs.androidx.fragment)
+  implementation(libs.androidx.work.runtime)
   androidTestImplementation(libs.androidx.test.runner)
   androidTestImplementation(libs.androidx.test.ext.junit)
 }

@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import com.bbpillow.haku.platform.BiometricLock
+import com.bbpillow.haku.platform.NightlyWorker
 import com.bbpillow.haku.surface.components.CapsuleButton
 import com.bbpillow.haku.surface.components.ScreenBackdrop
 import com.bbpillow.haku.surface.onboarding.AppStart
@@ -58,7 +59,10 @@ private fun AppRoot(graph: AppGraph, activity: FragmentActivity) {
     }
     StartScreen.LOCKED -> LockGate(activity) { unlocked = true }
     StartScreen.MAIN -> {
-      LaunchedEffect(Unit) { graph.downloader.resumeIfPartial(profile.model) }
+      LaunchedEffect(Unit) {
+        graph.downloader.resumeIfPartial(profile.model)
+        NightlyWorker.schedule(activity) // onboarded from here on; KEEP = no-op after the first time
+      }
       MainShell(graph, activity)
     }
   }
