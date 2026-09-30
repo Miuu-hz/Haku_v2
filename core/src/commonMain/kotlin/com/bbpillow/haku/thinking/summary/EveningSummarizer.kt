@@ -51,7 +51,7 @@ class EveningSummarizer(
       client.generate(GenerateInput(prompt)).filterIsInstance<GenerateEvent.Finished>().first().output
     }
     when {
-      done == null -> { client.cancel(); Run(null, "timeout") }
+      done == null -> Run(null, "timeout") // the cancelled flow already stops the model; an extra cancel() would poison the next run
       done.metrics.cancelled -> Run(done, "cancelled")
       else -> Run(done, null)
     }
