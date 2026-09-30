@@ -50,7 +50,19 @@ description: >
 [8 สรุปเย็น] diary lines ──► thinking/summary/SummaryPromptBuilder (≤900 token) ──► LocalModel ──► SummaryChecker
    (ห้ามเวลา/ตัวเลข/สถานที่/คำพูดที่ไม่มีในข้อเท็จจริง · คำลงท้ายต้องตรง) ── ผ่าน→ MODEL (เก็บครั้งเดียวต่อวัน) / ไม่ผ่าน→ SummaryTemplate
 
-[9 หน้าจอ] core/surface/*Presenter (แปลง repo → UiState, ไม่มี android) ──► ui/surface/*Screen (รับ state + callback เท่านั้น)
+[8b กลางคืน] androidApp/platform/NightlyWorker (WorkManager: ชาร์จ+idle, ทุก 3 ชม.) ── core/thinking/summary/NightlyPlan ตัดสิน
+   → เรียบเรียงไดอารี เมื่อวาน+วันนี้ → สรุปเย็น (ถ้ามีไฟล์โมเดล; ปล่อย engine หลังใช้) → memory/dream/DreamEngine
+   Dream: จัดระเบียบ(ซ้ำตรงตัว, ยกเลิกถ้าลบ>30%) → เรื่องซ้ำด้วยกฎ(สถานที่/นัด/โน้ต ≥3 วัน) → ด่าน(ที่มาถาวรได้ · ไม่เคยถูกลืม/ปฏิเสธ
+   · คะแนน≥0.3 · ≤5 ต่อคืน) → MemoryRepository.promote → รายงานไทยใน dreams/<day> (ledger ที่วันสงวน 0000-00-00)
+
+[8c สถิติ] capture/stats/StatsCalculator (ตัวเลขที่วัดได้เท่านั้น, null = ไม่แสดง) → StatsSummarizer + Entitlements (FREE=สัปดาห์นี้,
+   PLUS=เดือน/ปี/เทียบ) → StatsTemplates ไทย → การ์ดหน้าแรก
+
+[8d ลืม] Timeline ลบ/แก้ → tombstone + ทิ้งสรุปเย็นวันนั้น · Transparency: ลืมข้อ/หมวด/ทุกอย่าง (surface/memory/ForgetEverything:
+   tombstone event ทุกตัวแล้วลบ, places, ledger, summaries, memory+index) · ส่งออก MemoryExport.markdown (ผู้ใช้กดเอง ไม่นับเป็นข้อมูลออก)
+
+[9 หน้าจอ] androidApp/AppGraph (DI มือ, DB เดียว noBackupFilesDir/haku.db) → MainActivity: ยังไม่เริ่มใช้ → Onboarding / ล็อก → MainShell 3 แท็บ
+   core/surface/*Presenter (แปลง repo → UiState, ไม่มี android) ──► ui/surface/*Screen (รับ state + callback เท่านั้น)
    Home(เช้า=เมื่อวาน/กลางวัน/เย็น, ไม่แสดงตัวเลขที่ไม่มีข้อมูล) · Timeline(แก้=USER_TYPED ใหม่ + tombstone เดิม) ·
    Transparency(ลืม) · Onboarding B1–B7 (สิทธิ์เริ่มปิดทุกตัว PDPA ม.19; OS ทำผ่าน OnboardingActions)
    ชิ้นส่วน: ui/surface/components (โทเค็นจาก haku-mockup.html ใน HakuTheme เท่านั้น)
@@ -66,7 +78,7 @@ description: >
 - งานคู่ขนาน: git worktree ต่อ subagent ที่ path สั้น `F:\Haku Project\hk-wt-<ชื่อ>` (Windows path ยาวลบไม่ได้) → merge `--no-ff` → ลบ worktree
 
 ## ยังไม่มี / รอเครื่องจริง
-ผลวัดบน Z Fold5 (ชิ้น ก ข ง · จับข้อมูลหนึ่งวัน · เอเจนต์เรียกเครื่องมือ) · EmbeddingGemma (P1.5) · Dream (P1.8) · ชำระเงิน (P9.4) ·
+ผลวัดบน Z Fold5 (ชิ้น ก ข ง · จับข้อมูลหนึ่งวัน · เอเจนต์เรียกเครื่องมือ · สองบทสนทนาบน engine เดียว) · EmbeddingGemma (P1.5) · ชำระเงิน (P9.4) ·
 เข้ารหัส DB/ไฟล์ (D11) · ชั้น 4–9 · ดูรายการเต็มใน `docs/CHECKLIST.md`
 
 ## วิธีดูแลไฟล์นี้
