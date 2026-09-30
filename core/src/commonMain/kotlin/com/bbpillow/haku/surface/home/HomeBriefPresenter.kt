@@ -8,8 +8,15 @@ import com.bbpillow.haku.capture.PlaceRecognizer
 import com.bbpillow.haku.capture.PlaceRepository
 import com.bbpillow.haku.capture.diary.DiaryComposer
 import com.bbpillow.haku.capture.diary.DiaryStyle
+import com.bbpillow.haku.capture.stats.PeriodKind
+import com.bbpillow.haku.capture.stats.StatsDataInput
+import com.bbpillow.haku.capture.stats.StatsPeriods
+import com.bbpillow.haku.capture.stats.StatsResult
+import com.bbpillow.haku.capture.stats.StatsSummarizer
+import com.bbpillow.haku.capture.stats.StatsSummaryInput
 import com.bbpillow.haku.language.ThaiDateFormat
 import com.bbpillow.haku.memory.MemoryFormat
+import com.bbpillow.haku.thinking.summary.EveningSummaryRepository
 
 /** Part of the day the brief is shaped for (P3.1): morning looks back at yesterday, midday and evening at today. */
 enum class BriefPeriod { MORNING, MIDDAY, EVENING }
@@ -25,12 +32,19 @@ data class HomeStats(
   val steps: Int? = null,
 )
 
+/**
+ * A5 weekly card: this week's measured lines from StatsSummarizer (P2.8). [comparisonLocked] = the plan has no
+ * comparison with last week (FREE); the lines then never compare.
+ */
+data class WeeklyCard(val lines: List<String>, val comparisonLocked: Boolean)
+
 /** A4 learning card. Nothing produces it yet (P5.x); the slot stays empty until then. */
 data class LearningCard(val title: String, val summary: String, val topic: String, val source: String)
 
 /**
- * Everything the Home Brief draws. [storyLines] are the first diary lines of [storyDay] (rule-based, P2.6) until the
- * model-written summary (P2.7) exists; empty = "no summary yet". [isDayOne] = nothing recorded yet at all (A6).
+ * Everything the Home Brief draws. [storySummary] = the stored evening summary of [storyDay] (P2.7, model or template),
+ * shown instead of [storyLines] (the first rule-based diary lines, P2.6) when present; both empty = "no summary yet".
+ * [weekly] is null until this week has a recorded day. [isDayOne] = nothing recorded yet at all (A6).
  */
 data class HomeBriefUiState(
   val period: BriefPeriod,
@@ -42,6 +56,8 @@ data class HomeBriefUiState(
   val storyLines: List<String>,
   val storyLineCount: Int,
   val stats: HomeStats?,
+  val storySummary: String? = null,
+  val weekly: WeeklyCard? = null,
   val learning: LearningCard? = null,
   val isDayOne: Boolean = false,
 )
@@ -55,6 +71,8 @@ class HomeBriefPresenter(
   private val events: CaptureEventRepository,
   private val places: PlaceRepository,
   private val tzOffsetMinutes: Int,
+  private val summaries: EveningSummaryRepository,
+  private val weekStats: StatsSummarizer,
 ) {
   fun load(nowUtcMs: Long, style: DiaryStyle = DiaryStyle()): HomeBriefUiState {
     val localMs = nowUtcMs + tzOffsetMinutes * MIN_MS
@@ -95,6 +113,9 @@ class HomeBriefPresenter(
       storyLines = lines.take(STORY_LINES).map { it.text },
       storyLineCount = lines.size,
       stats = stats,
+      // a summary with no diary line left behind it (all deleted) is not shown
+      storySummary = if (lines.isEmpty()) null else summaries.find(storyDay)?.text,
+      weekly = if (isDayOne) null else weekly(today, nowUtcMs, style),
       isDayOne = isDayOne,
     )
   }
@@ -124,6 +145,21 @@ class HomeBriefPresenter(
     return HomeStats(placeCount, out.toFloat() / covered, (out / MIN_MS).toInt())
   }
 
+  /**
+   * This week's lines, or null when the week has no recorded day (never a card of zeros).
+   * ponytail: four weeks of history before the week so "new place" means something; widen when month views land on Home.
+   */
+  private fun weekly(today: String, nowUtcMs: Long, style: DiaryStyle): WeeklyCard? {
+    val week = StatsPeriods.of(PeriodKind.WEEK, today, tzOffsetMinutes)
+    val captured = events.query(CaptureQueryInput(week.fromUtcMs - WEEKLY_HISTORY_DAYS * DAY_MS, nowUtcMs))
+    val known = places.list()
+    val visits = PlaceRecognizer.recognize(PlaceRecognitionInput(PlaceRecognizer.pairDwells(captured), known, tzOffsetMinutes)).visits
+    val result = weekStats.summarize(StatsSummaryInput(PeriodKind.WEEK, today, nowUtcMs, style), StatsDataInput(tzOffsetMinutes, known, visits, captured))
+    val summary = (result as? StatsResult.Ready)?.summary ?: return null
+    if (summary.current.coveredDays == 0) return null
+    return WeeklyCard(summary.lines, comparisonLocked = summary.previous == null)
+  }
+
   private fun periodOf(hour: Int) = when (hour) {
     in MORNING_START_HOUR until MIDDAY_START_HOUR -> BriefPeriod.MORNING
     in MIDDAY_START_HOUR until EVENING_START_HOUR -> BriefPeriod.MIDDAY
@@ -141,6 +177,7 @@ class HomeBriefPresenter(
     const val MIDDAY_START_HOUR = 11
     const val EVENING_START_HOUR = 17
     const val STORY_LINES = 3
+    private const val WEEKLY_HISTORY_DAYS = 28
     private const val MIN_MS = 60_000L
     private const val HOUR_MS = 3_600_000L
     private const val DAY_MS = 86_400_000L
