@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
+import com.bbpillow.haku.BuildConfig
 import com.bbpillow.haku.capture.ActivityKind
 import com.bbpillow.haku.capture.CaptureIds
 import com.bbpillow.haku.capture.DwellDetector
@@ -31,7 +32,8 @@ class LocationWakeReceiver : BroadcastReceiver() {
         val before = recorder.openDwell(nowWall)
         val fix = geofenceFix ?: if (DwellDetector.needsFix(triggers, before)) CaptureController.takeFix(context) else null
         val out = recorder.onWake(triggers, fix, nowWall)
-        Log.i(CaptureController.TAG, "wake $triggers fix=${fix != null} -> ${out.events.map { it.id }}")
+        // presence times and event ids are personal data: debug builds only
+        if (BuildConfig.DEBUG) Log.i(CaptureController.TAG, "wake $triggers fix=${fix != null} -> ${out.events.map { it.id }}")
         CaptureController.syncGeofence(context, before, out)
         CaptureController.catchUp(context, nowWall)
       }

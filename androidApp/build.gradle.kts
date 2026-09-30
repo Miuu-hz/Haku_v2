@@ -18,6 +18,9 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
+  // BuildConfig.DEBUG gates logs that carry personal data (presence times, event ids) out of release builds
+  buildFeatures { buildConfig = true }
+
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
