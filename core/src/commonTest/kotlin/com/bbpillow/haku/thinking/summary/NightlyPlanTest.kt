@@ -44,4 +44,19 @@ class NightlyPlanTest {
     assertEquals(listOf("2026-10-01"), plan(lines = mapOf("2026-09-30" to 0, "2026-10-01" to 2)))
     assertEquals(emptyList(), plan(stored = both.keys)) // second run the same night: no model load
   }
+
+  private fun dreamDay(onboarded: Boolean = true, modelReady: Boolean = true, dreamed: Set<String> = emptySet(), now: Long = night) =
+    NightlyPlan.plan(NightlyPlanInput(onboarded, modelReady, now, tz, both, emptySet(), dreamed)).dreamDay
+
+  @Test fun dreamRunsForLocalYesterdayEvenWithoutAModel() {
+    assertEquals("2026-09-30", dreamDay(modelReady = false))
+    assertEquals("2026-09-30", dreamDay(now = afternoon))
+  }
+
+  @Test fun dreamWaitsForOnboarding() = assertEquals(null, dreamDay(onboarded = false))
+
+  @Test fun dreamRunsOncePerNight() {
+    assertEquals(null, dreamDay(dreamed = setOf("2026-09-30")))
+    assertEquals("2026-09-30", dreamDay(dreamed = setOf("2026-09-29")))
+  }
 }

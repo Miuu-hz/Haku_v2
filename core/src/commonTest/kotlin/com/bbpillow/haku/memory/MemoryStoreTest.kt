@@ -201,6 +201,16 @@ class MemoryStoreTest {
     assertEquals(listOf("y"), MemoryFormat.parse(text).records.map { it.text })
     assertEquals("d", MemoryFormat.parse(text).meta["description"])
   }
+
+  @Test fun `ledger day is never listed as a dream report but deleteAll clears it`() {
+    val s = store()
+    s.writeDreamReport(DREAM_LEDGER_DAY, "P	k	you	f1")
+    s.writeDreamReport("2026-09-30", "รายงาน")
+    assertEquals(listOf("2026-09-30"), s.listDreamDays())
+    assertEquals("P	k	you	f1", s.readDreamReport(DREAM_LEDGER_DAY))
+    s.deleteAll()
+    assertNull(s.readDreamReport(DREAM_LEDGER_DAY))
+  }
 }
 
 /** Sink that dies after [cutAfter] bytes, like the app being killed mid write. Only affects .tmp files. */

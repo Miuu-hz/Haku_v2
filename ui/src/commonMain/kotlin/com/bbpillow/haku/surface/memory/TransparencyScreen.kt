@@ -72,6 +72,15 @@ fun TransparencyScreen(
         }
       }
     }
+    if (state.dreamReports.isNotEmpty()) {
+      item { SectionHeader("รายงานการย่อยความจำ", Modifier.padding(top = 8.dp), trailing = "${state.dreamReports.size} คืนล่าสุด") }
+      items(state.dreamReports, key = { it.day }) { r ->
+        SurfaceCard(Modifier.fillMaxWidth(), padding = PaddingValues(horizontal = 18.dp, vertical = 12.dp)) {
+          Text(r.title, style = MaterialTheme.typography.titleSmall)
+          Text(r.text, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted, modifier = Modifier.padding(top = 6.dp))
+        }
+      }
+    }
     item { WhereDataLivesCard(Modifier.padding(top = 8.dp)) }
     item {
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

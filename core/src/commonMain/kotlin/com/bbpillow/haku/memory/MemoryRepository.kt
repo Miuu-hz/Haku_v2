@@ -47,9 +47,12 @@ interface MemoryRepository {
   fun writeDreamReport(day: String, text: String)
   fun readDreamReport(day: String): String?
 
-  /** UTC days that have a dream report, ascending (export needs them). */
+  /** UTC days that have a dream report, ascending (export needs them). Never includes [DREAM_LEDGER_DAY]. */
   fun listDreamDays(): List<String>
 
   /** "Forget everything": daily, core, standing, intentions and dream files all go. */
   fun deleteAll()
 }
+
+/** Reserved dreams-level day that holds Dream's ledger (not a report): never listed, exported or shown; forget-everything clears it. */
+const val DREAM_LEDGER_DAY = "0000-00-00"

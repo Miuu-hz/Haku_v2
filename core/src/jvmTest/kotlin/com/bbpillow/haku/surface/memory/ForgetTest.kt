@@ -20,6 +20,12 @@ import com.bbpillow.haku.memory.MemoryLevel
 import com.bbpillow.haku.memory.MemoryStore
 import com.bbpillow.haku.memory.NoteInput
 import com.bbpillow.haku.memory.Provenance
+import com.bbpillow.haku.memory.DREAM_LEDGER_DAY
+import com.bbpillow.haku.capture.diary.DiaryStyle
+import com.bbpillow.haku.capture.diary.EndingParticle
+import com.bbpillow.haku.surface.onboarding.ModelChoice
+import com.bbpillow.haku.surface.onboarding.ProfileRecord
+import com.bbpillow.haku.surface.onboarding.ProfileStore
 import com.bbpillow.haku.memory.index.DictionarySegmenter
 import com.bbpillow.haku.memory.index.IndexedMemoryRepository
 import com.bbpillow.haku.memory.index.SearchIndexStore
@@ -49,8 +55,9 @@ class ForgetTest {
   private val places = PlaceStore(db)
   private val ledger = DiaryLedgerStore(db)
   private val summaries = EveningSummaryStore(fs, "/summaries".toPath())
+  private val profile = ProfileStore(fs, "/profile.txt".toPath())
   private val diary = DiaryComposer(events, places, memory, ledger)
-  private val forgetAll = ForgetEverything(events, places, ledger, summaries, memory)
+  private val forgetAll = ForgetEverything(events, places, ledger, summaries, memory, profile)
   private val presenter = TransparencyPresenter(memory, forgetAll, tz)
   private val at = 1_790_121_600_000L
 
@@ -82,6 +89,7 @@ class ForgetTest {
     memory.addIntention(NoteInput("buy coffee", Provenance.USER_TYPED, at))
     memory.appendDaily(DailyEventInput("10:00 coffee", Provenance.USER_TYPED, at))
     memory.writeDreamReport("2026-09-23", "coffee dream")
+    memory.writeDreamReport(DREAM_LEDGER_DAY, "P	key	you	f1")
   }
 
   private fun assertNothingLeft() {
@@ -91,6 +99,7 @@ class ForgetTest {
     assertTrue(memory.listCategories().all { it.factCount == 0 })
     assertTrue(memory.readStanding().isEmpty() && memory.readIntentions().isEmpty())
     assertTrue(memory.listDreamDays().isEmpty())
+    assertNull(memory.readDreamReport(DREAM_LEDGER_DAY), "dream ledger must go too")
     assertEquals(0, index.count())
     assertNull(summaries.find("2026-09-08"))
   }
@@ -116,5 +125,21 @@ class ForgetTest {
   @Test fun forgetEverythingOnAnEmptyAppIsHarmless() {
     presenter.forgetEverything()
     assertNothingLeft()
+  }
+
+  @Test fun forgetEverythingErasesNicknameButKeepsSettings() {
+    val kept = ProfileRecord(DiaryStyle(particle = EndingParticle.KA, nickname = "น้องแบงค์"), ModelChoice.E4B, lockEnabled = true, onboarded = true)
+    profile.save(kept)
+    presenter.forgetEverything()
+    assertEquals(kept.copy(style = kept.style.copy(nickname = "")), profile.load())
+    assertEquals("", profile.load().style.nickname)
+  }
+
+  @Test fun dreamLedgerIsNotListedOrExported() {
+    memory.writeDreamReport(DREAM_LEDGER_DAY, "P	secret-key	you	f1")
+    memory.writeDreamReport("2026-09-23", "real report")
+    assertEquals(listOf("2026-09-23"), memory.listDreamDays())
+    assertFalse(presenter.exportMarkdown().contains("secret-key"))
+    assertEquals(listOf("real report"), presenter.load().dreamReports.map { it.text })
   }
 }

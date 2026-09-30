@@ -129,24 +129,25 @@ class DreamEngineTest {
     assertEquals(coreAfter, allCore())
   }
 
-  @Test fun `tidy removes system copies and exact user duplicates but keeps different user originals`() = runTest {
+  @Test fun `tidy removes external copies and exact user duplicates but keeps different user originals and diary lines`() = runTest {
     val a = add(1, "ซื้อนม", Provenance.USER_TYPED)
     val exact = add(1, "ซื้อนม", Provenance.USER_TYPED)
     val spaced = add(1, "ซื้อนม  ", Provenance.USER_TYPED) // near-identical user original: untouched
-    val copy = add(1, "ซื้อนม", Provenance.INFERRED_FROM_USER_DATA)
+    val copy = add(1, "ซื้อนม", Provenance.EXTERNAL)
+    val diaryTwin = add(1, "ซื้อนม", Provenance.INFERRED_FROM_USER_DATA) // diary-ledger territory: never deleted
     val i1 = store.addIntention(NoteInput("โทรหาแม่", Provenance.USER_TYPED, at(1)))
     val i2 = store.addIntention(NoteInput("โทรหาแม่", Provenance.USER_TYPED, at(2)))
     val out = engine().dream(DreamInput(night))
     val gone = out.tidied.map { it.id }.toSet()
     assertEquals(setOf(exact.id, copy.id, i2.id), gone)
-    assertEquals(listOf(a.id, spaced.id), store.readDay(MemoryFormat.dayOf(at(1))).map { it.id })
+    assertEquals(listOf(a.id, spaced.id, diaryTwin.id), store.readDay(MemoryFormat.dayOf(at(1))).map { it.id })
     assertEquals(listOf(i1.id), store.readIntentions().map { it.id })
     assertTrue(out.tidied.first { it.id == exact.id }.exact)
     assertContains(out.report, "ลบ “ซื้อนม”")
   }
 
   @Test fun `tidy is cancelled when it would delete too much`() = runTest {
-    repeat(12) { add(1, "ซ้ำ", Provenance.INFERRED_FROM_USER_DATA) }
+    repeat(12) { add(1, "ซ้ำ", Provenance.USER_TYPED) }
     val out = engine().dream(DreamInput(night))
     assertTrue(out.tidyCancelled)
     assertEquals(12, store.readDay(MemoryFormat.dayOf(at(1))).size)
@@ -227,14 +228,15 @@ class DreamEngineTest {
     for (d in 26..29) add(d, "ถึงโรงยิม")
     val srcIds = store.readDay(MemoryFormat.dayOf(at(26))).map { it.id } + store.readDay(MemoryFormat.dayOf(at(29))).map { it.id }
     add(26, "ถึงวัด", Provenance.EXTERNAL); add(27, "ถึงวัด", Provenance.EXTERNAL); add(28, "ถึงวัด", Provenance.EXTERNAL)
-    val dup = add(27, "ถึงโรงยิม")
+    add(27, "แวะซื้อกาแฟ", Provenance.USER_TYPED)
+    val dup = add(27, "แวะซื้อกาแฟ", Provenance.USER_TYPED) // exact user duplicate: the only daily kind tidy removes
     val out = engine().dream(DreamInput(night))
     assertEquals(out.report, store.readDreamReport(night))
     assertContains(out.report, "รายงานการย่อยความจำ คืนวันที่ $night")
     assertContains(out.report, "เลื่อนขั้นเป็นความจำถาวร")
     assertContains(out.report, "“ไปโรงยิมเป็นประจำ” (หมวด areas) เพราะพบซ้ำใน 4 วัน")
     srcIds.forEach { assertContains(out.report, it) }
-    assertContains(out.report, "ลบ “ถึงโรงยิม” (บันทึกวันที่ ${MemoryFormat.dayOf(at(27))} รหัส ${dup.id})")
+    assertContains(out.report, "ลบ “แวะซื้อกาแฟ” (บันทึกวันที่ ${MemoryFormat.dayOf(at(27))} รหัส ${dup.id})")
     assertContains(out.report, "“วัด” ที่มาไม่ใช่ข้อมูลของผู้ใช้")
     assertFalse(out.alreadyRan)
   }

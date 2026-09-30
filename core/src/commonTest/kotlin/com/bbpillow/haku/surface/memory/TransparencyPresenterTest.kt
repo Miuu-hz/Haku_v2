@@ -10,6 +10,7 @@ import com.bbpillow.haku.memory.DailyEventInput
 import com.bbpillow.haku.memory.MemoryStore
 import com.bbpillow.haku.memory.NoteInput
 import com.bbpillow.haku.memory.Provenance
+import com.bbpillow.haku.surface.onboarding.ProfileStore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -19,7 +20,7 @@ import okio.fakefilesystem.FakeFileSystem
 class TransparencyPresenterTest {
   private var n = 0
   private val memory = MemoryStore(FakeFileSystem(), "/mem".toPath()) { "f${++n}" }
-  private val forget = ForgetEverything(FakeEvents(emptyList()), FakePlaces(emptyList()), FakeLedger(), FakeSummaries(), memory)
+  private val forget = ForgetEverything(FakeEvents(emptyList()), FakePlaces(emptyList()), FakeLedger(), FakeSummaries(), memory, ProfileStore(FakeFileSystem(), "/p.txt".toPath()))
   private val presenter = TransparencyPresenter(memory, forget, 420)
   private val sep23 = 1_790_121_600_000L // 2026-09-23 00:00 UTC
 
@@ -73,5 +74,21 @@ class TransparencyPresenterTest {
 
   @Test fun exportOfEmptyMemoryIsJustTheTitle() {
     assertEquals("# Haku: ความจำทั้งหมดของคุณ", presenter.exportMarkdown().trim())
+  }
+
+  @Test fun dreamReportsListLatestNightsFirstAndCapped() {
+    for (d in 1..9) memory.writeDreamReport("2026-09-0$d", "รายงานคืน $d")
+    val reports = presenter.load().dreamReports
+    assertEquals(7, reports.size)
+    assertEquals("2026-09-09", reports.first().day)
+    assertEquals("รายงานคืน 9", reports.first().text)
+    assertEquals("2026-09-03", reports.last().day)
+  }
+
+  @Test fun dreamLedgerIsNeverShownAsAReport() {
+    memory.writeDreamReport(com.bbpillow.haku.memory.DREAM_LEDGER_DAY, "P	key	you	f1")
+    assertTrue(presenter.load().dreamReports.isEmpty())
+    memory.writeDreamReport("2026-09-23", "รายงานจริง")
+    assertEquals(listOf("รายงานจริง"), presenter.load().dreamReports.map { it.text })
   }
 }

@@ -19,8 +19,18 @@ data class MemoryCategoryItem(
   val facts: List<MemoryFact>,
 )
 
-/** Everything the Transparency screen draws. [egressToday] = network calls that left the device today. */
-data class TransparencyUiState(val categories: List<MemoryCategoryItem>, val egressToday: Int)
+/** One night's Dream report: [day] as stored, [title] the Thai date, [text] the Thai report as written by the engine. */
+data class DreamReportItem(val day: String, val title: String, val text: String)
+
+/**
+ * Everything the Transparency screen draws. [egressToday] = network calls that left the device today.
+ * [dreamReports] = latest nights first (E4).
+ */
+data class TransparencyUiState(
+  val categories: List<MemoryCategoryItem>,
+  val egressToday: Int,
+  val dreamReports: List<DreamReportItem> = emptyList(),
+)
 
 /** "What Haku remembers about you" (P3.4, asset E1/E2): core memory by category, forget per fact. Stateless. */
 class TransparencyPresenter(
@@ -38,6 +48,9 @@ class TransparencyPresenter(
     },
     // ponytail: no network layer exists yet (P4), so nothing can leave the device; read its egress log here then
     egressToday = 0,
+    dreamReports = memory.listDreamDays().takeLast(MAX_DREAM_REPORTS).reversed().mapNotNull { d ->
+      memory.readDreamReport(d)?.let { DreamReportItem(d, ThaiDateFormat.shortDate(d), it.trim()) }
+    },
   )
 
   fun forget(fact: MemoryFact): TransparencyUiState {
@@ -61,6 +74,8 @@ class TransparencyPresenter(
   fun exportMarkdown(): String = MemoryExport.markdown(memory)
 
   private companion object {
+    const val MAX_DREAM_REPORTS = 7
+
     // the store's descriptions are English prompts for the model; the user reads these
     val thaiNames = mapOf(
       CoreCategories.YOU to ("ตัวคุณ" to "ความชอบและโปรไฟล์"),
