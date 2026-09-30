@@ -38,6 +38,16 @@ class CaptureEventStore(private val db: SQLiteConnection) : CaptureEventReposito
     }
   }
 
+  override fun replaceCalendar(fromUtcMs: Long, toUtcMs: Long, events: List<CaptureEvent>): Int = inTransaction {
+    val before = query(CaptureQueryInput(fromUtcMs, toUtcMs, setOf(CaptureTypes.CALENDAR))).toSet()
+    run("DELETE FROM events WHERE type = ? AND time_utc_ms >= ? AND time_utc_ms < ?") {
+      it.bindText(1, CaptureTypes.CALENDAR)
+      it.bindLong(2, fromUtcMs)
+      it.bindLong(3, toUtcMs)
+    }
+    events.count { insert(it) && it !in before }
+  }
+
   override fun count(): Int = scalar("SELECT count(*) FROM events").toInt()
 
   override fun delete(id: String): Boolean = inTransaction {

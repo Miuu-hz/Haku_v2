@@ -20,12 +20,17 @@ object CalendarReader {
     CalendarContract.Instances.SELF_ATTENDEE_STATUS,
   )
 
-  fun read(context: Context, nowUtcMs: Long): List<CalendarRowInput> {
-    if (context.checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) return emptyList()
+  /** Yesterday through tomorrow in local time; also the replace window for rescheduled/cancelled events. */
+  fun window(nowUtcMs: Long): Pair<Long, Long> {
     val zone = ZoneId.systemDefault()
     val today = Instant.ofEpochMilli(nowUtcMs).atZone(zone).toLocalDate()
-    val from = today.minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-    val to = today.plusDays(2).atStartOfDay(zone).toInstant().toEpochMilli()
+    return today.minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() to
+      today.plusDays(2).atStartOfDay(zone).toInstant().toEpochMilli()
+  }
+
+  fun read(context: Context, nowUtcMs: Long): List<CalendarRowInput> {
+    if (context.checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) return emptyList()
+    val (from, to) = window(nowUtcMs)
     val cursor = CalendarContract.Instances.query(context.contentResolver, PROJECTION, from, to) ?: return emptyList()
     return cursor.use { c ->
       buildList {

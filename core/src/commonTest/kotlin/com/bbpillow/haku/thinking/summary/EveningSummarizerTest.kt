@@ -14,6 +14,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
@@ -145,4 +146,29 @@ class EveningSummarizerTest {
     val ok = runCatching(block).exceptionOrNull() is IllegalArgumentException
     assertTrue(ok)
   }
+
+  @Test fun `a reply that repeats the prompt header date passes the check`() = runTest {
+    val reply = "วันจันทร์ที่ 7 กันยายน พ.ศ. 2569 ออกจากบ้านตอน 08:30 แล้วถึงที่ทำงานตอน 09:10 ใช้เวลาเดินทางราว 40 นาทีครับ"
+    val out = summarizer(ScriptedModel(mutableListOf(reply))).summarize(input())
+    assertEquals(SummarySource.MODEL, out.source, out.rejectedReasons.toString())
+  }
+
+  @Test fun `a timeout does not poison the next model run`() = runTest {
+    val s = EveningSummarizer(LocalModelClient(SlowThenFastModel(good)), repo, timeoutMillis = 1_000)
+    val first = s.summarize(input())
+    assertEquals(listOf("timeout"), first.rejectedReasons)
+    val second = s.summarize(input())
+    assertEquals(SummarySource.MODEL, second.source)
+  }
+}
+
+private class SlowThenFastModel(private val reply: String) : LocalModel {
+  private var calls = 0
+  override suspend fun load(config: ModelConfig) {}
+  override fun generate(input: GenerateInput): Flow<String> = flow {
+    if (calls++ == 0) delay(10_000)
+    emit(reply)
+  }
+  override fun cancel() {}
+  override suspend fun unload() {}
 }

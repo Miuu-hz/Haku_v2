@@ -21,7 +21,14 @@ data class PlaceRecord(
 data class PlaceVisitRecord(val placeId: String, val startUtcMs: Long, val endUtcMs: Long)
 
 /** A home/work guess the UI shows once for the user to confirm. */
-data class PlaceGuessOutput(val placeId: String, val category: PlaceCategory, val evidenceDays: Int)
+/** [lat]/[lon] let a confirmation store the place even when the recognition run never persisted it. */
+data class PlaceGuessOutput(
+  val placeId: String,
+  val category: PlaceCategory,
+  val evidenceDays: Int,
+  val lat: Double? = null,
+  val lon: Double? = null,
+)
 
 data class PlaceRecognitionInput(
   val dwells: List<DwellRecord>,

@@ -1,8 +1,11 @@
 package com.bbpillow.haku.capture.diary
 
+import com.bbpillow.haku.capture.CaptureEvent
 import com.bbpillow.haku.capture.CaptureEventRepository
 import com.bbpillow.haku.capture.CaptureQueryInput
+import com.bbpillow.haku.capture.CaptureSource
 import com.bbpillow.haku.capture.PlaceRecognitionInput
+import com.bbpillow.haku.capture.PlaceRecognitionOutput
 import com.bbpillow.haku.capture.PlaceRecognizer
 import com.bbpillow.haku.capture.PlaceRepository
 import com.bbpillow.haku.memory.DailyEventInput
@@ -26,13 +29,10 @@ class DiaryComposer(
 ) {
   fun compose(input: DiaryComposeInput): DiaryComposeOutput {
     val (start, end) = window(input.day, input.tzOffsetMinutes)
-    // one extra day each side: the overnight stay before and the next stay after
-    val captured = events.query(CaptureQueryInput(start - DAY_MS, end + DAY_MS))
-    val recognized = PlaceRecognizer.recognize(
-      PlaceRecognitionInput(PlaceRecognizer.pairDwells(captured), places.list(), input.tzOffsetMinutes),
-    )
-    val episodes = EpisodeBuilder.build(DiaryBuildInput(start, end, captured, recognized.places, recognized.visits))
-    val rendered = DiaryRenderer.render(input.day, input.tzOffsetMinutes, input.style, episodes)
+    val (captured, recognized, rendered) = renderDay(input.day, input.tzOffsetMinutes, input.style)
+    // persist what was recognised so ids stay stable next run and a later confirmation has a row (existing rows untouched)
+    places.addNew(recognized.places)
+    removeSupersededDepartures(captured, recognized.visits.map { it.endUtcMs }.toSet(), start, end)
 
     val written = mutableListOf<DiaryLineRecord>()
     var existing = 0
@@ -48,6 +48,32 @@ class DiaryComposer(
       }
     }
     return DiaryComposeOutput(rendered.header, written, existing, suppressed)
+  }
+
+  private data class Day(val captured: List<CaptureEvent>, val recognized: PlaceRecognitionOutput, val rendered: DiaryDayOutput)
+
+  private fun renderDay(day: String, tzOffsetMinutes: Int, style: DiaryStyle): Day {
+    val (start, end) = window(day, tzOffsetMinutes)
+    // one extra day each side: the overnight stay before and the next stay after
+    val captured = events.query(CaptureQueryInput(start - DAY_MS, end + DAY_MS))
+    val recognized = PlaceRecognizer.recognize(
+      PlaceRecognitionInput(PlaceRecognizer.pairDwells(captured), places.list(), tzOffsetMinutes),
+    )
+    val episodes = EpisodeBuilder.build(DiaryBuildInput(start, end, captured, recognized.places, recognized.visits))
+    return Day(captured, recognized, DiaryRenderer.render(day, tzOffsetMinutes, style, episodes))
+  }
+
+  /**
+   * A stay that grew (the user came back within the merge gap) leaves a written "ออกจาก" line whose end event no longer
+   * ends a stay. That line is stale, not deleted by the user: drop it from the log without a tombstone.
+   */
+  private fun removeSupersededDepartures(captured: List<CaptureEvent>, visitEnds: Set<Long>, from: Long, to: Long) {
+    captured.filter { it.source == CaptureSource.DwellEnd && it.timeUtcMs in from until to && it.timeUtcMs !in visitEnds }
+      .groupBy({ it.timeUtcMs }, { it.id })
+      .forEach { (time, ids) ->
+        val entry = ledger.find(DiaryLineIds.of(DiaryLineKind.DEPART, ids, time)) ?: return@forEach
+        if (!entry.deleted && entry.memoryDay.isNotEmpty()) memory.deleteDaily(entry.memoryDay, entry.memoryRecordId)
+      }
   }
 
   /** The local day's records from the daily log, oldest first. */
@@ -68,9 +94,23 @@ class DiaryComposer(
     return entry != null
   }
 
-  /** Same, from the daily-log record the timeline shows. False when the record is not a diary line. */
-  fun deleteRecord(memoryDay: String, recordId: String, countsAsStrike: Boolean = true): Boolean =
-    ledger.findByRecord(memoryDay, recordId)?.let { deleteLine(it.lineId, countsAsStrike) } ?: false
+  /**
+   * Same, from the daily-log record the timeline shows. False when the record is not a diary line. When the ledger row
+   * is missing (crash between append and recordWritten) and [tzOffsetMinutes] is given, the line id is recovered by
+   * re-rendering that day and matching the record, so the tombstone still lands.
+   */
+  fun deleteRecord(memoryDay: String, recordId: String, countsAsStrike: Boolean = true, tzOffsetMinutes: Int? = null): Boolean {
+    ledger.findByRecord(memoryDay, recordId)?.let { return deleteLine(it.lineId, countsAsStrike) }
+    val record = memory.readDay(memoryDay).firstOrNull { it.id == recordId }
+    if (record == null || tzOffsetMinutes == null || record.provenance != Provenance.INFERRED_FROM_USER_DATA) return false
+    val localDay = MemoryFormat.dayOf(record.atEpochMs + tzOffsetMinutes * 60_000L)
+    val line = renderDay(localDay, tzOffsetMinutes, DiaryStyle()).rendered.lines
+      .firstOrNull { it.timeUtcMs == record.atEpochMs && record.text.startsWith(it.text) } ?: return false
+    if (ledger.find(line.id)?.deleted == true) return false
+    memory.deleteDaily(memoryDay, recordId)
+    ledger.markDeleted(line.id, countsAsStrike)
+    return true
+  }
 
   /** The ledger line id behind a daily-log record; null when the record is not a live diary line. */
   fun lineIdOf(memoryDay: String, recordId: String): String? =

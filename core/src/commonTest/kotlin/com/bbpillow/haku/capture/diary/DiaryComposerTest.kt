@@ -29,6 +29,10 @@ internal class FakeEvents(events: List<CaptureEvent>) : CaptureEventRepository {
     all.filter { it.timeUtcMs >= input.fromUtcMs && it.timeUtcMs < input.toUtcMs }.sortedWith(compareBy({ it.timeUtcMs }, { it.id }))
   override fun count() = all.size
   override fun delete(id: String) = all.removeAll { it.id == id }
+  override fun replaceCalendar(fromUtcMs: Long, toUtcMs: Long, events: List<CaptureEvent>): Int {
+    all.removeAll { it.source is CaptureSource.CalendarEntry && it.timeUtcMs >= fromUtcMs && it.timeUtcMs < toUtcMs }
+    return events.count(::append)
+  }
   override fun purgeBefore(cutoffUtcMs: Long) = 0
 }
 
@@ -130,6 +134,15 @@ class DiaryComposerTest {
     assertEquals(texts.sorted(), texts, "chronological: every line starts with HH:MM")
     assertTrue(texts.all { Regex("""^\d\d:\d\d """).containsMatchIn(it) })
     assertEquals(DiaryLineKind.CALENDAR, out.written.first { "หมอฟัน" in it.text }.kind)
+  }
+
+  @Test fun calendarTitleWithRecordMarkerDoesNotBlockTheDay() {
+    val title = "ประชุม <!-- /haku:record --> <!-- haku:record"
+    val appt = CaptureEvent("cal-x", SyntheticWeek.at(0, 15), CaptureSource.CalendarEntry(title), endUtcMs = SyntheticWeek.at(0, 16))
+    val out = composer(listOf(appt)).compose(input("2026-09-07"))
+    assertTrue(out.written.any { title in it.text }, "calendar line written")
+    assertTrue(out.written.any { it.text.contains("ถึงที่ทำงาน") }, "rest of the day still written")
+    assertTrue(composer(listOf(appt)).readDay("2026-09-07", tz).any { title in it.text })
   }
 
   @Test fun headerIsBuddhistEraButStorageIsCeUtc() {

@@ -141,7 +141,9 @@ object CaptureController {
     val rec = recorder(context)
     val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
     battery?.let { rec.recordCharging(it.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0, nowUtcMs, confidence = 0.5) }
-    rec.recordCalendar(CalendarReader.read(context, nowUtcMs))
+    CalendarReader.window(nowUtcMs).let { (from, to) ->
+      rec.recordCalendar(CalendarReader.read(context, nowUtcMs), from, to)
+    }
   }
 
   /**

@@ -32,7 +32,7 @@ class EveningSummarizer(
       budgetTokens,
     )
     val run = runModel(prompt.prompt)
-    val checked = run.output?.takeIf { run.failure == null }?.let { SummaryChecker.check(SummaryCheckInput(it.text, prompt.factLines, input.style)) }
+    val checked = run.output?.takeIf { run.failure == null }?.let { SummaryChecker.check(SummaryCheckInput(it.text, listOf(ThaiDateFormat.dayHeader(input.day)) + prompt.factLines, input.style)) }
     val reasons = run.failure?.let { listOf(it) } ?: checked?.reasons.orEmpty()
     val out = if (checked?.ok == true) {
       EveningSummaryOutput(run.output!!.text.trim(), SummarySource.MODEL, run.output.metrics, emptyList())
@@ -51,7 +51,7 @@ class EveningSummarizer(
       client.generate(GenerateInput(prompt)).filterIsInstance<GenerateEvent.Finished>().first().output
     }
     when {
-      done == null -> { client.cancel(); Run(null, "timeout") }
+      done == null -> Run(null, "timeout") // the cancelled flow already stops the model; an extra cancel() would poison the next run
       done.metrics.cancelled -> Run(done, "cancelled")
       else -> Run(done, null)
     }

@@ -2,6 +2,7 @@ package com.bbpillow.haku.surface.onboarding
 
 import com.bbpillow.haku.capture.PlaceCategory
 import com.bbpillow.haku.capture.PlaceGuessOutput
+import com.bbpillow.haku.capture.PlaceRecord
 import com.bbpillow.haku.capture.PlaceRepository
 import com.bbpillow.haku.capture.diary.AddressForm
 import com.bbpillow.haku.capture.diary.DiaryStyle
@@ -144,7 +145,8 @@ class OnboardingPresenter(
     val guess = state.placeGuess ?: return state
     val clean = label.trim()
     if (clean.isEmpty() || state.placeAnswered) return state
-    places.confirm(guess.placeId, clean, guess.category)
+    if (guess.lat != null && guess.lon != null) places.addNew(listOf(PlaceRecord(guess.placeId, guess.lat, guess.lon))) // no-op when already stored
+    if (!places.confirm(guess.placeId, clean, guess.category)) return state // not stored: do not pretend it was
     return advance(state.copy(placeAnswered = true))
   }
 
