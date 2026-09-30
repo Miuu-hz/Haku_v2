@@ -43,7 +43,7 @@ import com.bbpillow.haku.surface.theme.HakuTone
  * the day-one empty state. State-hoisted: [state] comes from HomeBriefPresenter; tapping the story opens that day's
  * timeline (where every line shows its source). [isCapturing] = location capture is running (system status, A6).
  */
-// ponytail: no pinned-skill shortcuts, weekly card (A5) or model/charging-queue status yet; add with P4.x / P2.8 data.
+// ponytail: no pinned-skill shortcuts or model/charging-queue status yet; add with P4.x / P5.1.
 @Composable
 fun HomeBriefScreen(
   state: HomeBriefUiState,
@@ -62,6 +62,7 @@ fun HomeBriefScreen(
     item { ScreenTitle(state.headline, eyebrow = state.greeting) }
     item { StoryCard(state, onOpenDay) }
     state.stats?.let { stats -> item { StatsRow(stats) } }
+    state.weekly?.let { card -> item { WeeklyBoard(card) } }
     state.learning?.let { card -> item { LearningBoard(card, onReadLearning, onDismissLearning) } }
     item { CaptureStatus(isCapturing) }
   }
@@ -73,7 +74,13 @@ private fun StoryCard(state: HomeBriefUiState, onOpenDay: (String) -> Unit) {
     Text(state.storyTitle, style = MaterialTheme.typography.titleSmall)
     Text(state.storyHeader, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
     Spacer(Modifier.height(6.dp))
-    if (state.storyLines.isEmpty()) {
+    val summary = state.storySummary
+    if (summary != null) {
+      Text(summary, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
+      Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        StatChip("จากบันทึก ${state.storyLineCount} รายการ")
+      }
+    } else if (state.storyLines.isEmpty()) {
       val whose = if (state.period == BriefPeriod.MORNING) "ของเมื่อวาน" else "วันนี้"
       Text("ยังไม่มีสรุป$whose", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
     } else {
@@ -118,6 +125,17 @@ private fun StatsRow(stats: HomeStats) {
         Text("ก้าว", style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
       }
     }
+  }
+}
+
+/** A5: this week's measured lines; FREE sees a quiet note that the week-over-week comparison is Plus. */
+@Composable
+private fun WeeklyBoard(card: WeeklyCard) {
+  SurfaceCard(Modifier.fillMaxWidth()) {
+    Text("สรุปสัปดาห์นี้", style = MaterialTheme.typography.titleSmall)
+    Spacer(Modifier.height(6.dp))
+    card.lines.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted) }
+    if (card.comparisonLocked) StatChip("เทียบกับสัปดาห์ก่อนใน Haku Plus", Modifier.padding(top = 10.dp))
   }
 }
 

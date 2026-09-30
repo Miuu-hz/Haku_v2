@@ -7,6 +7,7 @@ import android.util.Log
 import com.bbpillow.haku.capture.CaptureEventStore
 import com.bbpillow.haku.capture.CaptureQueryInput
 import com.bbpillow.haku.capture.diary.DiaryComposeInput
+import com.bbpillow.haku.platform.NightlyWorker
 import com.bbpillow.haku.platform.capture.CaptureController
 import java.time.LocalDate
 import java.time.ZoneId
@@ -17,6 +18,7 @@ import java.time.ZoneId
  * ... -a com.bbpillow.haku.debug.STOP
  * ... -a com.bbpillow.haku.debug.DUMP  --es day 2026-10-01   (captured events of that local day; default today)
  * ... -a com.bbpillow.haku.debug.DIARY --es day 2026-10-01   (compose the rule-based diary for that day and print it)
+ * ... -a com.bbpillow.haku.debug.NIGHTLY   (run NightlyWorker once now, no charging/idle constraints; logcat tag HakuNightly)
  */
 class CaptureDebugReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
@@ -26,6 +28,7 @@ class CaptureDebugReceiver : BroadcastReceiver() {
       "com.bbpillow.haku.debug.STOP" -> CaptureController.stop(context)
       "com.bbpillow.haku.debug.DUMP" -> CaptureController.runAsync(this, context) { dump(context, day) }
       "com.bbpillow.haku.debug.DIARY" -> CaptureController.runAsync(this, context) { diary(context, day) }
+      "com.bbpillow.haku.debug.NIGHTLY" -> NightlyWorker.runNow(context)
     }
   }
 

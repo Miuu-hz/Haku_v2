@@ -13,7 +13,13 @@ import com.bbpillow.haku.capture.diary.DiaryStyle
 import com.bbpillow.haku.capture.diary.FakeEvents
 import com.bbpillow.haku.capture.diary.FakeLedger
 import com.bbpillow.haku.capture.diary.FakePlaces
+import com.bbpillow.haku.capture.stats.Entitlements
+import com.bbpillow.haku.capture.stats.Plan
+import com.bbpillow.haku.capture.stats.StatsSummarizer
 import com.bbpillow.haku.memory.MemoryStore
+import com.bbpillow.haku.thinking.summary.EveningSummaryRecord
+import com.bbpillow.haku.thinking.summary.EveningSummaryRepository
+import com.bbpillow.haku.thinking.summary.SummarySource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -22,6 +28,12 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
+
+private class MemSummaries(vararg records: EveningSummaryRecord) : EveningSummaryRepository {
+  private val byDay = records.associateBy { it.day }.toMutableMap()
+  override fun find(day: String) = byDay[day]
+  override fun save(record: EveningSummaryRecord) { byDay[record.day] = record }
+}
 
 class HomeBriefPresenterTest {
   private val tz = SyntheticWeek.TZ_OFFSET_MIN
@@ -36,10 +48,13 @@ class HomeBriefPresenterTest {
     places: List<PlaceRecord> = recognized.places,
     events: FakeEvents = FakeEvents(SyntheticWeek.events()),
     compose: Boolean = true,
+    summaries: EveningSummaryRepository = MemSummaries(),
+    plan: Plan = Plan.FREE,
   ): HomeBriefPresenter {
     val composer = DiaryComposer(events, FakePlaces(places), memory, FakeLedger())
     if (compose) composer.compose(DiaryComposeInput(tuesday, tz))
-    return HomeBriefPresenter(composer, events, FakePlaces(places), tz)
+    val entitlements = object : Entitlements { override val plan = plan }
+    return HomeBriefPresenter(composer, events, FakePlaces(places), tz, summaries, StatsSummarizer(entitlements))
   }
 
   private fun withConfirmedHome(): List<PlaceRecord> {
@@ -122,5 +137,38 @@ class HomeBriefPresenterTest {
     assertTrue(s.storyLines.isEmpty())
     assertFalse(s.isDayOne)
     assertNotNull(s.stats)
+  }
+
+  @Test fun storedSummaryReplacesTheDiaryLines() {
+    val text = "วันนี้ออกจากบ้านตอนเช้า แล้วไปทำงานครับ"
+    val s = presenter(summaries = MemSummaries(EveningSummaryRecord(tuesday, text, SummarySource.MODEL))).load(at(1, 20))
+    assertEquals(text, s.storySummary)
+    assertEquals(8, s.storyLineCount) // the source lines stay one tap away
+  }
+
+  @Test fun withoutASummaryTheDiaryLinesStay() {
+    val s = presenter().load(at(1, 20))
+    assertNull(s.storySummary)
+    assertEquals(HomeBriefPresenter.STORY_LINES, s.storyLines.size)
+  }
+
+  @Test fun summaryWithoutAnyDiaryLineIsNotShown() {
+    val stored = MemSummaries(EveningSummaryRecord(tuesday, "เรื่องที่ถูกลบไปแล้ว", SummarySource.TEMPLATE))
+    assertNull(presenter(compose = false, summaries = stored).load(at(1, 20)).storySummary)
+  }
+
+  @Test fun freePlanGetsThisWeekWithoutComparison() {
+    val card = assertNotNull(presenter().load(at(1, 20)).weekly)
+    assertTrue(card.comparisonLocked)
+    assertTrue(card.lines.first().startsWith("สัปดาห์นี้ มีข้อมูล 2 จาก 7 วัน"), card.lines.first())
+    assertTrue(card.lines.none { "สัปดาห์ก่อน" in it })
+  }
+
+  @Test fun plusPlanUnlocksTheComparison() {
+    assertFalse(assertNotNull(presenter(plan = Plan.PLUS).load(at(1, 20)).weekly).comparisonLocked)
+  }
+
+  @Test fun noWeeklyCardWithoutData() {
+    assertNull(presenter(emptyList(), FakeEvents(emptyList())).load(at(1, 20)).weekly)
   }
 }

@@ -11,6 +11,9 @@ import com.bbpillow.haku.capture.PlaceStore
 import com.bbpillow.haku.capture.diary.DiaryComposeInput
 import com.bbpillow.haku.capture.diary.DiaryComposer
 import com.bbpillow.haku.capture.diary.DiaryLedgerStore
+import com.bbpillow.haku.capture.stats.Entitlements
+import com.bbpillow.haku.capture.stats.Plan
+import com.bbpillow.haku.capture.stats.StatsSummarizer
 import com.bbpillow.haku.language.TextPipeline
 import com.bbpillow.haku.memory.MemoryFormat
 import com.bbpillow.haku.memory.MemoryStore
@@ -26,6 +29,7 @@ import com.bbpillow.haku.surface.onboarding.ProfileStore
 import com.bbpillow.haku.surface.timeline.TimelinePresenter
 import com.bbpillow.haku.thinking.ModelBackend
 import com.bbpillow.haku.thinking.ModelConfig
+import com.bbpillow.haku.thinking.summary.EveningSummaryStore
 import java.util.TimeZone
 import kotlin.math.ceil
 import kotlinx.coroutines.CoroutineScope
@@ -46,6 +50,9 @@ class AppGraph(private val app: Application) {
   /** Outlives activities (fold/unfold, backgrounding) so the model download keeps going. */
   val scope = CoroutineScope(SupervisorJob())
 
+  // ponytail: every install is FREE until billing exists; P9.4 replaces this with the Play Billing entitlement.
+  val entitlements = object : Entitlements { override val plan = Plan.FREE }
+
   val downloader by lazy { ModelDownloader(requireNotNull(app.getExternalFilesDir("models")) { "no app-specific storage" }, scope) }
 
   /** The stores and presenters. Touch only inside [io]: their constructors create tables. */
@@ -59,14 +66,16 @@ class AppGraph(private val app: Application) {
       SearchIndexStore(db, TextPipeline(IcuWordSegmenter())),
     )
     val diary = DiaryComposer(events, places, memory, DiaryLedgerStore(db))
-    val home = HomeBriefPresenter(diary, events, places, tz)
+    /** P2.7 evening summaries, one file per local day (written by NightlyWorker, read by Home). */
+    val summaries = EveningSummaryStore(FileSystem.SYSTEM, app.filesDir.resolve("summaries").path.toPath())
+    val home = HomeBriefPresenter(diary, events, places, tz, summaries, StatsSummarizer(entitlements))
     val timeline = TimelinePresenter(diary, memory, tz)
     val transparency = TransparencyPresenter(memory, tz)
     val onboarding = OnboardingPresenter(profile, places)
 
     /**
      * Writes the rule-based diary for a local day before a screen reads it. Idempotent (ledger), so calling it on
-     * every open is safe. ponytail: composed on view, not on a schedule; add a nightly job when nobody opens the app.
+     * every open is safe. Also run while charging by NightlyWorker, so the diary exists even when nobody opens the app.
      */
     fun compose(day: String) {
       diary.compose(DiaryComposeInput(day, tz, profile.load().style))
@@ -89,6 +98,8 @@ class AppGraph(private val app: Application) {
   /** Blocking variant for code already on the capture thread (debug receiver). */
   fun onCaptureThread(): Data = data
 
+  val tzOffsetMinutes: Int get() = tz
+
   fun today(nowUtcMs: Long): String = MemoryFormat.dayOf(nowUtcMs + tz * 60_000L)
 
   /** Whole GB as sold (a "12 GB" phone reports a bit under 12e9 bytes). */
@@ -98,7 +109,7 @@ class AppGraph(private val app: Application) {
     return ceil(info.totalMem / 1e9).toInt()
   }
 
-  /** Where a LiteRtLocalModel loads from (debug SpikeActivity now; P2.7 summary next), once the chosen model is fully downloaded; null before that. */
+  /** Where a LiteRtLocalModel loads from (debug spikes, NightlyWorker), once the chosen model is fully downloaded; null before that. */
   suspend fun modelConfig(): ModelConfig? {
     val file = downloader.file(io { profile.load().model }).takeIf { it.exists() } ?: return null
     // ponytail: GPU as in the P0.4 spike; fall back to CPU when the Fold5 numbers say so
