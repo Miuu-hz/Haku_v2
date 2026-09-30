@@ -6,19 +6,13 @@ import android.content.Intent
 import android.util.Log
 import com.bbpillow.haku.capture.CaptureEventStore
 import com.bbpillow.haku.capture.CaptureQueryInput
-import com.bbpillow.haku.capture.PlaceStore
 import com.bbpillow.haku.capture.diary.DiaryComposeInput
-import com.bbpillow.haku.capture.diary.DiaryComposer
-import com.bbpillow.haku.capture.diary.DiaryLedgerStore
-import com.bbpillow.haku.memory.MemoryStore
 import com.bbpillow.haku.platform.capture.CaptureController
 import java.time.LocalDate
 import java.time.ZoneId
-import okio.FileSystem
-import okio.Path.Companion.toPath
 
 /**
- * Debug-only switch for capture until onboarding exists (docs/permissions.md). Output goes to logcat tag HakuCapture.
+ * Debug-only capture switch (onboarding starts capture in the real app) (docs/permissions.md). Output goes to logcat tag HakuCapture.
  * adb shell am broadcast -n com.bbpillow.haku/.CaptureDebugReceiver -a com.bbpillow.haku.debug.START
  * ... -a com.bbpillow.haku.debug.STOP
  * ... -a com.bbpillow.haku.debug.DUMP  --es day 2026-10-01   (captured events of that local day; default today)
@@ -46,9 +40,8 @@ class CaptureDebugReceiver : BroadcastReceiver() {
   }
 
   private fun diary(context: Context, day: String) {
-    val db = CaptureController.connection(context)
-    val memory = MemoryStore(FileSystem.SYSTEM, context.filesDir.resolve("memory").path.toPath())
-    val composer = DiaryComposer(CaptureEventStore(db), PlaceStore(db), memory, DiaryLedgerStore(db))
+    // runAsync already runs on the capture thread, where the app graph's stores live
+    val composer = (context.applicationContext as HakuApplication).graph.onCaptureThread().diary
     val tz = ZoneId.systemDefault().rules.getOffset(LocalDate.parse(day).atStartOfDay()).totalSeconds / 60
     val out = composer.compose(DiaryComposeInput(day, tz))
     Log.i(TAG, "DIARY ${out.header} written=${out.written.size} existing=${out.existing} suppressed=${out.suppressed}")

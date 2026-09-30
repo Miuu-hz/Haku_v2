@@ -1,53 +1,83 @@
 package com.bbpillow.haku
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.bbpillow.haku.surface.theme.HakuColors
-import com.bbpillow.haku.surface.theme.HakuRadius
+import androidx.fragment.app.FragmentActivity
+import com.bbpillow.haku.platform.BiometricLock
+import com.bbpillow.haku.surface.components.CapsuleButton
+import com.bbpillow.haku.surface.components.ScreenBackdrop
+import com.bbpillow.haku.surface.onboarding.AppStart
+import com.bbpillow.haku.surface.onboarding.ProfileRecord
+import com.bbpillow.haku.surface.onboarding.StartScreen
 import com.bbpillow.haku.surface.theme.HakuTheme
+import kotlinx.coroutines.CancellationException
 
-// ponytail: placeholder screen to prove the build and theme on device; replaced by P0.4 spike screens.
-// ponytail: TimelineScreen/TransparencyScreen (P3.2/P3.4) are not wired here yet; they only run on fake data in the
-// debug ShowcaseActivity. Wire them with TimelinePresenter(DiaryComposer, MemoryStore, tz) and
-// TransparencyPresenter(MemoryStore, tz) once app navigation exists; call the presenters off the main thread (file IO).
-class MainActivity : ComponentActivity() {
+/** The app: onboarding until done, then the D11 lock if on, then Home / Timeline / Memory. FragmentActivity for BiometricPrompt. */
+class MainActivity : FragmentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
+    val graph = (application as HakuApplication).graph
     setContent {
       HakuTheme {
-        Column(
-          Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding().padding(20.dp),
-          verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-          Text("Haku", style = MaterialTheme.typography.displayLarge)
-          Surface(shape = HakuRadius.Card, color = HakuColors.Surface, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-              Text("บันทึกชีวิตให้เองโดยไม่ต้องสั่ง", style = MaterialTheme.typography.titleMedium)
-              Text("โครง KMP พร้อมแล้ว · P0.4 กำลังเริ่ม", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
-            }
-          }
-          Box(Modifier.background(HakuColors.Gradient, HakuRadius.Pill).padding(horizontal = 18.dp, vertical = 10.dp)) {
-            Text("ธีมจาก haku-mockup.html", style = MaterialTheme.typography.labelLarge, color = Color.White)
-          }
+        // safeDrawingPadding consumes the insets, so the screens below do not pad twice
+        ScreenBackdrop(Modifier.fillMaxSize()) {
+          Box(Modifier.fillMaxSize().safeDrawingPadding()) { AppRoot(graph, this@MainActivity) }
         }
       }
     }
   }
+}
+
+@Composable
+private fun AppRoot(graph: AppGraph, activity: FragmentActivity) {
+  var record by remember { mutableStateOf<ProfileRecord?>(null) }
+  var unlocked by rememberSaveable { mutableStateOf(false) }
+  LaunchedEffect(Unit) { record = graph.safeIo { profile.load() } ?: ProfileRecord() }
+  val profile = record ?: return
+  when (AppStart.screen(profile, unlocked)) {
+    StartScreen.ONBOARDING -> OnboardingHost(graph, activity) { done ->
+      unlocked = true // they just passed the prompt while turning the lock on
+      record = done
+    }
+    StartScreen.LOCKED -> LockGate(activity) { unlocked = true }
+    StartScreen.MAIN -> {
+      LaunchedEffect(Unit) { graph.downloader.resumeIfPartial(profile.model) }
+      MainShell(graph, activity)
+    }
+  }
+}
+
+@Composable
+private fun LockGate(activity: FragmentActivity, onUnlocked: () -> Unit) {
+  val ask = { BiometricLock.prompt(activity, "ปลดล็อก Haku") { if (it) onUnlocked() } }
+  // screen lock removed since: nothing left to check against, so the gate cannot hold
+  LaunchedEffect(Unit) { if (BiometricLock.available(activity)) ask() else onUnlocked() }
+  Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) { CapsuleButton("ปลดล็อก", ask) }
+}
+
+/** [AppGraph.io] that logs and returns null on failure, for screen loads: a broken read leaves the screen as it was. */
+suspend fun <T> AppGraph.safeIo(block: AppGraph.Data.() -> T): T? = try {
+  io(block)
+} catch (e: CancellationException) {
+  throw e
+} catch (e: Exception) {
+  Log.e("HakuShell", "data call failed", e)
+  null
 }

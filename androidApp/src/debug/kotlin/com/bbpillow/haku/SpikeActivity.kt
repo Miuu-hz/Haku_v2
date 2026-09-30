@@ -36,13 +36,16 @@ private val PROMPTS = listOf(
 class SpikeActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    val modelPath = intent.getStringExtra("model") ?: "/data/local/tmp/haku/gemma-4-E2B-it.litertlm"
+    val explicitPath = intent.getStringExtra("model")
     val backend = if (intent.getStringExtra("backend").equals("cpu", ignoreCase = true)) ModelBackend.Cpu else ModelBackend.Gpu
     setContent {
       val lines = remember { mutableStateListOf<String>() }
       fun say(s: String) { Log.i(TAG, s); lines += s }
       LaunchedEffect(Unit) {
         val client = LocalModelClient(LiteRtLocalModel())
+        // no --es model: the file onboarding downloaded (AppGraph.modelConfig), else the adb-pushed one
+        val modelPath = explicitPath ?: (application as HakuApplication).graph.modelConfig()?.modelPath
+          ?: "/data/local/tmp/haku/gemma-4-E2B-it.litertlm"
         try {
           say("model=$modelPath backend=$backend device=${android.os.Build.MODEL}")
           val cache = if (modelPath.startsWith("/data/local/tmp")) getExternalFilesDir(null)?.absolutePath else null
