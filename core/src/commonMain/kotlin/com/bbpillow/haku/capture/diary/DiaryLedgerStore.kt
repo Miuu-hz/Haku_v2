@@ -73,6 +73,11 @@ class DiaryLedgerStore(private val db: SQLiteConnection) : DiaryLedgerRepository
     run("DELETE FROM diary_type_strikes WHERE type_key = ?") { it.bindText(1, typeKey) }
   }
 
+  override fun clear() {
+    db.execSQL("DELETE FROM diary_lines")
+    db.execSQL("DELETE FROM diary_type_strikes")
+  }
+
   private fun typeKeyOf(lineId: String): String =
     db.prepare("SELECT type_key FROM diary_lines WHERE id = ?").use { st ->
       st.bindText(1, lineId)

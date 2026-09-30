@@ -58,6 +58,8 @@ class PlaceStore(private val db: SQLiteConnection) : PlaceRepository {
     changes() > 0
   }
 
+  override fun deleteAll() { inTransaction { run("DELETE FROM places") {} } }
+
   private fun changes(): Long = db.prepare("SELECT changes()").use { it.step(); it.getLong(0) }
 
   private fun run(sql: String, bind: (SQLiteStatement) -> Unit) = db.prepare(sql).use { bind(it); it.step() }

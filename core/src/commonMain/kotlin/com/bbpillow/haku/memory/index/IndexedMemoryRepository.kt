@@ -41,6 +41,14 @@ class IndexedMemoryRepository(
   override fun deleteCoreFact(category: String, id: String): Boolean =
     delegate.deleteCoreFact(category, id).also { if (it) index.remove(MemoryRef(MemoryLevel.CORE, category, id).key) }
 
+  override fun deleteCategory(category: String): Boolean =
+    delegate.deleteCategory(category).also { index.removeGroup(MemoryLevel.CORE, category) }
+
+  override fun deleteAll() {
+    delegate.deleteAll()
+    index.clear()
+  }
+
   override fun addStanding(input: NoteInput): MemoryRecord = delegate.addStanding(input).indexAs(MemoryLevel.STANDING, "")
 
   override fun deleteStanding(id: String): Boolean =

@@ -26,4 +26,7 @@ interface DiaryLedgerRepository {
 
   /** Settings: let the diary write this type again (strikes reset to zero). */
   fun unsuppress(typeKey: String)
+
+  /** Forget everything: tombstones and strikes go too. Safe only because the capture events behind them are forgotten. */
+  fun clear()
 }

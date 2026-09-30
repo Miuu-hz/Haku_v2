@@ -80,6 +80,8 @@ class MemoryStore(
     }
   }
 
+  override fun deleteCategory(category: String): Boolean = remove(corePath(category))
+
   // standing instructions
   override fun addStanding(input: NoteInput): MemoryRecord {
     requirePermanent(input.provenance)
@@ -106,6 +108,15 @@ class MemoryStore(
   override fun readDreamReport(day: String): String? {
     val path = root / "dreams" / "${checkDay(day)}.md"
     return if (fs.exists(path)) fs.read(path) { readUtf8() } else null
+  }
+
+  override fun listDreamDays(): List<String> =
+    if (fs.exists(root / "dreams")) fs.list(root / "dreams").map { it.name }.filter { it.endsWith(".md") }
+      .map { it.removeSuffix(".md") }.filter(dayRule::matches).sorted() else emptyList()
+
+  override fun deleteAll() {
+    listOf("daily", "core", "dreams").forEach { fs.deleteRecursively(root / it, mustExist = false) }
+    listOf(standingPath, intentionsPath).forEach { fs.delete(it, mustExist = false) }
   }
 
   // helpers

@@ -33,6 +33,8 @@ private class MemSummaries(vararg records: EveningSummaryRecord) : EveningSummar
   private val byDay = records.associateBy { it.day }.toMutableMap()
   override fun find(day: String) = byDay[day]
   override fun save(record: EveningSummaryRecord) { byDay[record.day] = record }
+  override fun delete(day: String) = byDay.remove(day) != null
+  override fun clear() = byDay.clear()
 }
 
 class HomeBriefPresenterTest {

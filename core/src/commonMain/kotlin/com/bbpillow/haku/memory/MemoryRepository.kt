@@ -30,6 +30,9 @@ interface MemoryRepository {
   fun readCategory(category: String): List<MemoryRecord>
   fun listCategories(): List<CategorySummary>
 
+  /** "Forget this whole category": the core file goes. False when it had no file. */
+  fun deleteCategory(category: String): Boolean
+
   // standing instructions (long-term)
   fun addStanding(input: NoteInput): MemoryRecord
   fun readStanding(): List<MemoryRecord>
@@ -43,4 +46,10 @@ interface MemoryRepository {
   // dream report
   fun writeDreamReport(day: String, text: String)
   fun readDreamReport(day: String): String?
+
+  /** UTC days that have a dream report, ascending (export needs them). */
+  fun listDreamDays(): List<String>
+
+  /** "Forget everything": daily, core, standing, intentions and dream files all go. */
+  fun deleteAll()
 }

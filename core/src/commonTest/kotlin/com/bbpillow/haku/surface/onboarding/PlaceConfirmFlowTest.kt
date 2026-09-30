@@ -36,6 +36,7 @@ private class MemPlaces : PlaceRepository {
     return true
   }
   override fun delete(id: String) = rows.remove(id) != null
+  override fun deleteAll() = rows.clear()
 }
 
 /** The whole B7 path on real presenters: guess -> confirm -> stored -> diary names it -> home brief measures it. */
@@ -73,6 +74,8 @@ class PlaceConfirmFlowTest {
       object : EveningSummaryRepository {
         override fun find(day: String): EveningSummaryRecord? = null
         override fun save(record: EveningSummaryRecord) = Unit
+        override fun delete(day: String) = false
+        override fun clear() = Unit
       },
       StatsSummarizer(object : Entitlements { override val plan = Plan.FREE }),
     ).load(at(1, 20)).stats

@@ -23,4 +23,10 @@ interface CaptureEventRepository {
 
   /** Age-based retention. Not a user deletion, so nothing is remembered. Returns rows removed. */
   fun purgeBefore(cutoffUtcMs: Long): Int
+
+  /**
+   * "Forget everything": every stored event is deleted AND its id tombstoned, so a calendar re-read or a replayed
+   * sensor batch cannot bring it back. Returns rows removed. Earlier tombstones stay (they hold ids only, no content).
+   */
+  fun forgetAll(): Int
 }

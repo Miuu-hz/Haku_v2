@@ -34,6 +34,7 @@ internal class FakeEvents(events: List<CaptureEvent>) : CaptureEventRepository {
     return events.count(::append)
   }
   override fun purgeBefore(cutoffUtcMs: Long) = 0
+  override fun forgetAll() = all.size.also { all.clear() }
 }
 
 internal class FakePlaces(private val places: List<PlaceRecord>) : PlaceRepository {
@@ -41,6 +42,7 @@ internal class FakePlaces(private val places: List<PlaceRecord>) : PlaceReposito
   override fun addNew(places: List<PlaceRecord>) = 0
   override fun confirm(id: String, label: String, category: PlaceCategory) = false
   override fun delete(id: String) = false
+  override fun deleteAll() = Unit
 }
 
 internal class FakeLedger : DiaryLedgerRepository {
@@ -70,6 +72,7 @@ internal class FakeLedger : DiaryLedgerRepository {
   override fun isSuppressed(typeKey: String) = (strikes[typeKey] ?: 0) >= DiaryThresholds.SUPPRESS_AFTER_DELETES
   override fun suppressedTypes() = strikes.filter { it.value >= DiaryThresholds.SUPPRESS_AFTER_DELETES }.map { SuppressedLineType(it.key, it.value) }
   override fun unsuppress(typeKey: String) { strikes.remove(typeKey) }
+  override fun clear() { rows.clear(); typeOf.clear(); strikes.clear() }
 }
 
 class DiaryComposerTest {

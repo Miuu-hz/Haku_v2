@@ -23,6 +23,7 @@ import com.bbpillow.haku.platform.IcuWordSegmenter
 import com.bbpillow.haku.platform.ModelDownloader
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.surface.home.HomeBriefPresenter
+import com.bbpillow.haku.surface.memory.ForgetEverything
 import com.bbpillow.haku.surface.memory.TransparencyPresenter
 import com.bbpillow.haku.surface.onboarding.OnboardingPresenter
 import com.bbpillow.haku.surface.onboarding.ProfileStore
@@ -65,12 +66,13 @@ class AppGraph(private val app: Application) {
       MemoryStore(FileSystem.SYSTEM, app.filesDir.resolve("memory").path.toPath()),
       SearchIndexStore(db, TextPipeline(IcuWordSegmenter())),
     )
-    val diary = DiaryComposer(events, places, memory, DiaryLedgerStore(db))
+    val ledger = DiaryLedgerStore(db)
+    val diary = DiaryComposer(events, places, memory, ledger)
     /** P2.7 evening summaries, one file per local day (written by NightlyWorker, read by Home). */
     val summaries = EveningSummaryStore(FileSystem.SYSTEM, app.filesDir.resolve("summaries").path.toPath())
     val home = HomeBriefPresenter(diary, events, places, tz, summaries, StatsSummarizer(entitlements))
-    val timeline = TimelinePresenter(diary, memory, tz)
-    val transparency = TransparencyPresenter(memory, tz)
+    val timeline = TimelinePresenter(diary, memory, summaries, tz)
+    val transparency = TransparencyPresenter(memory, ForgetEverything(events, places, ledger, summaries, memory), tz)
     val onboarding = OnboardingPresenter(profile, places)
 
     /**
