@@ -1,5 +1,10 @@
 package com.bbpillow.haku.surface.onboarding
 
+import com.bbpillow.haku.thinking.summary.EveningSummaryRepository
+import com.bbpillow.haku.thinking.summary.EveningSummaryRecord
+import com.bbpillow.haku.capture.stats.StatsSummarizer
+import com.bbpillow.haku.capture.stats.Entitlements
+import com.bbpillow.haku.capture.stats.Plan
 import com.bbpillow.haku.capture.CaptureQueryInput
 import com.bbpillow.haku.capture.PlaceCategory
 import com.bbpillow.haku.capture.PlaceRecognitionInput
@@ -63,7 +68,14 @@ class PlaceConfirmFlowTest {
     assertTrue(lines.any { it.startsWith("20:00 ถึงบ้าน") }, lines.toString())
     assertTrue(lines.any { it.contains("ถึงที่ทำงาน") }, lines.toString())
 
-    val stats = HomeBriefPresenter(composer, events, places, tz).load(at(1, 20)).stats
+    val stats = HomeBriefPresenter(
+      composer, events, places, tz,
+      object : EveningSummaryRepository {
+        override fun find(day: String): EveningSummaryRecord? = null
+        override fun save(record: EveningSummaryRecord) = Unit
+      },
+      StatsSummarizer(object : Entitlements { override val plan = Plan.FREE }),
+    ).load(at(1, 20)).stats
     assertNotNull(assertNotNull(stats).outOfHomeFraction)
   }
 
