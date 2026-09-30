@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.os.BatteryManager
 import android.util.Log
 import androidx.sqlite.SQLiteConnection
+import com.bbpillow.haku.BuildConfig
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.bbpillow.haku.capture.CaptureEvent
 import com.bbpillow.haku.capture.CaptureEventStore
@@ -65,6 +66,7 @@ object CaptureController {
   val dispatcher: CoroutineDispatcher = io.asCoroutineDispatcher()
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
   private var connection: SQLiteConnection? = null
+  @Volatile private var loggedNoBackground = false
   private var recorder: CaptureRecorder? = null
 
   fun isEnabled(context: Context) = prefs(context).getBoolean(KEY_ENABLED, false)
@@ -191,6 +193,12 @@ object CaptureController {
   private fun fence(context: Context, place: EventPlace) {
     if (!has(context, Manifest.permission.ACCESS_FINE_LOCATION)) {
       Log.w(TAG, "ACCESS_FINE_LOCATION not granted, no geofence")
+      return
+    }
+    // Geofence transitions need "allow all the time"; without it addGeofences fails, so leave it to activity transitions
+    if (!has(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
+      if (BuildConfig.DEBUG && !loggedNoBackground) Log.i(TAG, "ACCESS_BACKGROUND_LOCATION not granted, no geofence; activity transitions only")
+      loggedNoBackground = true
       return
     }
     val geofence = Geofence.Builder()
