@@ -32,10 +32,11 @@
     <receiver
       android:name=".platform.capture.LocationWakeReceiver"
       android:exported="false" />
-    <!-- Re-register after reboot / update; acts only if capture was started before. -->
+    <!-- Re-register after reboot / update; acts only if capture was started before.
+         Not exported: the system still delivers BOOT_COMPLETED / MY_PACKAGE_REPLACED, other apps cannot trigger it. -->
     <receiver
       android:name=".platform.capture.BootReceiver"
-      android:exported="true">
+      android:exported="false">
       <intent-filter>
         <action android:name="android.intent.action.BOOT_COMPLETED" />
         <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
