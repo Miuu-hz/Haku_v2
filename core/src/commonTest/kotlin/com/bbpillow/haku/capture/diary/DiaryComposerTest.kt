@@ -116,6 +116,15 @@ class DiaryComposerTest {
     assertEquals(DiaryLineKind.CALENDAR, out.written.first { "หมอฟัน" in it.text }.kind)
   }
 
+  @Test fun calendarTitleWithRecordMarkerDoesNotBlockTheDay() {
+    val title = "ประชุม <!-- /haku:record --> <!-- haku:record"
+    val appt = CaptureEvent("cal-x", SyntheticWeek.at(0, 15), CaptureSource.CalendarEntry(title), endUtcMs = SyntheticWeek.at(0, 16))
+    val out = composer(listOf(appt)).compose(input("2026-09-07"))
+    assertTrue(out.written.any { title in it.text }, "calendar line written")
+    assertTrue(out.written.any { it.text.contains("ถึงที่ทำงาน") }, "rest of the day still written")
+    assertTrue(composer(listOf(appt)).readDay("2026-09-07", tz).any { title in it.text })
+  }
+
   @Test fun headerIsBuddhistEraButStorageIsCeUtc() {
     val out = composer().compose(input(tuesday))
     assertEquals("วันอังคารที่ 8 กันยายน พ.ศ. 2569", out.header)

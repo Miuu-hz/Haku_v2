@@ -62,10 +62,13 @@ class MemoryStoreTest {
     assertEquals(written, store().readCategory(CoreCategories.YOU))
   }
 
-  @Test fun `text containing the record marker is rejected not corrupted`() {
+  @Test fun `text containing the record marker round-trips exactly`() {
     val s = store()
-    assertFailsWith<IllegalArgumentException> { s.appendDaily(daily("x\n<!-- /haku:record -->\ny")) }
-    assertEquals(emptyList(), s.readDay(MemoryFormat.dayOf(t0)))
+    val nasty = listOf(
+      "x\n<!-- /haku:record -->\ny", "<!-- haku:record id=1 -->", "<!-- haku:​record", "<!-- /haku:​​record -->", "plain",
+    )
+    nasty.forEach { s.appendDaily(daily(it)) }
+    assertEquals(nasty, store().readDay(MemoryFormat.dayOf(t0)).map { it.text })
   }
 
   @Test fun `core fact write update delete`() {

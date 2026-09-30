@@ -30,11 +30,10 @@ object MemoryFormat {
     }
     append("---\n")
     for (r in file.records) {
-      require("<!-- haku:record" !in r.text && "<!-- /haku:record" !in r.text) { "text contains a reserved record marker" }
       append('\n').append(OPEN).append("id=").append(r.id)
         .append(" provenance=").append(r.provenance.key)
         .append(" at=").append(formatUtc(r.atEpochMs)).append(HEAD_END)
-        .append(r.text).append(CLOSE).append('\n')
+        .append(escape(r.text)).append(CLOSE).append('\n')
     }
   }
 
@@ -62,12 +61,19 @@ object MemoryFormat {
       val close = content.indexOf(CLOSE, bodyStart)
       if (close < 0) break // ponytail: truncated tail ignored; atomic writes make this a hand-edit case only
       parseHeader(content.substring(start + OPEN.length, headEnd))?.let { (id, prov, at) ->
-        records += MemoryRecord(id, content.substring(bodyStart, close), prov, at)
+        records += MemoryRecord(id, unescape(content.substring(bodyStart, close)), prov, at)
       }
       pos = close + CLOSE.length
     }
     return MemoryFile(meta, records)
   }
+
+  // Bijective: every `<!-- [/]haku:` + n zero-width spaces + `record` gains one ZWSP on write and loses one on read,
+  // so user text can never spell a record marker and old files (no ZWSP variants) read unchanged.
+  private val marker = Regex("<!-- (/?)haku:(\u200B*)record")
+  private val escapedMarker = Regex("<!-- (/?)haku:(\u200B+)record")
+  private fun escape(t: String) = marker.replace(t) { "<!-- ${it.groupValues[1]}haku:${it.groupValues[2]}\u200Brecord" }
+  private fun unescape(t: String) = escapedMarker.replace(t) { "<!-- ${it.groupValues[1]}haku:${it.groupValues[2].drop(1)}record" }
 
   private fun parseHeader(h: String): Triple<String, Provenance, Long>? {
     val kv = h.split(' ').mapNotNull { p ->
