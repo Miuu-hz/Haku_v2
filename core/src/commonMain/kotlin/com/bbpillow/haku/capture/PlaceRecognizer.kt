@@ -133,13 +133,13 @@ object PlaceRecognizer {
     if (!homeKnown) {
       best(candidates) { stats(it.id, PlaceThresholds.NIGHT_START_HOUR, PlaceThresholds.NIGHT_LENGTH_HOURS, false) }?.let { (p, days) ->
         homeId = p.id
-        guesses += PlaceGuessOutput(p.id, PlaceCategory.HOME, days)
+        guesses += PlaceGuessOutput(p.id, PlaceCategory.HOME, days, p.lat, p.lon)
       }
     }
     if (!workKnown) {
       best(candidates.filter { it.id != homeId }) {
         stats(it.id, PlaceThresholds.WORK_START_HOUR, PlaceThresholds.WORK_LENGTH_HOURS, true)
-      }?.let { (p, days) -> guesses += PlaceGuessOutput(p.id, PlaceCategory.WORK, days) }
+      }?.let { (p, days) -> guesses += PlaceGuessOutput(p.id, PlaceCategory.WORK, days, p.lat, p.lon) }
     }
     return guesses
   }

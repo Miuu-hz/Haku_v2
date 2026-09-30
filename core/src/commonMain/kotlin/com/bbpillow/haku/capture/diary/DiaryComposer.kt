@@ -30,6 +30,8 @@ class DiaryComposer(
   fun compose(input: DiaryComposeInput): DiaryComposeOutput {
     val (start, end) = window(input.day, input.tzOffsetMinutes)
     val (captured, recognized, rendered) = renderDay(input.day, input.tzOffsetMinutes, input.style)
+    // persist what was recognised so ids stay stable next run and a later confirmation has a row (existing rows untouched)
+    places.addNew(recognized.places)
     removeSupersededDepartures(captured, recognized.visits.map { it.endUtcMs }.toSet(), start, end)
 
     val written = mutableListOf<DiaryLineRecord>()
