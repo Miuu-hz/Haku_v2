@@ -26,6 +26,8 @@ private class MemSummaries : EveningSummaryRepository {
   var saves = 0
   override fun find(day: String) = rows[day]
   override fun save(record: EveningSummaryRecord) { rows[record.day] = record; saves++ }
+  override fun delete(day: String) = rows.remove(day) != null
+  override fun clear() = rows.clear()
 }
 
 private class ScriptedModel(private val replies: MutableList<String>) : LocalModel {
