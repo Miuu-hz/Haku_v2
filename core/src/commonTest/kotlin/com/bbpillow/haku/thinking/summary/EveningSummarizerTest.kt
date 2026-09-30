@@ -147,6 +147,12 @@ class EveningSummarizerTest {
     assertTrue(ok)
   }
 
+  @Test fun `a reply that repeats the prompt header date passes the check`() = runTest {
+    val reply = "วันจันทร์ที่ 7 กันยายน พ.ศ. 2569 ออกจากบ้านตอน 08:30 แล้วถึงที่ทำงานตอน 09:10 ใช้เวลาเดินทางราว 40 นาทีครับ"
+    val out = summarizer(ScriptedModel(mutableListOf(reply))).summarize(input())
+    assertEquals(SummarySource.MODEL, out.source, out.rejectedReasons.toString())
+  }
+
   @Test fun `a timeout does not poison the next model run`() = runTest {
     val s = EveningSummarizer(LocalModelClient(SlowThenFastModel(good)), repo, timeoutMillis = 1_000)
     val first = s.summarize(input())
