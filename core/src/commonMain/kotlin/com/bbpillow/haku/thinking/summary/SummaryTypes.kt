@@ -39,6 +39,12 @@ data class EveningSummaryRecord(
 interface EveningSummaryRepository {
   fun find(day: String): EveningSummaryRecord?
   fun save(record: EveningSummaryRecord)
+
+  /** Drop one day's summary (its source diary line was deleted or edited); the nightly job writes a fresh one. */
+  fun delete(day: String): Boolean
+
+  /** Forget everything: drop every stored summary. */
+  fun clear()
 }
 
 data class SummaryPromptInput(val header: String, val lines: List<String>, val style: DiaryStyle, val contextLines: List<String>)

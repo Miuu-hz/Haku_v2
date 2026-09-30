@@ -12,6 +12,7 @@ import com.bbpillow.haku.capture.diary.FakePlaces
 import com.bbpillow.haku.capture.diary.LineTypeKey
 import com.bbpillow.haku.capture.diary.PlaceRef
 import com.bbpillow.haku.memory.MemoryStore
+import com.bbpillow.haku.thinking.summary.FakeSummaries
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -32,7 +33,7 @@ class LineSuppressionTest {
     PlaceRecognitionInput(PlaceRecognizer.pairDwells(SyntheticWeek.events()), emptyList(), tz),
   ).places
   private val composer = DiaryComposer(FakeEvents(SyntheticWeek.events()), FakePlaces(places), memory, ledger)
-  private val presenter = TimelinePresenter(composer, memory, tz)
+  private val presenter = TimelinePresenter(composer, memory, FakeSummaries(), tz)
 
   private fun compose(day: String) = composer.compose(DiaryComposeInput(day, tz))
   private fun officeArrival(day: String) = presenter.load(day, today).lines.firstOrNull { it.time == "09:00" }

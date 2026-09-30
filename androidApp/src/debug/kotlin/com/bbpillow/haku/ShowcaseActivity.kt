@@ -163,6 +163,7 @@ private object NoPlaces : PlaceRepository {
   override fun addNew(places: List<PlaceRecord>) = 0
   override fun confirm(id: String, label: String, category: PlaceCategory) = true
   override fun delete(id: String) = false
+  override fun deleteAll() = Unit
 }
 
 /** The real presenter over in-memory fakes; OS side effects are simulated (grant all, instant 64% download, lock on). */

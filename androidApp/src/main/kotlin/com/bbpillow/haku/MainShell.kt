@@ -1,6 +1,8 @@
 package com.bbpillow.haku
 
 import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,8 +18,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.bbpillow.haku.platform.capture.CaptureController
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.bbpillow.haku.surface.components.FloatingNav
 import com.bbpillow.haku.surface.components.HakuIcons
 import com.bbpillow.haku.surface.components.NavItem
@@ -99,12 +104,23 @@ private fun TimelineTab(graph: AppGraph, selected: String?, onSelectDay: (String
 @Composable
 private fun MemoryTab(graph: AppGraph) {
   val scope = rememberCoroutineScope()
+  val context = LocalContext.current
   var state by remember { mutableStateOf<TransparencyUiState?>(null) }
   LaunchedEffect(Unit) { state = graph.safeIo { transparency.load() } }
+  // SAF: the user picks where the file goes; nothing is sent anywhere (not egress)
+  val picker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
+    if (uri != null) scope.launch {
+      val text = graph.safeIo { transparency.exportMarkdown() } ?: return@launch
+      withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(text.toByteArray()) } }
+    }
+  }
   val s = state ?: return
   TransparencyScreen(
     s,
     onForget = { fact -> scope.launch { graph.safeIo { transparency.forget(fact) }?.let { state = it } } },
+    onForgetCategory = { slug -> scope.launch { graph.safeIo { transparency.forgetCategory(slug) }?.let { state = it } } },
+    onForgetEverything = { scope.launch { graph.safeIo { transparency.forgetEverything() }?.let { state = it } } },
+    onExport = { picker.launch("haku-memory.md") },
     contentPadding = TabPadding,
   )
 }

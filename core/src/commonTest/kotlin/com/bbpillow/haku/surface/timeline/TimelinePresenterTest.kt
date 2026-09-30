@@ -10,10 +10,15 @@ import com.bbpillow.haku.capture.diary.FakeLedger
 import com.bbpillow.haku.capture.diary.FakePlaces
 import com.bbpillow.haku.memory.DailyEventInput
 import com.bbpillow.haku.memory.MemoryStore
+import com.bbpillow.haku.thinking.summary.EveningSummaryRecord
+import com.bbpillow.haku.thinking.summary.FakeSummaries
+import com.bbpillow.haku.thinking.summary.SummarySource
 import com.bbpillow.haku.memory.Provenance
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
@@ -29,7 +34,8 @@ class TimelinePresenterTest {
     PlaceRecognitionInput(PlaceRecognizer.pairDwells(SyntheticWeek.events()), emptyList(), tz),
   ).places
   private val composer = DiaryComposer(FakeEvents(SyntheticWeek.events()), FakePlaces(places), memory, ledger)
-  private val presenter = TimelinePresenter(composer, memory, tz)
+  private val summaries = FakeSummaries(summary(tuesday), summary("2026-09-09"))
+  private val presenter = TimelinePresenter(composer, memory, summaries, tz)
 
   private fun composeTuesday() = composer.compose(DiaryComposeInput(tuesday, tz))
 
@@ -53,7 +59,7 @@ class TimelinePresenterTest {
     val again = composeTuesday()
     assertTrue(again.written.isEmpty())
     assertEquals(1, again.suppressed)
-    val reloaded = TimelinePresenter(composer, memory, tz).load(tuesday, today)
+    val reloaded = TimelinePresenter(composer, memory, FakeSummaries(), tz).load(tuesday, today)
     assertEquals(after.lines, reloaded.lines)
   }
 
@@ -107,4 +113,38 @@ class TimelinePresenterTest {
     assertEquals(30, state.dates.size)
     assertEquals(TimelineDate("2026-08-12", "พ", 12), state.dates.first())
   }
+
+  // PDPA s.33: a stored evening summary may quote the line, so it must not outlive it
+  @Test fun deletingALineDropsThatDaysSummaryOnly() {
+    composeTuesday()
+    val before = presenter.load(tuesday, today)
+    presenter.delete(before, before.lines[3])
+    assertNull(summaries.find(tuesday))
+    assertNotNull(summaries.find("2026-09-09"))
+  }
+
+  @Test fun editingALineDropsThatDaysSummary() {
+    composeTuesday()
+    val before = presenter.load(tuesday, today)
+    presenter.edit(before, before.lines[1], "ประชุมเช้า")
+    assertNull(summaries.find(tuesday))
+  }
+
+  @Test fun blankEditKeepsTheSummary() {
+    composeTuesday()
+    val before = presenter.load(tuesday, today)
+    presenter.edit(before, before.lines[1], "   ")
+    assertNotNull(summaries.find(tuesday))
+  }
+
+  @Test fun undoDeleteDropsASummaryWrittenWithoutTheLine() {
+    composeTuesday()
+    val before = presenter.load(tuesday, today)
+    val after = presenter.delete(before, before.lines[3])
+    summaries.save(summary(tuesday)) // nightly job ran in between
+    presenter.undoDelete(after)
+    assertNull(summaries.find(tuesday))
+  }
 }
+
+private fun summary(day: String) = EveningSummaryRecord(day, "สรุป $day", SummarySource.MODEL)

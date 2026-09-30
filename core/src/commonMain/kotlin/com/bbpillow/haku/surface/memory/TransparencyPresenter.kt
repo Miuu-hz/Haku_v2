@@ -2,6 +2,7 @@ package com.bbpillow.haku.surface.memory
 
 import com.bbpillow.haku.language.ThaiDateFormat
 import com.bbpillow.haku.memory.CoreCategories
+import com.bbpillow.haku.memory.MemoryExport
 import com.bbpillow.haku.memory.MemoryFormat
 import com.bbpillow.haku.memory.MemoryRepository
 import com.bbpillow.haku.memory.Provenance
@@ -24,6 +25,7 @@ data class TransparencyUiState(val categories: List<MemoryCategoryItem>, val egr
 /** "What Haku remembers about you" (P3.4, asset E1/E2): core memory by category, forget per fact. Stateless. */
 class TransparencyPresenter(
   private val memory: MemoryRepository,
+  private val forgetAll: ForgetEverything,
   private val tzOffsetMinutes: Int,
 ) {
   fun load(): TransparencyUiState = TransparencyUiState(
@@ -42,6 +44,21 @@ class TransparencyPresenter(
     memory.deleteCoreFact(fact.category, fact.id)
     return load()
   }
+
+  /** Forget one whole category (files + index rows). */
+  fun forgetCategory(slug: String): TransparencyUiState {
+    memory.deleteCategory(slug)
+    return load()
+  }
+
+  /** Forget everything Haku captured or wrote; the screen must have asked for a strong confirm first. */
+  fun forgetEverything(): TransparencyUiState {
+    forgetAll.run()
+    return load()
+  }
+
+  /** All memory as one readable Markdown text. The Android side writes it where the user picks (SAF). User-initiated, not egress. */
+  fun exportMarkdown(): String = MemoryExport.markdown(memory)
 
   private companion object {
     // the store's descriptions are English prompts for the model; the user reads these

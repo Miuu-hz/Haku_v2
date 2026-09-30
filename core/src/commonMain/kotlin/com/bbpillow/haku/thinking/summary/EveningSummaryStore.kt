@@ -25,6 +25,12 @@ class EveningSummaryStore(private val fs: FileSystem, private val root: Path) : 
     fs.atomicMove(tmp, path)
   }
 
+  override fun delete(day: String): Boolean = fs.exists(pathOf(day)).also { if (it) fs.delete(pathOf(day)) }
+
+  override fun clear() {
+    if (fs.exists(root)) fs.deleteRecursively(root)
+  }
+
   private fun pathOf(day: String): Path {
     require(Regex("""\d{4}-\d{2}-\d{2}""").matches(day)) { "bad day: $day" }
     return root / "$day.md"

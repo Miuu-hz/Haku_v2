@@ -6,6 +6,7 @@ import com.bbpillow.haku.memory.DailyEventInput
 import com.bbpillow.haku.memory.MemoryFormat
 import com.bbpillow.haku.memory.MemoryRepository
 import com.bbpillow.haku.memory.Provenance
+import com.bbpillow.haku.thinking.summary.EveningSummaryRepository
 
 /** One pill of the date strip: `2026-09-24` shows as `พฤ` over `24`. */
 data class TimelineDate(val day: String, val weekday: String, val dayOfMonth: Int)
@@ -31,12 +32,14 @@ data class TimelineUiState(
 
 /**
  * Maps the daily log to [TimelineUiState] and applies the user's edits (P3.2). Stateless: every intent returns the
- * reloaded state, the screen only holds it. A deleted diary line is tombstoned in the ledger by [DiaryComposer], so
+ * reloaded state, the screen only holds it. Deleting or editing a line also drops that local day's stored evening summary
+ * (it may quote the line; the nightly job writes a new one, PDPA s.33). A deleted diary line is tombstoned in the ledger by [DiaryComposer], so
  * composing the day again never brings it back.
  */
 class TimelinePresenter(
   private val diary: DiaryComposer,
   private val memory: MemoryRepository,
+  private val summaries: EveningSummaryRepository,
   private val tzOffsetMinutes: Int,
 ) {
   fun load(day: String, today: String): TimelineUiState = TimelineUiState(
@@ -61,6 +64,7 @@ class TimelinePresenter(
   fun delete(state: TimelineUiState, line: TimelineLine): TimelineUiState {
     val lineId = diary.lineIdOf(line.memoryDay, line.recordId)
     remove(line)
+    forgetSummaryOf(line)
     lastDeleted = line to lineId
     return load(state.day, state.today)
   }
@@ -73,6 +77,7 @@ class TimelinePresenter(
     if (lineId == null || !diary.undoDelete(lineId, line.atEpochMs, text, line.provenance)) {
       memory.appendDaily(DailyEventInput(text, line.provenance, line.atEpochMs))
     }
+    forgetSummaryOf(line) // the line is back, so the summary written without it is stale too
     return load(state.day, state.today)
   }
 
@@ -86,7 +91,13 @@ class TimelinePresenter(
     // append before removing, so a crash in between duplicates a line instead of losing the user's text
     memory.appendDaily(DailyEventInput("${line.time} $text", Provenance.USER_TYPED, line.atEpochMs))
     remove(line, countsAsStrike = false) // replaced by the user's own words, not rejected
+    forgetSummaryOf(line)
     return load(state.day, state.today)
+  }
+
+  /** The summary is keyed by local day; the line's own timestamp says which one, whatever day the screen shows. */
+  private fun forgetSummaryOf(line: TimelineLine) {
+    summaries.delete(MemoryFormat.dayOf(line.atEpochMs + tzOffsetMinutes * MIN_MS))
   }
 
   private fun remove(line: TimelineLine, countsAsStrike: Boolean = true) {

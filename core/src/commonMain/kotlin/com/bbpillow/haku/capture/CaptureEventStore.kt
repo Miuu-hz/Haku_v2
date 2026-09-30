@@ -61,6 +61,12 @@ class CaptureEventStore(private val db: SQLiteConnection) : CaptureEventReposito
     scalar("SELECT changes()").toInt()
   }
 
+  override fun forgetAll(): Int = inTransaction {
+    run("INSERT OR IGNORE INTO deleted_ids(id) SELECT id FROM events") {}
+    run("DELETE FROM events") {}
+    scalar("SELECT changes()").toInt()
+  }
+
   private fun insert(e: CaptureEvent): Boolean {
     val tombstoned = db.prepare("SELECT 1 FROM deleted_ids WHERE id = ?").use { it.bindText(1, e.id); it.step() }
     if (tombstoned) return false

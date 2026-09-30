@@ -11,4 +11,7 @@ interface PlaceRepository {
   fun confirm(id: String, label: String, category: PlaceCategory): Boolean
 
   fun delete(id: String): Boolean
+
+  /** Forget everything: empty the place library (recognition rebuilds from events, which are forgotten too). */
+  fun deleteAll()
 }

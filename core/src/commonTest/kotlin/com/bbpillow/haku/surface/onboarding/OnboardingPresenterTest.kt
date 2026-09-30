@@ -30,6 +30,7 @@ private class RecordingPlaces : PlaceRepository {
     return true
   }
   override fun delete(id: String) = false
+  override fun deleteAll() = Unit
 }
 
 class OnboardingPresenterTest {
