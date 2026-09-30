@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
+import com.bbpillow.haku.BuildConfig
 import com.bbpillow.haku.capture.ActivityKind
 import com.bbpillow.haku.capture.CaptureIds
 import com.bbpillow.haku.capture.DwellDetector
@@ -15,6 +16,8 @@ import com.google.android.gms.location.ActivityTransitionResult
 import com.google.android.gms.location.DetectedActivity
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Wake-ups from Play services (activity transitions and the open-stay geofence). Translates, then hands to core. */
 class LocationWakeReceiver : BroadcastReceiver() {
@@ -24,13 +27,21 @@ class LocationWakeReceiver : BroadcastReceiver() {
     val nowElapsed = SystemClock.elapsedRealtime()
     val (triggers, geofenceFix) = parse(intent, nowWall, nowElapsed) ?: return
     CaptureController.runAsync(this, context) { recorder ->
-      val before = recorder.openDwell(nowWall)
-      val fix = geofenceFix ?: if (DwellDetector.needsFix(triggers, before)) CaptureController.takeFix(context) else null
-      val out = recorder.onWake(triggers, fix, nowWall)
-      Log.i(CaptureController.TAG, "wake $triggers fix=${fix != null} -> ${out.events.map { it.id }}")
-      CaptureController.syncGeofence(context, before, out)
-      CaptureController.catchUp(context, nowWall)
+      // takeFix frees the capture thread while it waits; this lock keeps wake-ups from interleaving with each other
+      wakeOrder.withLock {
+        val before = recorder.openDwell(nowWall)
+        val fix = geofenceFix ?: if (DwellDetector.needsFix(triggers, before)) CaptureController.takeFix(context) else null
+        val out = recorder.onWake(triggers, fix, nowWall)
+        // presence times and event ids are personal data: debug builds only
+        if (BuildConfig.DEBUG) Log.i(CaptureController.TAG, "wake $triggers fix=${fix != null} -> ${out.events.map { it.id }}")
+        CaptureController.syncGeofence(context, before, out)
+        CaptureController.catchUp(context, nowWall)
+      }
     }
+  }
+
+  private companion object {
+    val wakeOrder = Mutex()
   }
 
   private fun parse(intent: Intent, nowWall: Long, nowElapsed: Long): Pair<List<WakeTrigger>, EventPlace?>? {

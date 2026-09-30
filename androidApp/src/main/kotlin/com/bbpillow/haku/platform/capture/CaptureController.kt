@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.os.BatteryManager
 import android.util.Log
 import androidx.sqlite.SQLiteConnection
+import com.bbpillow.haku.BuildConfig
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.bbpillow.haku.capture.CaptureEvent
 import com.bbpillow.haku.capture.CaptureEventStore
@@ -29,12 +30,18 @@ import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.gms.tasks.Tasks
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * App-level switch for P2.2/P2.5 capture. Nothing runs until [start] is called explicitly (end of onboarding, or the
@@ -48,7 +55,8 @@ object CaptureController {
   private const val GEOFENCE_ID = "open-dwell"
   private const val REQUEST_ACTIVITY = 1
   private const val REQUEST_GEOFENCE = 2
-  private const val FIX_TIMEOUT_MS = 20_000L
+  /** Wake-ups run inside goAsync (about 10 s before the system gives up on the broadcast), so the fix gets less. */
+  private const val FIX_TIMEOUT_MS = 8_000L
   private const val FIX_MAX_AGE_MS = 60_000L
 
   /** Every DB touch runs here, one at a time (the store is not thread-safe). Receivers hand work over with [runAsync]. */
@@ -56,7 +64,9 @@ object CaptureController {
 
   /** The same single thread as a coroutine dispatcher: the app shell's stores share [connection] and must queue here too. */
   val dispatcher: CoroutineDispatcher = io.asCoroutineDispatcher()
+  private val scope = CoroutineScope(SupervisorJob() + dispatcher)
   private var connection: SQLiteConnection? = null
+  @Volatile private var loggedNoBackground = false
   private var recorder: CaptureRecorder? = null
 
   fun isEnabled(context: Context) = prefs(context).getBoolean(KEY_ENABLED, false)
@@ -91,11 +101,14 @@ object CaptureController {
     if (isEnabled(context)) DeviceSignalReceiver.register(context.applicationContext)
   }
 
-  /** Runs [block] on the capture thread with the receiver kept alive until it finishes. */
-  fun runAsync(receiver: BroadcastReceiver, context: Context, block: (CaptureRecorder) -> Unit) {
+  /**
+   * Runs [block] on the capture thread with the receiver kept alive until it finishes. The thread is free while [block]
+   * is suspended (e.g. in [takeFix]), so other DB work is not held up by a wait on Play services.
+   */
+  fun runAsync(receiver: BroadcastReceiver, context: Context, block: suspend (CaptureRecorder) -> Unit) {
     val pending = receiver.goAsync()
     val app = context.applicationContext
-    io.execute {
+    scope.launch {
       try {
         block(recorder(app))
       } catch (t: Throwable) {
@@ -106,11 +119,14 @@ object CaptureController {
     }
   }
 
-  /** The app's capture database. Capture thread only. ponytail: plain SQLite for now; D11 encryption wiring comes with onboarding. */
-  fun connection(context: Context): SQLiteConnection = connection
+  /**
+   * The app's capture database. Opened once (synchronized, so a racing first call cannot open a second connection);
+   * every use of it must still run on [dispatcher]. ponytail: plain SQLite for now; D11 encryption wiring comes with onboarding.
+   */
+  @Synchronized fun connection(context: Context): SQLiteConnection = connection
     ?: BundledSQLiteDriver().open(File(context.noBackupFilesDir, "haku.db").path).also { connection = it }
 
-  fun recorder(context: Context): CaptureRecorder =
+  @Synchronized fun recorder(context: Context): CaptureRecorder =
     recorder ?: CaptureRecorder(CaptureEventStore(connection(context))).also { recorder = it }
 
   /** Keep the geofence on the open stay: fence a new one, drop it when the stay ended. */
@@ -128,18 +144,26 @@ object CaptureController {
     rec.recordCalendar(CalendarReader.read(context, nowUtcMs))
   }
 
-  /** One balanced-power (Wi-Fi/cell, ~100 m) fix, reusing a cached one up to a minute old. Capture thread only (blocks). */
+  /**
+   * One balanced-power (Wi-Fi/cell, ~100 m) fix, reusing a cached one up to a minute old, at most [FIX_TIMEOUT_MS].
+   * Waits on an IO thread, not the capture thread.
+   */
   @SuppressLint("MissingPermission")
-  fun takeFix(context: Context): EventPlace? {
+  suspend fun takeFix(context: Context): EventPlace? {
     if (!has(context, Manifest.permission.ACCESS_FINE_LOCATION) && !has(context, Manifest.permission.ACCESS_COARSE_LOCATION)) return null
     val request = CurrentLocationRequest.Builder()
       .setPriority(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
       .setMaxUpdateAgeMillis(FIX_MAX_AGE_MS)
       .setDurationMillis(FIX_TIMEOUT_MS)
       .build()
-    return runCatching {
-      Tasks.await(LocationServices.getFusedLocationProviderClient(context).getCurrentLocation(request, null), FIX_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-    }.onFailure { Log.w(TAG, "no fix", it) }.getOrNull()?.let { EventPlace(it.latitude, it.longitude) }
+    val cancel = CancellationTokenSource()
+    val task = LocationServices.getFusedLocationProviderClient(context).getCurrentLocation(request, cancel.token)
+    return withContext(Dispatchers.IO) {
+      runCatching { Tasks.await(task, FIX_TIMEOUT_MS, TimeUnit.MILLISECONDS) }
+        .onFailure { Log.w(TAG, "no fix", it) }
+        .also { cancel.cancel() } // stop the request on timeout; no-op once it completed
+        .getOrNull()
+    }?.let { EventPlace(it.latitude, it.longitude) }
   }
 
   fun wakeIntent(context: Context, requestCode: Int): PendingIntent = PendingIntent.getBroadcast(
@@ -169,6 +193,12 @@ object CaptureController {
   private fun fence(context: Context, place: EventPlace) {
     if (!has(context, Manifest.permission.ACCESS_FINE_LOCATION)) {
       Log.w(TAG, "ACCESS_FINE_LOCATION not granted, no geofence")
+      return
+    }
+    // Geofence transitions need "allow all the time"; without it addGeofences fails, so leave it to activity transitions
+    if (!has(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
+      if (BuildConfig.DEBUG && !loggedNoBackground) Log.i(TAG, "ACCESS_BACKGROUND_LOCATION not granted, no geofence; activity transitions only")
+      loggedNoBackground = true
       return
     }
     val geofence = Geofence.Builder()
