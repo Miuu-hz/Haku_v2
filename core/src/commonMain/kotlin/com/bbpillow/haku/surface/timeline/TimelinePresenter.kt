@@ -71,7 +71,7 @@ class TimelinePresenter(
   }
 
   private fun remove(line: TimelineLine) {
-    if (!diary.deleteRecord(line.memoryDay, line.recordId)) memory.deleteDaily(line.memoryDay, line.recordId)
+    if (!diary.deleteRecord(line.memoryDay, line.recordId, tzOffsetMinutes)) memory.deleteDaily(line.memoryDay, line.recordId)
   }
 
   private fun plusDays(day: String, n: Int): String =

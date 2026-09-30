@@ -57,6 +57,17 @@ class TimelinePresenterTest {
     assertEquals(after.lines, reloaded.lines)
   }
 
+  @Test fun deleteStaysDeletedEvenWhenTheLedgerRowWasLostInACrash() {
+    composeTuesday()
+    val before = presenter.load(tuesday, today)
+    val victim = before.lines[3]
+    ledger.rows.clear() // crash between appendDaily and recordWritten
+    val after = presenter.delete(before, victim)
+    assertFalse(after.lines.any { it.text == victim.text })
+    composeTuesday()
+    assertFalse(presenter.load(tuesday, today).lines.any { it.text == victim.text })
+  }
+
   @Test fun editedLineIsUserTypedAndSurvivesRecompose() {
     composeTuesday()
     val before = presenter.load(tuesday, today)
