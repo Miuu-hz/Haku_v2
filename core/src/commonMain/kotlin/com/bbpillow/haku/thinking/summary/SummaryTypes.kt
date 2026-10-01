@@ -4,7 +4,11 @@ import com.bbpillow.haku.capture.diary.DiaryStyle
 import com.bbpillow.haku.memory.Provenance
 import com.bbpillow.haku.thinking.GenerateMetrics
 
-enum class SummarySource { MODEL, TEMPLATE }
+/**
+ * [DEMO] = hand-written by the debug demo seeder (com.bbpillow.haku.demo.DemoSeed), checked like a model text.
+ * Shown exactly like [MODEL]; never stored as MODEL so a demo paragraph is never mistaken for the model's work.
+ */
+enum class SummarySource { MODEL, TEMPLATE, DEMO }
 
 /**
  * [lines] = the day's diary line texts as written by DiaryRenderer ("08:30 ออกจากบ้าน" + particle), oldest first.
