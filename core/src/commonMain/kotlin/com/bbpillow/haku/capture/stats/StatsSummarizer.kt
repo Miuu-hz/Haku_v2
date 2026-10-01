@@ -34,6 +34,6 @@ class StatsSummarizer(private val entitlements: Entitlements) {
     val body = listOfNotNull(StatsTemplates.coverage(who, s), StatsTemplates.timeSplit(s), StatsTemplates.places(s), StatsTemplates.travelAndAppointments(s))
     // Comparison wording says "this/last period"; only valid when the period holds now. Past periods keep evidence-free-of-naming claims out.
     val claims = insights.filter { holdsNow || it is StatsInsight.BusiestWeekday }.map { StatsTemplates.insight(it, input.kind) }
-    return (body + claims).map { it + input.style.particle.text }
+    return (body + claims).map { input.style.particle.appendTo(it) }
   }
 }

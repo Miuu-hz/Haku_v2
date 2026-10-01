@@ -20,7 +20,7 @@ object DiaryRenderer {
         day = day,
         kind = e.kind,
         timeUtcMs = e.timeUtcMs,
-        text = "${hhmm(e.timeUtcMs)} $body${style.particle.text}",
+        text = style.particle.appendTo("${hhmm(e.timeUtcMs)} $body"),
         sourceEventIds = e.sourceEventIds,
         typeKey = e.typeKey,
       )
