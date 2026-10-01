@@ -121,6 +121,7 @@ class MemoryStore(
   }
 
   // helpers
+  private companion object { const val SCRUBBED = "[ลบแล้ว]" }
   private fun requirePermanent(p: Provenance) {
     if (!p.canBePermanent) throw ProvenanceNotAllowedException(p)
   }
@@ -159,8 +160,27 @@ class MemoryStore(
     val file = read(path)
     if (file.records.none { it.id == id }) return false
     write(path, file.copy(records = file.records.filterNot { it.id == id }))
+    scrubDreams(file.records.filter { it.id == id })
     return true
   }
 
-  private fun remove(path: Path): Boolean = fs.exists(path).also { if (it) fs.delete(path) }
+  private fun remove(path: Path): Boolean {
+    if (!fs.exists(path)) return false
+    val gone = read(path).records
+    fs.delete(path)
+    scrubDreams(gone)
+    return true
+  }
+
+  /** Dream reports quote record text; once the user deletes a record its text must not survive in any report. */
+  private fun scrubDreams(gone: List<MemoryRecord>) {
+    val dir = root / "dreams"
+    val texts = gone.map { it.text.trim() }.filter { it.isNotEmpty() }.distinct()
+    if (texts.isEmpty() || !fs.exists(dir)) return
+    for (f in fs.list(dir).filter { it.name.endsWith(".md") && it.name != "$DREAM_LEDGER_DAY.md" }) {
+      val old = fs.read(f) { readUtf8() }
+      val new = texts.fold(old) { acc, t -> acc.replace(t, SCRUBBED) }
+      if (new != old) atomicWrite(f, new)
+    }
+  }
 }
