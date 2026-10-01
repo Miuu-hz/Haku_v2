@@ -155,13 +155,17 @@ private fun MemoryTab(graph: AppGraph, onOpenPlus: () -> Unit) {
     }
   }
   val s = state ?: return
-  TransparencyScreen(
-    s,
-    onForget = { fact -> scope.launch { graph.safeIo { transparency.forget(fact) }?.let { state = it } } },
-    onForgetCategory = { slug -> scope.launch { graph.safeIo { transparency.forgetCategory(slug) }?.let { state = it } } },
-    onForgetEverything = { scope.launch { graph.safeIo { transparency.forgetEverything() }?.let { state = it } } },
-    onExport = { picker.launch("haku-memory.md") },
-    onOpenPlus = onOpenPlus,
-    contentPadding = TabPadding,
-  )
+  Box(Modifier.fillMaxSize()) {
+    TransparencyScreen(
+      s,
+      onForget = { fact -> scope.launch { graph.safeIo { transparency.forget(fact) }?.let { state = it } } },
+      onForgetCategory = { slug -> scope.launch { graph.safeIo { transparency.forgetCategory(slug) }?.let { state = it } } },
+      onForgetEverything = { scope.launch { graph.safeIo { transparency.forgetEverything() }?.let { state = it } } },
+      onExport = { picker.launch("haku-memory.md") },
+      onOpenPlus = onOpenPlus,
+      contentPadding = TabPadding,
+    )
+    // debug builds only (release DemoTools is a no-op)
+    DemoSeedButton(graph, { scope.launch { graph.safeIo { transparency.load() }?.let { state = it } } }, Modifier.align(Alignment.TopEnd).padding(12.dp))
+  }
 }

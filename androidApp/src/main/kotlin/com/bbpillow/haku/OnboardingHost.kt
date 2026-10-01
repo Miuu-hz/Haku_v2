@@ -26,6 +26,7 @@ import com.bbpillow.haku.surface.onboarding.AppStart
 import com.bbpillow.haku.surface.onboarding.OnboardingActions
 import com.bbpillow.haku.surface.onboarding.OnboardingPresenter
 import com.bbpillow.haku.surface.onboarding.OnboardingScreen
+import com.bbpillow.haku.surface.onboarding.OnboardingStep
 import com.bbpillow.haku.surface.onboarding.OnboardingUiState
 import com.bbpillow.haku.surface.onboarding.PermissionKind
 import com.bbpillow.haku.surface.onboarding.ProfileRecord
@@ -136,6 +137,10 @@ fun OnboardingHost(graph: AppGraph, activity: FragmentActivity, onDone: (Profile
   )
   Column {
     OnboardingScreen(s, actions, Modifier.weight(1f))
+    // debug builds only (release DemoTools is a no-op): skip onboarding with the demo persona
+    if (s.step == OnboardingStep.WELCOME) {
+      DemoSeedButton(graph, { scope.launch { graph.safeIo { profile.load() }?.let(onDone) } }, Modifier.fillMaxWidth().padding(horizontal = 20.dp))
+    }
     if (s.complete) {
       CapsuleButton(
         "เริ่มใช้ Haku",
