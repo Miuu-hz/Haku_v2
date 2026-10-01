@@ -15,6 +15,9 @@ interface SearchRepository {
 
   /** Empty the index (rebuild from files). */
   fun clear()
+
+  /** Optimize FTS and VACUUM the whole database file so deleted text is gone from free pages/WAL. */
+  fun compact()
   fun count(): Int
 
   /** FTS on segmented words ranked by bm25; exact-substring fallback when that finds nothing. */

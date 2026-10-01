@@ -47,6 +47,7 @@ class IndexedMemoryRepository(
   override fun deleteAll() {
     delegate.deleteAll()
     index.clear()
+    index.compact() // last database step of "forget everything": erase free pages
   }
 
   override fun addStanding(input: NoteInput): MemoryRecord = delegate.addStanding(input).indexAs(MemoryLevel.STANDING, "")
