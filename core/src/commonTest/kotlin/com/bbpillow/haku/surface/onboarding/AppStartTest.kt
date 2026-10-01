@@ -20,6 +20,14 @@ class AppStartTest {
   }
 
   @Test
+  fun mainStartsCaptureOnlyWhenPermittedAndNotYetEnabled() {
+    val both = setOf(PermissionKind.LOCATION, PermissionKind.ACTIVITY)
+    assertTrue(AppStart.shouldStartCaptureOnMain(both, captureEnabled = false)) // swiped away before the last button
+    assertFalse(AppStart.shouldStartCaptureOnMain(both, captureEnabled = true))
+    assertFalse(AppStart.shouldStartCaptureOnMain(setOf(PermissionKind.LOCATION), captureEnabled = false))
+  }
+
+  @Test
   fun captureNeedsLocationAndActivity() {
     assertTrue(AppStart.shouldStartCapture(setOf(PermissionKind.LOCATION, PermissionKind.ACTIVITY)))
     assertFalse(AppStart.shouldStartCapture(setOf(PermissionKind.LOCATION, PermissionKind.CALENDAR)))

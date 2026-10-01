@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import com.bbpillow.haku.platform.BiometricLock
 import com.bbpillow.haku.platform.NightlyWorker
+import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.surface.components.CapsuleButton
 import com.bbpillow.haku.surface.components.ScreenBackdrop
 import com.bbpillow.haku.surface.onboarding.AppStart
@@ -61,6 +62,7 @@ private fun AppRoot(graph: AppGraph, activity: FragmentActivity) {
     StartScreen.MAIN -> {
       LaunchedEffect(Unit) {
         graph.downloader.resumeIfPartial(profile.model)
+        if (AppStart.shouldStartCaptureOnMain(grantedKinds(activity), CaptureController.isEnabled(activity))) CaptureController.start(activity)
         NightlyWorker.schedule(activity) // onboarded from here on; KEEP = no-op after the first time
         graph.billing.refresh() // P9.4 restore on start; offline = keep the saved plan within its 7-day grace
       }
