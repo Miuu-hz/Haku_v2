@@ -4,13 +4,16 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -28,6 +31,7 @@ import com.bbpillow.haku.surface.onboarding.AppStart
 import com.bbpillow.haku.surface.onboarding.ProfileRecord
 import com.bbpillow.haku.surface.onboarding.StartScreen
 import com.bbpillow.haku.surface.theme.HakuTheme
+import androidx.compose.material3.Text
 import kotlinx.coroutines.CancellationException
 
 /** The app: onboarding until done, then the D11 lock if on, then Home / Timeline / Memory. FragmentActivity for BiometricPrompt. */
@@ -51,7 +55,18 @@ class MainActivity : FragmentActivity() {
 private fun AppRoot(graph: AppGraph, activity: FragmentActivity) {
   var record by remember { mutableStateOf<ProfileRecord?>(null) }
   var unlocked by rememberSaveable { mutableStateOf(false) }
-  LaunchedEffect(Unit) { record = graph.safeIo { profile.load() } ?: ProfileRecord() }
+  var loadAttempt by remember { mutableIntStateOf(0) }
+  var loadFailed by remember { mutableStateOf(false) }
+  // never default to ProfileRecord() on a failed read: that would look "not onboarded", skip the lock and overwrite the real profile
+  LaunchedEffect(loadAttempt) {
+    loadFailed = false
+    record = graph.safeIo { profile.load() }
+    loadFailed = record == null
+  }
+  if (loadFailed) {
+    LoadFailed { loadAttempt++ }
+    return
+  }
   val profile = record ?: return
   when (AppStart.screen(profile, unlocked)) {
     StartScreen.ONBOARDING -> OnboardingHost(graph, activity) { done ->
@@ -67,6 +82,16 @@ private fun AppRoot(graph: AppGraph, activity: FragmentActivity) {
         graph.billing.refresh() // P9.4 restore on start; offline = keep the saved plan within its 7-day grace
       }
       MainShell(graph, activity)
+    }
+  }
+}
+
+@Composable
+private fun LoadFailed(onRetry: () -> Unit) {
+  Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+      Text("เปิดข้อมูลของคุณไม่สำเร็จ ข้อมูลยังอยู่ ลองใหม่อีกครั้ง")
+      CapsuleButton("ลองใหม่", onRetry)
     }
   }
 }
