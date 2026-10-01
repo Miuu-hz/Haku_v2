@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -18,6 +19,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -115,11 +119,18 @@ private fun HomeTab(graph: AppGraph, isCapturing: Boolean, onOpenDay: (String) -
 
 @Composable
 private fun TimelineTab(graph: AppGraph, selected: String?, onSelectDay: (String) -> Unit) {
-  val today = remember { graph.today(System.currentTimeMillis()) }
+  var today by remember { mutableStateOf(graph.today(System.currentTimeMillis())) }
+  // stale after midnight if the app stayed open: recompute whenever it comes back to the foreground
+  val lifecycle = LocalLifecycleOwner.current.lifecycle
+  DisposableEffect(lifecycle) {
+    val observer = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_RESUME) today = graph.today(System.currentTimeMillis()) }
+    lifecycle.addObserver(observer)
+    onDispose { lifecycle.removeObserver(observer) }
+  }
   val day = selected ?: today
   val scope = rememberCoroutineScope()
   var state by remember { mutableStateOf<TimelineUiState?>(null) }
-  LaunchedEffect(day) { state = graph.safeIo { compose(day); timeline.load(day, today) } }
+  LaunchedEffect(day, today) { state = graph.safeIo { compose(day); timeline.load(day, today) } }
   val s = state ?: return
   TimelineScreen(
     s,
