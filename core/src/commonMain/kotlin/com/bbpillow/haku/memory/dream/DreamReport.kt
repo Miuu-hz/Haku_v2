@@ -28,8 +28,12 @@ internal object DreamReport {
     appendLine()
     appendLine("พักไว้ ยังไม่เลื่อนขั้น")
     if (o.heldBack.isEmpty()) appendLine("- ไม่มี")
-    for (h in o.heldBack) appendLine("- “${h.subject}” ${reason(h, minDays)}${h.sourceIds.takeIf { it.isNotEmpty() }?.let { " ที่มา: ${ids(it)}" }.orEmpty()}")
+    for (h in o.heldBack) appendLine("- ${subject(h)} ${reason(h, minDays)}${h.sourceIds.takeIf { it.isNotEmpty() }?.let { " ที่มา: ${ids(it)}" }.orEmpty()}")
   }.trimEnd() + "\n"
+
+  /** Forgotten/rejected subjects are never printed: the user deleted them, so the text must not come back. */
+  private fun subject(h: HeldBackTheme) =
+    if (h.reason == HoldReason.FORGOTTEN || h.reason == HoldReason.REJECTED) "เรื่องหนึ่ง" else "“${h.subject}”"
 
   private fun pct(score: Double) = "${(score * 100).toInt()}%"
 

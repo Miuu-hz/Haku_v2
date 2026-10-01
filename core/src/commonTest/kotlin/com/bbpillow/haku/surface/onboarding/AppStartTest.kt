@@ -20,6 +20,21 @@ class AppStartTest {
   }
 
   @Test
+  fun mainStartsCaptureOnlyWhenPermittedAndNotYetEnabled() {
+    val both = setOf(PermissionKind.LOCATION, PermissionKind.ACTIVITY)
+    assertTrue(AppStart.shouldStartCaptureOnMain(both, captureEnabled = false)) // swiped away before the last button
+    assertFalse(AppStart.shouldStartCaptureOnMain(both, captureEnabled = true))
+    assertFalse(AppStart.shouldStartCaptureOnMain(setOf(PermissionKind.LOCATION), captureEnabled = false))
+  }
+
+  @Test
+  fun relocksOnlyAfterMoreThanTheGracePeriodInBackground() {
+    assertFalse(AppStart.shouldRelock(backgroundedForMs = 60_000))
+    assertTrue(AppStart.shouldRelock(backgroundedForMs = 60_001))
+    assertFalse(AppStart.shouldRelock(backgroundedForMs = 0))
+  }
+
+  @Test
   fun captureNeedsLocationAndActivity() {
     assertTrue(AppStart.shouldStartCapture(setOf(PermissionKind.LOCATION, PermissionKind.ACTIVITY)))
     assertFalse(AppStart.shouldStartCapture(setOf(PermissionKind.LOCATION, PermissionKind.CALENDAR)))

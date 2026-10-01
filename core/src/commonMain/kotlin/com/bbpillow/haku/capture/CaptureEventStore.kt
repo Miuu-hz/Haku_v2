@@ -11,6 +11,7 @@ import androidx.sqlite.execSQL
  */
 class CaptureEventStore(private val db: SQLiteConnection) : CaptureEventRepository {
   init {
+    db.execSQL("PRAGMA secure_delete=ON")
     db.execSQL(
       "CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY, time_utc_ms INTEGER NOT NULL, end_utc_ms INTEGER, " +
         "type TEXT NOT NULL, sub TEXT NOT NULL, lat REAL, lon REAL, place_id TEXT, confidence REAL NOT NULL)",

@@ -106,6 +106,21 @@ class DreamEngineTest {
     assertTrue(allCore().isEmpty())
   }
 
+  @Test fun `forgotten subject never appears in a report, and deleting a core fact scrubs earlier reports`() = runTest {
+    for (d in listOf(20, 22, 25)) add(d, "ถึงโรงยิม")
+    val first = engine().dream(DreamInput("2026-09-26"))
+    val (cat, fact) = allCore().single()
+    assertContains(store.readDreamReport("2026-09-26")!!, fact.text) // promoted text is quoted
+    assertTrue(store.deleteCoreFact(cat, fact.id))
+    assertFalse(store.readDreamReport("2026-09-26")!!.contains(fact.text))
+
+    for (d in 27..29) add(d, "ถึงโรงยิม")
+    val second = engine().dream(DreamInput("2026-09-29"))
+    assertEquals(HoldReason.FORGOTTEN, second.heldBack.single().reason)
+    assertFalse(second.report.contains("โรงยิม"))
+    assertTrue(first.promoted.isNotEmpty())
+  }
+
   @Test fun `a rejected theme is never promoted`() = runTest {
     for (d in 25..29) add(d, "ถึงโรงยิม")
     val e = engine()

@@ -40,7 +40,7 @@ private fun manifestNames(kind: PermissionKind): List<String> = when (kind) {
 }
 
 /** What the system has granted right now. Location counts when either precise or approximate was given. */
-private fun grantedKinds(context: Context): Set<PermissionKind> = PermissionKind.entries.filter { kind ->
+internal fun grantedKinds(context: Context): Set<PermissionKind> = PermissionKind.entries.filter { kind ->
   manifestNames(kind).any { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
 }.toSet()
 

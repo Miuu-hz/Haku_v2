@@ -46,7 +46,15 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
       Facts(profile.style, days.associateWith { d -> diary.readDay(d, tz).map { it.text } }, days.filter { summaries.find(it) != null }.toSet(), memory.listDreamDays().toSet())
     } ?: return Result.success().also { log("not onboarded, skipped") }
 
-    val config = graph.modelConfig()
+    // external storage can be unavailable: treat that as "no model", the diary and Dream still run
+    val config = try {
+      graph.modelConfig()
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Log.e(TAG, "model config unavailable: ${e::class.simpleName}")
+      null
+    }
     val plan = NightlyPlan.plan(NightlyPlanInput(true, config != null, now, tz, facts.lines.mapValues { it.value.size }, facts.stored, facts.dreamed))
     log("diary composed for $days; model=${config != null} summarize=${plan.summarizeDays}")
     if (config != null && plan.summarizeDays.isNotEmpty()) summarize(graph, config, plan.summarizeDays, facts)
@@ -63,9 +71,16 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
       for (day in summarizeDays) {
         // store reads/writes on the DB thread; the model itself runs on Default and only suspends this one
         val out = withContext(CaptureController.dispatcher) {
-          summarizer.summarize(EveningSummaryInput(day, facts.lines.getValue(day), facts.style))
+          // the model load was slow: re-read now, a delete/forget since the first read must not be summarized
+          val data = graph.onCaptureThread()
+          val fresh = data.diary.readDay(day, graph.tzOffsetMinutes).map { it.text }
+          if (fresh.isEmpty() || fresh != facts.lines[day]) return@withContext null
+          summarizer.summarize(EveningSummaryInput(day, fresh, facts.style)).also {
+            // lines deleted while the model was generating: drop what was just stored
+            if (data.diary.readDay(day, graph.tzOffsetMinutes).map { l -> l.text } != fresh) data.summaries.delete(day)
+          }
         }
-        log("summary $day source=${out.source} rejected=${out.rejectedReasons} metrics=${out.metrics}")
+        if (out == null) log("summary $day skipped: lines changed") else log("summary $day source=${out.source} rejected=${out.rejectedReasons} metrics=${out.metrics}")
       }
     } catch (e: CancellationException) {
       throw e // constraints lost (unplugged, screen on): WorkManager runs it again next window

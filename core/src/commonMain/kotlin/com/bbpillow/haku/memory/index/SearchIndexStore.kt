@@ -21,6 +21,7 @@ class SearchIndexStore(
   private val synonyms: SynonymTable? = null,
 ) : SearchRepository {
   init {
+    db.execSQL("PRAGMA secure_delete=ON") // deleted text is zeroed, not left in free pages
     // ponytail: the index is derived data; a schema change means delete the db file and rebuild from memory files.
     db.execSQL(
       "CREATE TABLE IF NOT EXISTS records(id TEXT NOT NULL UNIQUE, text TEXT NOT NULL, normalized TEXT NOT NULL, " +
@@ -49,6 +50,12 @@ class SearchIndexStore(
   override fun clear() = inTransaction {
     exec("DELETE FROM idx", emptyList())
     exec("DELETE FROM records", emptyList())
+  }
+
+  override fun compact() {
+    exec("INSERT INTO idx(idx) VALUES('optimize')", emptyList())
+    db.execSQL("VACUUM")
+    db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").use { it.step() }
   }
 
   override fun search(query: SearchQueryInput): List<SearchHitOutput> {

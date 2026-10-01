@@ -14,6 +14,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,10 +41,12 @@ class ModelDownloader(private val dir: File, private val scope: CoroutineScope) 
   fun file(choice: ModelChoice) = File(dir, sourceOf(choice).fileName)
 
   fun start(choice: ModelChoice) {
-    if (job?.isActive == true) return
+    val previous = job
+    if (previous?.isActive == true && !previous.isCancelled) return
     _state.value = (_state.value ?: DownloadState(0f, paused = false)).copy(paused = false, error = null)
     job = scope.launch(Dispatchers.IO) {
       try {
+        previous?.cancelAndJoin() // a paused job may still be writing its last chunk: never two writers on the .part file
         download(choice)
       } catch (e: CancellationException) {
         _state.value = _state.value?.copy(paused = true) // a chunk may have reported "running" after pause()
