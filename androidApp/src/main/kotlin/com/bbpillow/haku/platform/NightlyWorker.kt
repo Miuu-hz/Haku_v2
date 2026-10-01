@@ -46,7 +46,15 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
       Facts(profile.style, days.associateWith { d -> diary.readDay(d, tz).map { it.text } }, days.filter { summaries.find(it) != null }.toSet(), memory.listDreamDays().toSet())
     } ?: return Result.success().also { log("not onboarded, skipped") }
 
-    val config = graph.modelConfig()
+    // external storage can be unavailable: treat that as "no model", the diary and Dream still run
+    val config = try {
+      graph.modelConfig()
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Log.e(TAG, "model config unavailable: ${e::class.simpleName}")
+      null
+    }
     val plan = NightlyPlan.plan(NightlyPlanInput(true, config != null, now, tz, facts.lines.mapValues { it.value.size }, facts.stored, facts.dreamed))
     log("diary composed for $days; model=${config != null} summarize=${plan.summarizeDays}")
     if (config != null && plan.summarizeDays.isNotEmpty()) summarize(graph, config, plan.summarizeDays, facts)
