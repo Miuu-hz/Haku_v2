@@ -13,7 +13,17 @@ import androidx.compose.ui.platform.LocalContext
 import com.bbpillow.haku.demo.DemoSeed
 import com.bbpillow.haku.demo.DemoSeedOutput
 import com.bbpillow.haku.platform.capture.CaptureController
-import com.bbpillow.haku.surface.components.CapsuleButton
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+import com.bbpillow.haku.surface.theme.HakuColors
+import com.bbpillow.haku.surface.theme.HakuRadius
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -29,34 +39,40 @@ suspend fun AppGraph.seedDemo(): DemoSeedOutput = withContext(CaptureController.
     .also { Log.i(CaptureController.TAG, "DEMO_SEED $it") }
 }
 
-/** "โหลดข้อมูลสาธิต": seeds, then [onSeeded] (the caller reloads its screen or leaves onboarding). */
+/** "โหลดข้อมูลสาธิต" as a small debug chip: seeds, then [onSeeded] (the caller reloads its screen or leaves onboarding). */
 @Composable
 fun DemoSeedButton(graph: AppGraph, onSeeded: () -> Unit, modifier: Modifier = Modifier) {
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
   var busy by remember { mutableStateOf(false) }
-  CapsuleButton(
-    if (busy) "กำลังโหลด…" else "โหลดข้อมูลสาธิต",
-    {
-      if (!busy) {
-        busy = true
-        scope.launch {
-          try {
-            val out = graph.seedDemo()
-            if (out.alreadySeeded) Toast.makeText(context, "มีข้อมูลสาธิตอยู่แล้ว", Toast.LENGTH_SHORT).show()
-            onSeeded()
-          } catch (e: CancellationException) {
-            throw e
-          } catch (e: Exception) {
-            Log.e(CaptureController.TAG, "demo seed failed", e)
-            Toast.makeText(context, "โหลดข้อมูลสาธิตไม่สำเร็จ", Toast.LENGTH_LONG).show()
-          } finally {
-            busy = false
-          }
+  val seed = {
+    if (!busy) {
+      busy = true
+      scope.launch {
+        try {
+          val out = graph.seedDemo()
+          if (out.alreadySeeded) Toast.makeText(context, "มีข้อมูลสาธิตอยู่แล้ว", Toast.LENGTH_SHORT).show()
+          onSeeded()
+        } catch (e: CancellationException) {
+          throw e
+        } catch (e: Exception) {
+          Log.e(CaptureController.TAG, "demo seed failed", e)
+          Toast.makeText(context, "โหลดข้อมูลสาธิตไม่สำเร็จ", Toast.LENGTH_LONG).show()
+        } finally {
+          busy = false
         }
       }
-    },
-    modifier,
-    outline = true,
+    }
+  }
+  Text(
+    if (busy) "กำลังโหลด…" else "DEBUG · โหลดข้อมูลสาธิต",
+    style = MaterialTheme.typography.labelSmall,
+    color = HakuColors.Muted,
+    modifier = modifier
+      .clip(HakuRadius.Pill)
+      .background(HakuColors.Surface.copy(alpha = 0.7f))
+      .border(1.dp, HakuColors.Line, HakuRadius.Pill)
+      .clickable(role = Role.Button) { seed() }
+      .padding(horizontal = 10.dp, vertical = 5.dp),
   )
 }

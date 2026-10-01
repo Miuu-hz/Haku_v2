@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -27,6 +28,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.bbpillow.haku.surface.components.hakuShadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -69,7 +74,13 @@ class OnboardingActions(
 
 /** Asset B1-B7 as one pager: step dots, the step's content, then the primary pill and an optional skip link. */
 @Composable
-fun OnboardingScreen(state: OnboardingUiState, actions: OnboardingActions, modifier: Modifier = Modifier) {
+fun OnboardingScreen(
+  state: OnboardingUiState,
+  actions: OnboardingActions,
+  modifier: Modifier = Modifier,
+  /** The app icon (Android: the launcher foreground) for the welcome step; null = the violet box tile. */
+  logo: Painter? = null,
+) {
   Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
     Row(Modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically) {
       Box(Modifier.width(72.dp)) { if (state.canGoBack) TextLink("ย้อนกลับ", actions.onBack) }
@@ -81,7 +92,7 @@ fun OnboardingScreen(state: OnboardingUiState, actions: OnboardingActions, modif
       verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
       if (state.complete) Done() else when (state.step) {
-        OnboardingStep.WELCOME -> Welcome()
+        OnboardingStep.WELCOME -> Welcome(logo)
         OnboardingStep.PRIVACY -> Privacy()
         OnboardingStep.PERMISSIONS -> Permissions(state, actions)
         OnboardingStep.STYLE -> Style(state, actions)
@@ -135,7 +146,25 @@ private fun Hero(icon: ImageVector, tone: HakuTone, title: String, subtitle: Str
 }
 
 @Composable
-private fun Welcome() = Hero(HakuIcons.Box, HakuTone.Violet, "Haku", "บันทึกชีวิตให้เอง จำได้ตลอดไป")
+private fun Welcome(logo: Painter?) {
+  if (logo == null) return Hero(HakuIcons.Box, HakuTone.Violet, "Haku", "บันทึกชีวิตให้เอง จำได้ตลอดไป")
+  Column(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    // the launcher foreground has the adaptive-icon safe margin built in, so it sits on a white squircle like the home screen
+    Image(
+      logo,
+      contentDescription = "Haku",
+      modifier = Modifier.size(120.dp).hakuShadow(RoundedCornerShape(36.dp)).background(HakuColors.Surface, RoundedCornerShape(36.dp)),
+    )
+    Text("Haku", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 24.dp))
+    Text(
+      "บันทึกชีวิตให้เอง จำได้ตลอดไป",
+      style = MaterialTheme.typography.bodyMedium,
+      color = HakuColors.Muted,
+      textAlign = TextAlign.Center,
+      modifier = Modifier.padding(top = 6.dp),
+    )
+  }
+}
 
 @Composable
 private fun Privacy() {

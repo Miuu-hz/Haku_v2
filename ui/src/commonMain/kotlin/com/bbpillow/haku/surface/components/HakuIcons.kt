@@ -28,6 +28,14 @@ object HakuIcons {
   val Box = icon("Box", "M12 3 20 7.5v9L12 21l-8-4.5v-9z", "M4 7.5 12 12l8-4.5M12 12v9")
   val File = icon("File", "M7 3.5h7l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-9.5A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z", "M14 3.5V8h4")
   val Send = icon("Send", "M5 12h13M13 6l6 6-6 6")
+  val Img = icon("Img", rect(4f, 5f, 16f, 14f, 2.5f), circle(9f, 10f, 1.5f), "m5 17 4.5-4 3.5 3 2.5-2L20 17")
+  val Spark = icon("Spark", "M12 4v4M12 16v4M4 12h4M16 12h4M7 7l2 2M15 15l2 2M17 7l-2 2M9 15l-2 2")
+  val Chart = icon("Chart", rect(4.5f, 4.5f, 15f, 15f, 3f), "M9 15.5v-3M12 15.5v-7M15 15.5v-5")
+
+  /** Overflow (three dots) and row chevron: not in the mockup sprite, drawn in the same monoline style. */
+  val More = icon("More", circle(6f, 12f, 0.6f), circle(12f, 12f, 0.6f), circle(18f, 12f, 0.6f))
+  val Chevron = icon("Chevron", "M10 7l5 5-5 5")
+  val Back = icon("Back", "M14 7l-5 5 5 5")
 }
 
 private fun icon(name: String, vararg paths: String): ImageVector {

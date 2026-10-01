@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +37,9 @@ fun MemoryProvenance.badge(): Provenance = when (this) {
   MemoryProvenance.EXTERNAL -> Provenance.External
 }
 
+/** Timeline: system-written lines carry no badge (every line would say the same); typed or outside lines do. */
+fun MemoryProvenance.timelineBadge(): Provenance? = badge().takeIf { it != Provenance.System }
+
 /** .dates span: one day pill of the timeline date strip, black when selected. */
 @Composable
 fun DatePill(weekday: String, dayOfMonth: Int, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -53,24 +57,59 @@ fun DatePill(weekday: String, dayOfMonth: Int, selected: Boolean, onClick: () ->
   }
 }
 
-/** .ev: grey time, colored dot, white card with the line and its provenance badge. Tap to edit. */
+/**
+ * .ev: grey time, colored dot, compact white card (h5 title + grey sub-line); the trip that led here sits above the card
+ * like the mockup's .travel line. [provenance] = null for lines the system wrote (the common case, no badge); pass a badge
+ * only for what the user typed or what came from outside. Tap to edit.
+ */
 @Composable
 fun TimelineRow(
   time: String,
   text: String,
   dot: Color,
-  provenance: Provenance,
+  provenance: Provenance?,
   onClick: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-    Text(time, style = MaterialTheme.typography.labelSmall, color = HakuColors.Muted, modifier = Modifier.width(40.dp).padding(top = 14.dp))
-    Box(Modifier.padding(top = 17.dp).size(10.dp).background(dot, CircleShape))
-    SurfaceCard(
-      Modifier.weight(1f).clip(HakuRadius.Card).clickable(role = Role.Button, onClickLabel = "แก้ไขหรือลบ", onClick = onClick),
-    ) {
-      Text(text, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Ink)
-      ProvenanceBadge(provenance, Modifier.padding(top = 8.dp))
+  val parts = DiaryLineParts.of(text)
+  Column(modifier.fillMaxWidth()) {
+    parts.travel?.let {
+      Text(it, style = MaterialTheme.typography.labelSmall, color = HakuColors.Muted, modifier = Modifier.padding(start = 60.dp, bottom = 4.dp))
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      Text(time, style = MaterialTheme.typography.labelSmall, color = HakuColors.Muted, modifier = Modifier.width(42.dp).padding(top = 13.dp))
+      Box(Modifier.padding(top = 16.dp).size(10.dp).background(dot, CircleShape))
+      SurfaceCard(
+        Modifier.weight(1f).clip(HakuRadius.Card).clickable(role = Role.Button, onClickLabel = "แก้ไขหรือลบ", onClick = onClick),
+        padding = PaddingValues(horizontal = 16.dp, vertical = 11.dp),
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Text(parts.title, style = MaterialTheme.typography.titleSmall, color = HakuColors.Ink, modifier = Modifier.weight(1f))
+          provenance?.let { ProvenanceBadge(it, Modifier.padding(start = 8.dp)) }
+        }
+        parts.detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted) }
+      }
+    }
+  }
+}
+
+/**
+ * Splits a rule-based diary line ("ถึงร้านกาแฟ ใช้เวลาเดินทางราว 15 นาที อยู่ราว 15 นาที") into title / trip / stay for
+ * display only; anything else (an edited or typed line) stays one title.
+ */
+// ponytail: reads DiaryTemplates' wording back; when lines carry structured fields, pass those instead.
+internal data class DiaryLineParts(val title: String, val travel: String?, val detail: String?) {
+  companion object {
+    private const val TRAVEL = " ใช้เวลาเดินทางราว "
+    private const val STAY = " อยู่ราว "
+
+    fun of(text: String): DiaryLineParts {
+      val stayAt = text.indexOf(STAY)
+      val travelAt = text.indexOf(TRAVEL)
+      val titleEnd = listOf(stayAt, travelAt).filter { it > 0 }.minOrNull() ?: return DiaryLineParts(text, null, null)
+      val travel = if (travelAt > 0) "เดินทางราว " + text.substring(travelAt + TRAVEL.length, if (stayAt > travelAt) stayAt else text.length) else null
+      val stay = if (stayAt > 0) "อยู่ราว " + text.substring(stayAt + STAY.length) else null
+      return DiaryLineParts(text.substring(0, titleEnd), travel, stay)
     }
   }
 }
