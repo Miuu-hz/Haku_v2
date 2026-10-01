@@ -1,6 +1,8 @@
 package com.bbpillow.haku
 
 import android.os.Bundle
+import android.os.SystemClock
+import android.view.WindowManager
 import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -22,6 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.bbpillow.haku.platform.BiometricLock
 import com.bbpillow.haku.platform.NightlyWorker
 import com.bbpillow.haku.platform.capture.CaptureController
@@ -68,6 +73,24 @@ private fun AppRoot(graph: AppGraph, activity: FragmentActivity) {
     return
   }
   val profile = record ?: return
+  val lockOn = profile.lockEnabled
+  // the app switcher and screenshots must not show content while the lock is on
+  LaunchedEffect(lockOn) {
+    if (lockOn) activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    else activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+  }
+  DisposableEffect(activity, lockOn) {
+    var stoppedAt = 0L
+    val observer = LifecycleEventObserver { _, event ->
+      if (event == Lifecycle.Event.ON_STOP) stoppedAt = SystemClock.elapsedRealtime()
+      if (event == Lifecycle.Event.ON_START && stoppedAt != 0L) {
+        if (lockOn && AppStart.shouldRelock(SystemClock.elapsedRealtime() - stoppedAt)) unlocked = false
+        stoppedAt = 0L
+      }
+    }
+    activity.lifecycle.addObserver(observer)
+    onDispose { activity.lifecycle.removeObserver(observer) }
+  }
   when (AppStart.screen(profile, unlocked)) {
     StartScreen.ONBOARDING -> OnboardingHost(graph, activity) { done ->
       unlocked = true // they just passed the prompt while turning the lock on

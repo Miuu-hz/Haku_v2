@@ -28,6 +28,13 @@ class AppStartTest {
   }
 
   @Test
+  fun relocksOnlyAfterMoreThanTheGracePeriodInBackground() {
+    assertFalse(AppStart.shouldRelock(backgroundedForMs = 60_000))
+    assertTrue(AppStart.shouldRelock(backgroundedForMs = 60_001))
+    assertFalse(AppStart.shouldRelock(backgroundedForMs = 0))
+  }
+
+  @Test
   fun captureNeedsLocationAndActivity() {
     assertTrue(AppStart.shouldStartCapture(setOf(PermissionKind.LOCATION, PermissionKind.ACTIVITY)))
     assertFalse(AppStart.shouldStartCapture(setOf(PermissionKind.LOCATION, PermissionKind.CALENDAR)))

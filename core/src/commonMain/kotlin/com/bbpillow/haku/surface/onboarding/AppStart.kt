@@ -18,4 +18,9 @@ object AppStart {
   /** Onboarding is marked done before its last button, so MAIN also starts capture if it never got started. */
   fun shouldStartCaptureOnMain(granted: Set<PermissionKind>, captureEnabled: Boolean): Boolean =
     !captureEnabled && shouldStartCapture(granted)
+
+  const val RELOCK_AFTER_MS = 60_000L
+
+  /** D11 lock engages again once the app was in the background longer than [RELOCK_AFTER_MS]. */
+  fun shouldRelock(backgroundedForMs: Long): Boolean = backgroundedForMs > RELOCK_AFTER_MS
 }
