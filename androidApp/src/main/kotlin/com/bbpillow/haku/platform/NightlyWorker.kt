@@ -71,9 +71,16 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
       for (day in summarizeDays) {
         // store reads/writes on the DB thread; the model itself runs on Default and only suspends this one
         val out = withContext(CaptureController.dispatcher) {
-          summarizer.summarize(EveningSummaryInput(day, facts.lines.getValue(day), facts.style))
+          // the model load was slow: re-read now, a delete/forget since the first read must not be summarized
+          val data = graph.onCaptureThread()
+          val fresh = data.diary.readDay(day, graph.tzOffsetMinutes).map { it.text }
+          if (fresh.isEmpty() || fresh != facts.lines[day]) return@withContext null
+          summarizer.summarize(EveningSummaryInput(day, fresh, facts.style)).also {
+            // lines deleted while the model was generating: drop what was just stored
+            if (data.diary.readDay(day, graph.tzOffsetMinutes).map { l -> l.text } != fresh) data.summaries.delete(day)
+          }
         }
-        log("summary $day source=${out.source} rejected=${out.rejectedReasons} metrics=${out.metrics}")
+        if (out == null) log("summary $day skipped: lines changed") else log("summary $day source=${out.source} rejected=${out.rejectedReasons} metrics=${out.metrics}")
       }
     } catch (e: CancellationException) {
       throw e // constraints lost (unplugged, screen on): WorkManager runs it again next window
