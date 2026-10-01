@@ -26,6 +26,23 @@ class DiaryRulesTest {
     assertEquals("8 ชั่วโมง", d(481))
   }
 
+  @Test fun particleIsSpacedAfterDigitsAndQuotesButJoinsThaiWords() {
+    val at = com.bbpillow.haku.memory.MemoryFormat.parseUtc("2026-09-07T06:30:00.000Z")!! // 13:30 at UTC+7
+    val episodes = listOf(
+      DiaryEpisode.Calendar(at, "ประชุมทีมขาย", at + 60 * min, listOf("c1")),
+      DiaryEpisode.Calendar(at + min, "ประชุมทีมขาย", null, listOf("c2")),
+      DiaryEpisode.Arrival(at + 2 * min, PlaceRef(category = PlaceCategory.HOME), null, 40 * min, listOf("a1")),
+    )
+    val plain = DiaryRenderer.render("2026-09-07", 420, DiaryStyle(), episodes).lines
+    val ka = DiaryRenderer.render("2026-09-07", 420, DiaryStyle(EndingParticle.KA), episodes).lines
+    assertEquals(
+      listOf("13:30 มีนัด “ประชุมทีมขาย” ถึง 14:30 ค่ะ", "13:31 มีนัด “ประชุมทีมขาย” ค่ะ", "13:32 ถึงบ้าน อยู่ราว 40 นาทีค่ะ"),
+      ka.map { it.text },
+    )
+    assertEquals(plain.map { it.id }, ka.map { it.id }) // ids never depend on wording
+    assertEquals("13:30 มีนัด “ประชุมทีมขาย” ถึง 14:30", plain[0].text)
+  }
+
   @Test fun thaiDateHeader() {
     assertEquals("วันจันทร์ที่ 7 กันยายน พ.ศ. 2569", ThaiDateFormat.dayHeader("2026-09-07"))
     assertEquals("วันอาทิตย์ที่ 1 มกราคม พ.ศ. 2566", ThaiDateFormat.dayHeader("2023-01-01"))

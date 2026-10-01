@@ -162,12 +162,12 @@ class DiaryComposerTest {
 
   @Test fun endingParticleIsAppliedToEveryLine() {
     val krap = composer().compose(input(tuesday, DiaryStyle(EndingParticle.KRAP))).written.map { it.text }
-    assertEquals(tuesdayLines.map { it + "ครับ" }, krap)
+    assertEquals(tuesdayLines.map { EndingParticle.KRAP.appendTo(it) }, krap)
   }
 
   @Test fun kaParticleAndNone() {
     val ka = composer().compose(input(tuesday, DiaryStyle(EndingParticle.KA))).written.map { it.text }
-    assertEquals(tuesdayLines.map { it + "ค่ะ" }, ka)
+    assertEquals(tuesdayLines.map { EndingParticle.KA.appendTo(it) }, ka)
     assertTrue(tuesdayLines.none { it.endsWith("ครับ") || it.endsWith("ค่ะ") })
   }
 

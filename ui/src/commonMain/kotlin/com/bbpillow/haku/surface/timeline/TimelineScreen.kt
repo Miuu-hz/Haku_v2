@@ -29,7 +29,7 @@ import com.bbpillow.haku.surface.components.DatePill
 import com.bbpillow.haku.surface.components.ScreenTitle
 import com.bbpillow.haku.surface.components.SurfaceCard
 import com.bbpillow.haku.surface.components.TimelineRow
-import com.bbpillow.haku.surface.components.badge
+import com.bbpillow.haku.surface.components.timelineBadge
 import com.bbpillow.haku.surface.theme.HakuColors
 import com.bbpillow.haku.surface.theme.HakuRadius
 import com.bbpillow.haku.surface.theme.HakuTone
@@ -55,7 +55,17 @@ fun TimelineScreen(
 
   LazyColumn(modifier.fillMaxWidth(), contentPadding = contentPadding, verticalArrangement = Arrangement.spacedBy(8.dp)) {
     item { ScreenTitle("ไทม์ไลน์", eyebrow = state.header) }
-    item { DateStrip(state, onSelectDay, Modifier.padding(bottom = 8.dp)) }
+    item { DateStrip(state, onSelectDay) }
+    if (state.lines.isNotEmpty()) {
+      item {
+        Text(
+          "ระบบเขียนเอง แตะรายการเพื่อแก้หรือลบ",
+          style = MaterialTheme.typography.labelSmall,
+          color = HakuColors.Muted,
+          modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp),
+        )
+      }
+    }
     if (state.lines.isEmpty()) {
       item {
         SurfaceCard(Modifier.fillMaxWidth()) {
@@ -64,7 +74,7 @@ fun TimelineScreen(
       }
     }
     itemsIndexed(state.lines, key = { _, l -> "${l.memoryDay}/${l.recordId}" }) { i, line ->
-      TimelineRow(line.time, line.text, Dots[i % Dots.size], line.provenance.badge(), onClick = { editing = line })
+      TimelineRow(line.time, line.text, Dots[i % Dots.size], line.provenance.timelineBadge(), onClick = { editing = line })
     }
   }
 

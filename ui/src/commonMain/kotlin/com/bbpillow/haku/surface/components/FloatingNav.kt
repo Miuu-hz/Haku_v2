@@ -22,6 +22,12 @@ import com.bbpillow.haku.surface.theme.HakuRadius
 /** One tab in the floating nav; label is for accessibility only. */
 data class NavItem(val icon: ImageVector, val label: String)
 
+private val TabHeight = 46.dp
+private val BarPadding = 9.dp
+
+/** Total height of [FloatingNav]; screens pad their bottom by this plus the nav's margin and a gap. */
+val FloatingNavHeight = TabHeight + BarPadding * 2
+
 /** .tabbar: floating white capsule, active tab as a black pill. */
 @Composable
 fun FloatingNav(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
@@ -30,7 +36,7 @@ fun FloatingNav(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit, mo
       .fillMaxWidth()
       .hakuShadow(HakuRadius.Pill)
       .background(HakuColors.Surface.copy(alpha = 0.92f), HakuRadius.Pill)
-      .padding(9.dp),
+      .padding(BarPadding),
     horizontalArrangement = Arrangement.SpaceAround,
     verticalAlignment = Alignment.CenterVertically,
   ) {
@@ -38,7 +44,7 @@ fun FloatingNav(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit, mo
       val on = i == selected
       Box(
         Modifier
-          .size(width = if (on) 76.dp else 56.dp, height = 46.dp)
+          .size(width = if (on) 76.dp else 56.dp, height = TabHeight)
           .clip(HakuRadius.Pill)
           .background(if (on) HakuColors.Ink else HakuColors.Surface.copy(alpha = 0f))
           .clickable(role = Role.Tab, onClickLabel = item.label) { onSelect(i) },

@@ -15,6 +15,7 @@ import com.bbpillow.haku.capture.stats.Entitlements
 import com.bbpillow.haku.capture.stats.Plan
 import com.bbpillow.haku.capture.stats.StatsSummarizer
 import com.bbpillow.haku.language.TextPipeline
+import com.bbpillow.haku.language.thaiSynonyms
 import com.bbpillow.haku.memory.MemoryFormat
 import com.bbpillow.haku.memory.MemoryStore
 import com.bbpillow.haku.memory.dream.DreamEngine
@@ -24,6 +25,7 @@ import com.bbpillow.haku.platform.IcuWordSegmenter
 import com.bbpillow.haku.platform.ModelDownloader
 import com.bbpillow.haku.platform.billing.PlayBilling
 import com.bbpillow.haku.platform.capture.CaptureController
+import com.bbpillow.haku.surface.chat.ChatPresenter
 import com.bbpillow.haku.surface.home.HomeBriefPresenter
 import com.bbpillow.haku.surface.memory.ForgetEverything
 import com.bbpillow.haku.surface.memory.TransparencyPresenter
@@ -70,10 +72,9 @@ class AppGraph(private val app: Application) {
     val profile = ProfileStore(FileSystem.SYSTEM, app.filesDir.resolve("profile.txt").path.toPath())
     val events = CaptureEventStore(db)
     val places = PlaceStore(db)
-    val memory = IndexedMemoryRepository(
-      MemoryStore(FileSystem.SYSTEM, app.filesDir.resolve("memory").path.toPath()),
-      SearchIndexStore(db, TextPipeline(IcuWordSegmenter())),
-    )
+    private val pipeline = TextPipeline(IcuWordSegmenter())
+    private val index = SearchIndexStore(db, pipeline)
+    val memory = IndexedMemoryRepository(MemoryStore(FileSystem.SYSTEM, app.filesDir.resolve("memory").path.toPath()), index)
     val ledger = DiaryLedgerStore(db)
     val diary = DiaryComposer(events, places, memory, ledger)
     /** P2.7 evening summaries, one file per local day (written by NightlyWorker, read by Home). */
@@ -82,6 +83,8 @@ class AppGraph(private val app: Application) {
     val timeline = TimelinePresenter(diary, memory, summaries, tz)
     val transparency = TransparencyPresenter(memory, ForgetEverything(events, places, ledger, summaries, memory, profile), tz)
     val onboarding = OnboardingPresenter(profile, places)
+    /** P3.3: retrieval runs here (DB thread); the model part of [ChatPresenter.answer] runs outside [io]. */
+    val chat = ChatPresenter(memory, index, pipeline, tz, thaiSynonyms)
 
     /**
      * Writes the rule-based diary for a local day before a screen reads it. Idempotent (ledger), so calling it on

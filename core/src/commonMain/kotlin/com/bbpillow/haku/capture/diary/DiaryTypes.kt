@@ -7,7 +7,16 @@ import com.bbpillow.haku.capture.PlaceVisitRecord
 import com.bbpillow.haku.memory.Provenance
 
 /** Ending particle the assistant uses (D15). Asked once at onboarding, then enforced on every line. */
-enum class EndingParticle(val text: String) { NONE(""), KRAP("ครับ"), KA("ค่ะ") }
+enum class EndingParticle(val text: String) {
+  NONE(""), KRAP("ครับ"), KA("ค่ะ");
+
+  /** Thai typography: the particle joins a Thai word ("นาทีค่ะ") but is spaced after a digit, quote or Latin ("14:30 ค่ะ"). */
+  fun appendTo(body: String): String {
+    if (this == NONE) return body
+    val last = body.lastOrNull() ?: return text
+    return if (last in '฀'..'๿') body + text else "$body $text"
+  }
+}
 
 /** How the assistant calls the user (D15): "คุณ", the nickname, or nothing. */
 enum class AddressForm { NONE, KHUN, NICKNAME }

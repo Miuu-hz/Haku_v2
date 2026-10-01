@@ -8,6 +8,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -136,10 +138,10 @@ fun OnboardingHost(graph: AppGraph, activity: FragmentActivity, onDone: (Profile
     onRejectPlace = { write { rejectPlace(it) } },
   )
   Column {
-    OnboardingScreen(s, actions, Modifier.weight(1f))
+    OnboardingScreen(s, actions, Modifier.weight(1f), logo = painterResource(R.mipmap.ic_launcher_foreground))
     // debug builds only (release DemoTools is a no-op): skip onboarding with the demo persona
     if (s.step == OnboardingStep.WELCOME) {
-      DemoSeedButton(graph, { scope.launch { graph.safeIo { profile.load() }?.let(onDone) } }, Modifier.fillMaxWidth().padding(horizontal = 20.dp))
+      DemoSeedButton(graph, { scope.launch { graph.safeIo { profile.load() }?.let(onDone) } }, Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp))
     }
     if (s.complete) {
       CapsuleButton(

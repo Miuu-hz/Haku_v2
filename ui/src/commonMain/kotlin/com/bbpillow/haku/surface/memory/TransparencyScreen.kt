@@ -1,6 +1,20 @@
 package com.bbpillow.haku.surface.memory
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import com.bbpillow.haku.surface.components.SectionLabel
+import com.bbpillow.haku.surface.components.StatChip
+import com.bbpillow.haku.surface.theme.HakuRadius
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -19,7 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.bbpillow.haku.surface.components.CapsuleButton
 import com.bbpillow.haku.surface.components.ConfirmDialog
 import com.bbpillow.haku.surface.components.EgressCounter
 import com.bbpillow.haku.surface.components.HakuIcons
@@ -48,6 +61,10 @@ fun TransparencyScreen(
   onExport: () -> Unit = {},
   /** P9.4: the Haku Plus screen. */
   onOpenPlus: () -> Unit = {},
+  /** Mockup screen 6: the home node status (P7, coming soon). */
+  onOpenHomeNode: () -> Unit = {},
+  /** Small action at the top-right of the title area that scrolls with the list (debug builds: the demo-data chip). */
+  headerAction: (@Composable () -> Unit)? = null,
   modifier: Modifier = Modifier,
   contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
 ) {
@@ -57,16 +74,19 @@ fun TransparencyScreen(
   var typed by remember { mutableStateOf("") }
 
   LazyColumn(modifier.fillMaxWidth(), contentPadding = contentPadding, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-    item { ScreenTitle("สิ่งที่ Haku จำ", eyebrow = "เปิดดูและลบได้ทุกบรรทัด") }
+    item {
+      Box(Modifier.fillMaxWidth()) {
+        ScreenTitle("สิ่งที่ Haku จำ", eyebrow = "เปิดดูและลบได้ทุกบรรทัด")
+        headerAction?.let { Box(Modifier.align(Alignment.TopEnd)) { it() } }
+      }
+    }
     item { EgressCounter(state.egressToday) }
     items(state.categories, key = { it.slug }) { c ->
-      Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SectionHeader(c.title, Modifier.padding(top = 8.dp), trailing = "${c.count} ข้อ")
-        Text(c.description, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted, modifier = Modifier.padding(start = 4.dp))
-        if (c.count > 0) CapsuleButton("ลืมทั้งหมวดนี้", { forgettingCategory = c }, outline = true)
-        SurfaceCard(Modifier.fillMaxWidth(), padding = PaddingValues(horizontal = 18.dp, vertical = 4.dp)) {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        CategoryHeader(c, onForgetCategory = { forgettingCategory = c })
+        SurfaceCard(Modifier.fillMaxWidth(), padding = PaddingValues(horizontal = 18.dp, vertical = 2.dp)) {
           if (c.facts.isEmpty()) {
-            Text("ยังไม่มีข้อมูล", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted, modifier = Modifier.padding(vertical = 12.dp))
+            Text("ยังไม่มีข้อมูล", style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted, modifier = Modifier.padding(vertical = 12.dp))
           }
           c.facts.forEachIndexed { i, f ->
             MemoryRow(f.text, f.date, f.provenance.badge(), onForget = { forgetting = f }, divider = i < c.facts.lastIndex)
@@ -84,11 +104,13 @@ fun TransparencyScreen(
       }
     }
     item { WhereDataLivesCard(Modifier.padding(top = 8.dp)) }
+    item { SectionLabel("ตั้งค่าและข้อมูล", Modifier.padding(top = 8.dp)) }
     item {
-      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        CapsuleButton("Haku Plus", onOpenPlus, outline = true)
-        CapsuleButton("ส่งออกความจำทั้งหมดเป็นไฟล์", onExport, outline = true)
-        CapsuleButton("ลืมทุกอย่าง", { typed = ""; forgettingAll = true })
+      SurfaceCard(Modifier.fillMaxWidth(), padding = PaddingValues(horizontal = 18.dp, vertical = 2.dp)) {
+        ActionRow("เครื่องที่บ้าน", onOpenHomeNode, chip = "เร็ว ๆ นี้")
+        ActionRow("Haku Plus", onOpenPlus)
+        ActionRow("ส่งออกความจำทั้งหมดเป็นไฟล์", onExport)
+        ActionRow("ลืมทุกอย่าง", { typed = ""; forgettingAll = true }, danger = true, divider = false)
       }
     }
   }
@@ -124,6 +146,51 @@ fun TransparencyScreen(
     ) {
       OutlinedTextField(typed, { typed = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
     }
+  }
+}
+
+/** .sec-lbl group label with its count and a quiet overflow holding "forget this whole category". */
+@Composable
+private fun CategoryHeader(c: MemoryCategoryItem, onForgetCategory: () -> Unit) {
+  var menu by remember { mutableStateOf(false) }
+  Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.weight(1f)) {
+      SectionLabel(c.title)
+      Text(c.description, style = MaterialTheme.typography.labelSmall, color = HakuColors.Muted, modifier = Modifier.padding(start = 4.dp, top = 2.dp))
+    }
+    Text("${c.count} ข้อ", style = MaterialTheme.typography.labelSmall, color = HakuColors.Muted)
+    if (c.count > 0) {
+      Box {
+        Box(
+          Modifier.size(36.dp).clip(HakuRadius.Pill).clickable(role = Role.Button, onClickLabel = "ตัวเลือกหมวด ${c.title}") { menu = true },
+          contentAlignment = Alignment.Center,
+        ) { Icon(HakuIcons.More, "ตัวเลือกเพิ่มเติม", tint = HakuColors.Muted, modifier = Modifier.size(20.dp)) }
+        DropdownMenu(menu, { menu = false }, containerColor = HakuColors.Surface, shape = HakuRadius.Small) {
+          DropdownMenuItem(
+            text = { Text("ลืมทั้งหมวดนี้", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Coral) },
+            onClick = { menu = false; onForgetCategory() },
+          )
+        }
+      }
+    } else {
+      Spacer(Modifier.width(12.dp))
+    }
+  }
+}
+
+/** A settings row inside one card: label, optional chip, chevron; [danger] = coral label. */
+@Composable
+private fun ActionRow(label: String, onClick: () -> Unit, chip: String? = null, danger: Boolean = false, divider: Boolean = true) {
+  Column {
+    Row(
+      Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(vertical = 14.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text(label, style = MaterialTheme.typography.bodyMedium, color = if (danger) HakuColors.Coral else HakuColors.Ink, modifier = Modifier.weight(1f))
+      chip?.let { StatChip(it, Modifier.padding(end = 6.dp)) }
+      Icon(HakuIcons.Chevron, null, tint = HakuColors.Muted, modifier = Modifier.size(18.dp))
+    }
+    if (divider) HorizontalDivider(color = HakuColors.Line)
   }
 }
 

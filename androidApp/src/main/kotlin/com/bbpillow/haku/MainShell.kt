@@ -30,6 +30,20 @@ import com.bbpillow.haku.platform.capture.CaptureController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.bbpillow.haku.surface.components.FloatingNav
+import com.bbpillow.haku.surface.components.FloatingNavHeight
+import com.bbpillow.haku.surface.chat.ChatAnswerOutput
+import com.bbpillow.haku.surface.chat.ChatAnswerSource
+import com.bbpillow.haku.surface.chat.ChatQuestionInput
+import com.bbpillow.haku.surface.chat.ChatScreen
+import com.bbpillow.haku.surface.chat.ChatTurn
+import com.bbpillow.haku.surface.node.HomeNodeScreen
+import com.bbpillow.haku.platform.LiteRtLocalModel
+import com.bbpillow.haku.thinking.LocalModelClient
+import com.bbpillow.haku.thinking.ModelConfig
+import android.util.Log
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CoroutineScope
 import com.bbpillow.haku.surface.components.HakuIcons
 import com.bbpillow.haku.surface.components.NavItem
 import com.bbpillow.haku.surface.home.HomeBriefScreen
@@ -44,16 +58,22 @@ import kotlinx.coroutines.launch
 private val NavItems = listOf(
   NavItem(HakuIcons.Home, "หน้าแรก"),
   NavItem(HakuIcons.Route, "ไทม์ไลน์"),
+  NavItem(HakuIcons.Chat, "ถาม Haku"),
   NavItem(HakuIcons.Grid, "ความจำ"),
 )
+private const val TAB_HOME = 0
+private const val TAB_TIMELINE = 1
+private const val TAB_CHAT = 2
 
 private const val DAY_MS = 86_400_000L
 
-/** Room under the lists so the last row clears the floating nav. */
-private val TabPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 100.dp)
+private val NavMargin = 12.dp
+
+/** Room under every tab so the last row (and the chat input) clears the floating nav with a gap. */
+private val TabPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = NavMargin + FloatingNavHeight + 24.dp)
 
 /**
- * Three tabs over one [FloatingNav]. Each tab loads from its presenter on the DB thread and holds only the returned state.
+ * Four tabs over one [FloatingNav] (mockup: home, timeline, chat, memory). Home Node opens inside the memory tab. Each tab loads from its presenter on the DB thread and holds only the returned state.
  * Haku Plus (P9.4) opens over the tabs from Home's weekly chip or the Memory tab; back closes it.
  */
 @Composable
@@ -61,18 +81,26 @@ fun MainShell(graph: AppGraph, activity: Activity) {
   var tab by rememberSaveable { mutableIntStateOf(0) }
   var day by rememberSaveable { mutableStateOf<String?>(null) }
   var plusOpen by rememberSaveable { mutableStateOf(false) }
+  var nodeOpen by rememberSaveable { mutableStateOf(false) }
+  // the conversation lives as long as the shell, so switching tabs keeps it
+  var chatTurns by remember { mutableStateOf(listOf<ChatTurn>()) }
+  val shellScope = rememberCoroutineScope() // an answer still lands if the user switches tabs while it is being written
   BackHandler(enabled = plusOpen) { plusOpen = false }
+  BackHandler(enabled = !plusOpen && nodeOpen && tab == NavItems.lastIndex) { nodeOpen = false }
   Box(Modifier.fillMaxSize()) {
     if (plusOpen) {
       PlusTab(graph, activity) { plusOpen = false }
       return@Box
     }
+    val openDay = { d: String -> day = d; tab = TAB_TIMELINE }
     when (tab) {
-      0 -> HomeTab(graph, CaptureController.isEnabled(activity), { day = it; tab = 1 }, { plusOpen = true })
-      1 -> TimelineTab(graph, day) { day = it }
-      else -> MemoryTab(graph) { plusOpen = true }
+      TAB_HOME -> HomeTab(graph, CaptureController.isEnabled(activity), openDay, { plusOpen = true })
+      TAB_TIMELINE -> TimelineTab(graph, day) { day = it }
+      TAB_CHAT -> ChatTab(graph, shellScope, chatTurns, { chatTurns = it }, openDay)
+      else -> if (nodeOpen) HomeNodeScreen(onBack = { nodeOpen = false }, contentPadding = TabPadding)
+      else MemoryTab(graph, { plusOpen = true }, { nodeOpen = true })
     }
-    FloatingNav(NavItems, tab, { tab = it }, Modifier.align(Alignment.BottomCenter).padding(horizontal = 20.dp, vertical = 12.dp))
+    FloatingNav(NavItems, tab, { tab = it; nodeOpen = false }, Modifier.align(Alignment.BottomCenter).padding(horizontal = 20.dp, vertical = NavMargin))
   }
 }
 
@@ -142,7 +170,56 @@ private fun TimelineTab(graph: AppGraph, selected: String?, onSelectDay: (String
 }
 
 @Composable
-private fun MemoryTab(graph: AppGraph, onOpenPlus: () -> Unit) {
+private fun ChatTab(graph: AppGraph, scope: CoroutineScope, turns: List<ChatTurn>, onTurns: (List<ChatTurn>) -> Unit, onOpenDay: (String) -> Unit) {
+  var hasModel by remember { mutableStateOf(false) }
+  LaunchedEffect(Unit) { hasModel = modelConfigOrNull(graph) != null }
+  ChatScreen(
+    turns,
+    engineLabel = if (hasModel) "ในเครื่อง · Gemma" else "ในเครื่อง · ค้นจากบันทึก",
+    onAsk = { q ->
+      val asked = turns + ChatTurn(q, null)
+      onTurns(asked)
+      scope.launch {
+        val answer = askHaku(graph, q) ?: ChatAnswerOutput(q, "ค้นบันทึกไม่สำเร็จ ลองใหม่อีกครั้ง", emptyList(), ChatAnswerSource.RETRIEVAL)
+        onTurns(asked.dropLast(1) + ChatTurn(q, answer))
+      }
+    },
+    onOpenDay = onOpenDay,
+    contentPadding = TabPadding,
+  )
+}
+
+/** Retrieval on the DB thread, then the downloaded model if there is one (loaded for this question, released after). */
+private suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutput? {
+  val (presenter, retrieval) = graph.safeIo { chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style)) } ?: return null
+  val config = modelConfigOrNull(graph) ?: return retrieval.fallback
+  val model = LiteRtLocalModel()
+  return try {
+    val client = LocalModelClient(model)
+    client.load(config)
+    presenter.answer(retrieval, client)
+  } catch (e: CancellationException) {
+    throw e
+  } catch (e: Exception) {
+    Log.e("HakuShell", "chat model failed, showing the retrieval answer", e)
+    retrieval.fallback
+  } finally {
+    withContext(NonCancellable) { runCatching { model.unload() } }
+  }
+}
+
+/** External storage can be missing: that is "no model", the chat still answers from the diary. */
+private suspend fun modelConfigOrNull(graph: AppGraph): ModelConfig? = try {
+  graph.modelConfig()
+} catch (e: CancellationException) {
+  throw e
+} catch (e: Exception) {
+  Log.e("HakuShell", "model config unavailable", e)
+  null
+}
+
+@Composable
+private fun MemoryTab(graph: AppGraph, onOpenPlus: () -> Unit, onOpenHomeNode: () -> Unit) {
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
   var state by remember { mutableStateOf<TransparencyUiState?>(null) }
@@ -155,17 +232,16 @@ private fun MemoryTab(graph: AppGraph, onOpenPlus: () -> Unit) {
     }
   }
   val s = state ?: return
-  Box(Modifier.fillMaxSize()) {
-    TransparencyScreen(
-      s,
-      onForget = { fact -> scope.launch { graph.safeIo { transparency.forget(fact) }?.let { state = it } } },
-      onForgetCategory = { slug -> scope.launch { graph.safeIo { transparency.forgetCategory(slug) }?.let { state = it } } },
-      onForgetEverything = { scope.launch { graph.safeIo { transparency.forgetEverything() }?.let { state = it } } },
-      onExport = { picker.launch("haku-memory.md") },
-      onOpenPlus = onOpenPlus,
-      contentPadding = TabPadding,
-    )
-    // debug builds only (release DemoTools is a no-op)
-    DemoSeedButton(graph, { scope.launch { graph.safeIo { transparency.load() }?.let { state = it } } }, Modifier.align(Alignment.TopEnd).padding(12.dp))
-  }
+  TransparencyScreen(
+    s,
+    onForget = { fact -> scope.launch { graph.safeIo { transparency.forget(fact) }?.let { state = it } } },
+    onForgetCategory = { slug -> scope.launch { graph.safeIo { transparency.forgetCategory(slug) }?.let { state = it } } },
+    onForgetEverything = { scope.launch { graph.safeIo { transparency.forgetEverything() }?.let { state = it } } },
+    onExport = { picker.launch("haku-memory.md") },
+    onOpenPlus = onOpenPlus,
+    onOpenHomeNode = onOpenHomeNode,
+    contentPadding = TabPadding,
+    // debug builds only (release DemoTools draws nothing)
+    headerAction = { DemoSeedButton(graph, { scope.launch { graph.safeIo { transparency.load() }?.let { state = it } } }) },
+  )
 }
