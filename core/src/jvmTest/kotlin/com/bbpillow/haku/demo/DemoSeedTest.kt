@@ -51,11 +51,12 @@ class DemoSeedTest {
   private val summaries = EveningSummaryStore(fs, "/summaries".toPath())
   private val profile = ProfileStore(fs, "/profile.txt".toPath())
   private val diary = DiaryComposer(events, places, memory, ledger)
-  private val forget = ForgetEverything(events, places, ledger, summaries, memory, profile)
+  private val connections = com.bbpillow.haku.network.ConnectionStore(db)
+  private val forget = ForgetEverything(events, places, ledger, summaries, memory, profile, connections)
   private val free = object : Entitlements { override val plan = Plan.FREE }
   private val home = HomeBriefPresenter(diary, events, places, tz, summaries, StatsSummarizer(free))
   private val timeline = TimelinePresenter(diary, memory, summaries, tz)
-  private val transparency = TransparencyPresenter(memory, forget, tz)
+  private val transparency = TransparencyPresenter(memory, forget, connections, tz) { now }
 
   // Thursday 2026-10-01 20:00 Bangkok, the mockup's evening
   private val now = MemoryFormat.parseUtc("2026-10-01T13:00:00.000Z")!!

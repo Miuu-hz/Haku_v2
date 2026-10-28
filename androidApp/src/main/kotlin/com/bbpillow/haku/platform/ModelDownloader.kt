@@ -1,6 +1,8 @@
 package com.bbpillow.haku.platform
 
 import android.util.Log
+import com.bbpillow.haku.network.ConnectionPurpose
+import com.bbpillow.haku.network.ConnectionRecord
 import com.bbpillow.haku.network.DownloadResponseInput
 import com.bbpillow.haku.network.DownloadResume
 import com.bbpillow.haku.network.ResumeDecision
@@ -14,6 +16,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,8 +41,14 @@ data class DownloadState(
  *
  * ponytail: a coroutine on the app scope, no foreground service or WorkManager; one download at a time (starting
  * another while one is running returns false instead of queueing).
+ *
+ * Every HTTP request it opens is handed to [onConnection] (E3 connection log), redirect hops included.
  */
-class ModelDownloader(private val dir: File, private val scope: CoroutineScope) {
+class ModelDownloader(
+  private val dir: File,
+  private val scope: CoroutineScope,
+  private val onConnection: suspend (ConnectionRecord) -> Unit,
+) {
   private val _state = MutableStateFlow<DownloadState?>(null)
   val state: StateFlow<DownloadState?> = _state.asStateFlow()
   private var job: Job? = null
@@ -137,6 +146,9 @@ class ModelDownloader(private val dir: File, private val scope: CoroutineScope) 
       val needed = (choice.bytes - have).coerceAtLeast(0L)
       if (dir.usableSpace < needed) throw IOException("พื้นที่ไม่พอ ต้องว่างอีก ${needed / 1_000_000_000 + 1} GB")
       val conn = URL(choice.url).openConnection() as HttpURLConnection
+      val startedAt = System.currentTimeMillis()
+      var received = 0L
+      var result = FAILED
       try {
         conn.connectTimeout = TIMEOUT_MS
         conn.readTimeout = TIMEOUT_MS
@@ -144,24 +156,54 @@ class ModelDownloader(private val dir: File, private val scope: CoroutineScope) 
         val decision = DownloadResume.decide(
           DownloadResponseInput(have, conn.responseCode, conn.contentLengthLong, conn.getHeaderField("Content-Range")),
         )
+        val finalUrl = conn.url.toString()
+        if (finalUrl != choice.url) log(startedAt, choice.url, null, "ส่งต่อไปที่ ${ConnectionRecord.hostAndPath(finalUrl).first}")
         when (decision) {
-          is ResumeDecision.Complete -> return rename(choice, part, out)
-          is ResumeDecision.StartOver -> part.delete()
-          is ResumeDecision.Failed -> throw IOException("HTTP ${decision.status}")
+          is ResumeDecision.Complete -> {
+            rename(choice, part, out)
+            result = OK
+            return
+          }
+          is ResumeDecision.StartOver -> {
+            part.delete()
+            result = "ไฟล์ในเครื่องไม่ตรง เริ่มใหม่"
+          }
+          is ResumeDecision.Failed -> {
+            result = "$FAILED (HTTP ${decision.status})"
+            throw IOException("HTTP ${decision.status}")
+          }
           is ResumeDecision.Write -> {
-            write(choice, conn, part, decision)
+            write(choice, conn, part, decision) { received += it }
             if (!DownloadResume.isComplete(part.length(), decision.totalBytes)) throw IOException("ไฟล์ไม่ครบ")
-            return rename(choice, part, out)
+            rename(choice, part, out)
+            result = OK
+            return
           }
         }
+      } catch (e: CancellationException) {
+        result = "หยุดไว้"
+        throw e
+      } catch (e: Exception) {
+        if (result == FAILED) result = "$FAILED (${e.javaClass.simpleName})" // class name only: messages can hold a URL
+        throw e
       } finally {
         conn.disconnect()
+        log(startedAt, conn.url.toString(), received, result)
       }
     }
     throw IOException("เซิร์ฟเวอร์ส่งไฟล์ไม่ตรงกัน")
   }
 
-  private suspend fun write(choice: ModelChoice, conn: HttpURLConnection, part: File, decision: ResumeDecision.Write) {
+  /** Records one connection; runs even while the job is being cancelled (pause), and never fails the download. */
+  private suspend fun log(atMs: Long, url: String, bytesIn: Long?, result: String) = withContext(NonCancellable) {
+    try {
+      onConnection(ConnectionRecord.of(atMs, url, ConnectionPurpose.MODEL_DOWNLOAD, bytesIn, null, result))
+    } catch (e: Exception) {
+      Log.w(TAG, "connection log write failed: ${e.javaClass.simpleName}")
+    }
+  }
+
+  private suspend fun write(choice: ModelChoice, conn: HttpURLConnection, part: File, decision: ResumeDecision.Write, onBytes: (Int) -> Unit) {
     var have = decision.fromByte
     var lastReported = -1
     conn.inputStream.use { input ->
@@ -173,6 +215,7 @@ class ModelDownloader(private val dir: File, private val scope: CoroutineScope) 
           if (n < 0) break
           output.write(buf, 0, n)
           have += n
+          onBytes(n)
           coroutineContext.ensureActive()
           val fraction = DownloadResume.fraction(have, decision.totalBytes)
           val permille = (fraction * 1000).toInt()
@@ -198,6 +241,8 @@ class ModelDownloader(private val dir: File, private val scope: CoroutineScope) 
 
   private companion object {
     const val TAG = "HakuModel"
+    const val OK = "สำเร็จ"
+    const val FAILED = "ไม่สำเร็จ"
     const val TIMEOUT_MS = 30_000
     const val BUFFER = 256 * 1024
   }

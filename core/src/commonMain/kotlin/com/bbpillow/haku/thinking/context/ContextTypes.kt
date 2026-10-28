@@ -4,8 +4,8 @@ import com.bbpillow.haku.memory.MemoryRef
 import com.bbpillow.haku.memory.Provenance
 import com.bbpillow.haku.memory.index.SearchHitOutput
 
-/** Fixed assembly order (P1.9): standing instructions, curated core, recalled daily records. */
-enum class ContextSection { STANDING, CORE, RECALL }
+/** Fixed assembly order (P1.9): standing instructions, current state ("ตอนนี้"), curated core, recalled daily records. */
+enum class ContextSection { STANDING, NOW, CORE, RECALL }
 
 /** D18 retrieval tier that found an item; ALWAYS = included without retrieval (standing instructions). */
 enum class RetrievalTier { ALWAYS, STRUCTURAL, WORDS, SEMANTIC, LINK, CATEGORY }
@@ -17,6 +17,27 @@ data class AssembleInput(
   /** Device UTC offset, so "yesterday" means the user's yesterday. */
   val utcOffsetMinutes: Int,
   val languageCode: String = "th",
+  /** Current state for the "ตอนนี้" line; null = no line (the caller has no capture stores). */
+  val now: NowStateInput? = null,
+)
+
+/** A calendar row of today that has not ended yet. */
+data class NowAppointmentRecord(val title: String, val startUtcMs: Long, val endUtcMs: Long?)
+
+/**
+ * P1.9 current state, built from the capture stores by surface/chat/NowStateBuilder. Place names are already the
+ * confirmed name or DiaryTemplates.UNKNOWN_PLACE (never a guess, never coordinates); null = not known.
+ * [hasAppointmentsToday] = today has calendar rows at all, so an empty [remaining] means "none left", not "no calendar".
+ */
+data class NowStateInput(
+  val placeName: String? = null,
+  val sinceUtcMs: Long? = null,
+  val remaining: List<NowAppointmentRecord> = emptyList(),
+  val hasAppointmentsToday: Boolean = false,
+  val lastLeftPlace: String? = null,
+  val lastLeftUtcMs: Long? = null,
+  /** Capture event ids the line was built from (E5 inspector: where it came from). */
+  val sourceEventIds: List<String> = emptyList(),
 )
 
 /** One line sent to the model. [text] is exactly that line; [reason] and [tiers] say why it is there (E5 inspector). */

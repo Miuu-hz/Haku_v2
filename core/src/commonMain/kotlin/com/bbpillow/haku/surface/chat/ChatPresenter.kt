@@ -18,6 +18,7 @@ import com.bbpillow.haku.thinking.context.AssembledContext
 import com.bbpillow.haku.thinking.context.ContextAssembler
 import com.bbpillow.haku.thinking.context.ContextItem
 import com.bbpillow.haku.thinking.context.ContextSection
+import com.bbpillow.haku.thinking.context.NowStateInput
 import com.bbpillow.haku.thinking.context.RetrievalTier
 import com.bbpillow.haku.thinking.context.SemanticTier
 import com.bbpillow.haku.thinking.summary.SummaryCheckInput
@@ -69,16 +70,20 @@ class ChatPresenter(
   synonyms: SynonymTable? = null,
   private val budgetTokens: Int = DEFAULT_BUDGET_TOKENS,
   private val timeoutMillis: Long = DEFAULT_TIMEOUT_MS,
+  /** P1.9 "ตอนนี้" for a question asked at the given UTC ms (NowStateBuilder::build); null = no current-state line. */
+  private val nowState: ((Long) -> NowStateInput?)? = null,
 ) {
   private val assembler = ContextAssembler(memory, search, pipeline, synonyms)
 
   /** [semantic] = this question's embedded-vector tier (VectorSemanticTier.forQuestion), null = words only. */
   fun retrieve(input: ChatQuestionInput, semantic: SemanticTier? = null): ChatRetrievalOutput {
     val question = input.question.trim()
-    val context = assembler.assemble(AssembleInput(question, budgetTokens, input.nowEpochMs, tzOffsetMinutes), semantic)
+    val now = nowState?.invoke(input.nowEpochMs)
+    val context = assembler.assemble(AssembleInput(question, budgetTokens, input.nowEpochMs, tzOffsetMinutes, now = now), semantic)
     val citations = citations(context.items)
-    val found = context.items.count { it.section != ContextSection.STANDING } // all retrieved lines, not just the cited few
-    return ChatRetrievalOutput(input, context, citations, ChatAnswerOutput(question, retrievalText(citations, found, input.style), citations, ChatAnswerSource.RETRIEVAL))
+    val found = context.items.count { it.section in RECORD_SECTIONS } // all retrieved lines, not just the cited few
+    val records = citations.filter { it.label != ContextAssembler.NOW_LABEL }
+    return ChatRetrievalOutput(input, context, citations, ChatAnswerOutput(question, retrievalText(records, found, input.style), citations, ChatAnswerSource.RETRIEVAL))
   }
 
   /** [client] = an already loaded model, or null (no model file): then the retrieval answer is returned as is. */
@@ -111,11 +116,16 @@ class ChatPresenter(
     return if (check.ok) fallback.copy(text = text, source = ChatAnswerSource.MODEL) else fallback.copy(rejectedReasons = check.reasons, rejectedText = text)
   }
 
-  /** Diary lines and core facts (standing instructions are how to answer, not sources). Date questions read in order, others best first. */
+  /**
+   * The "ตอนนี้" line first (when sent), then diary lines and core facts (standing instructions are how to answer, not
+   * sources). Date questions read in order, others best first.
+   */
   private fun citations(items: List<ContextItem>): List<ChatCitation> {
-    val sources = items.filter { it.section != ContextSection.STANDING }
+    val now = items.filter { it.section == ContextSection.NOW }
+      .map { ChatCitation(ContextAssembler.NOW_LABEL, null, it.text.substringAfter("] "), it.atEpochMs, it.source) }
+    val sources = items.filter { it.section in RECORD_SECTIONS }
     val ordered = if (sources.any { RetrievalTier.STRUCTURAL in it.tiers }) sources.sortedBy { it.atEpochMs } else sources.sortedByDescending { it.value }
-    return ordered.take(MAX_CITATIONS).map { item ->
+    return now + ordered.take(MAX_CITATIONS).map { item ->
       val text = memory.find(item.source)?.text ?: item.text.substringAfter("] ")
       if (item.section == ContextSection.RECALL) {
         val day = MemoryFormat.dayOf(item.atEpochMs + tzOffsetMinutes * 60_000L)
@@ -176,6 +186,7 @@ class ChatPresenter(
     const val FROM_DIARY = "จากบันทึกของคุณ"
     const val NOT_FOUND = "ยังไม่พบเรื่องนี้ในบันทึกของคุณ ลองถามด้วยชื่อสถานที่หรือวันที่"
     const val MAX_CITATIONS = 5
+    private val RECORD_SECTIONS = setOf(ContextSection.CORE, ContextSection.RECALL)
     const val MAX_CHAT_CHARS = 600
     const val DEFAULT_BUDGET_TOKENS = 900
     const val DEFAULT_TIMEOUT_MS = 30_000L

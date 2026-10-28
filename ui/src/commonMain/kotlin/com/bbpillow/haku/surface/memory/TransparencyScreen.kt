@@ -47,10 +47,10 @@ import com.bbpillow.haku.surface.theme.HakuColors
 import com.bbpillow.haku.surface.theme.HakuTone
 
 /**
- * Screen 4 of haku-mockup.html (asset E1/E2): egress counter, every remembered fact by category with its provenance,
- * forget per fact, and where the data lives. State-hoisted: the caller owns [state] (from TransparencyPresenter).
+ * Screen 4 of haku-mockup.html (assets E1/E2/E3): egress counter, every remembered fact by category with its provenance,
+ * forget per fact, the connection report, and where the data lives. State-hoisted: the caller owns [state]
+ * (from TransparencyPresenter).
  */
-// ponytail: the egress report (E3) comes with its data source (P4 network layer).
 @Composable
 fun TransparencyScreen(
   state: TransparencyUiState,
@@ -120,6 +120,8 @@ fun TransparencyScreen(
         }
       }
     }
+    item { SectionHeader("การเชื่อมต่อ", Modifier.padding(top = 8.dp), trailing = "30 วันล่าสุด") }
+    item { ConnectionsCard(state) }
     item { WhereDataLivesCard(Modifier.padding(top = 8.dp)) }
     item { SectionLabel("ตั้งค่าและข้อมูล", Modifier.padding(top = 8.dp)) }
     item {
@@ -208,6 +210,33 @@ private fun ActionRow(label: String, onClick: () -> Unit, chip: String? = null, 
       Icon(HakuIcons.Chevron, null, tint = HakuColors.Muted, modifier = Modifier.size(18.dp))
     }
     if (divider) HorizontalDivider(color = HakuColors.Line)
+  }
+}
+
+/** E3: every connection Haku opened, the total line first. */
+@Composable
+private fun ConnectionsCard(state: TransparencyUiState) {
+  SurfaceCard(Modifier.fillMaxWidth(), padding = PaddingValues(horizontal = 18.dp, vertical = 12.dp)) {
+    Text(state.connectionsTotal, style = MaterialTheme.typography.bodySmall, color = HakuColors.Ink)
+    if (state.connections.isEmpty()) {
+      Text("ยังไม่มีการเชื่อมต่อออกนอกเครื่อง", style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted, modifier = Modifier.padding(top = 8.dp))
+    }
+    state.connections.forEach { c ->
+      HorizontalDivider(color = HakuColors.Line, modifier = Modifier.padding(vertical = 10.dp))
+      Text(c.purpose, style = MaterialTheme.typography.bodyMedium)
+      Text(
+        listOfNotNull(c.time, c.host, c.received?.let { "รับเข้า $it" }, c.result).joinToString(" · "),
+        style = MaterialTheme.typography.labelSmall,
+        color = HakuColors.Muted,
+        modifier = Modifier.padding(top = 2.dp),
+      )
+    }
+    Text(
+      "การซื้อ Haku Plus ทำผ่านแอป Google Play ซึ่งเชื่อมต่อแทน Haku จึงไม่แสดงที่นี่",
+      style = MaterialTheme.typography.labelSmall,
+      color = HakuColors.Muted,
+      modifier = Modifier.padding(top = 10.dp),
+    )
   }
 }
 

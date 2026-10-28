@@ -4,6 +4,7 @@ import com.bbpillow.haku.capture.CaptureEventRepository
 import com.bbpillow.haku.capture.PlaceRepository
 import com.bbpillow.haku.capture.diary.DiaryLedgerRepository
 import com.bbpillow.haku.memory.MemoryRepository
+import com.bbpillow.haku.network.ConnectionRepository
 import com.bbpillow.haku.surface.onboarding.ProfileRepository
 import com.bbpillow.haku.thinking.summary.EveningSummaryRepository
 
@@ -12,6 +13,7 @@ import com.bbpillow.haku.thinking.summary.EveningSummaryRepository
  * refill them), then what was generated from them (places, ledger, summaries), then the memory files and index.
  * The onboarding profile keeps its choices (particle, address, model, lock) so the app still works, but the nickname
  * is personal data and is erased. The dreams level (reports and Dream's ledger day) goes with memory.deleteAll().
+ * The connection log (E3) goes too: its rows say when the user used the app.
  * Runs on the capture thread like every store call.
  */
 class ForgetEverything(
@@ -21,6 +23,7 @@ class ForgetEverything(
   private val summaries: EveningSummaryRepository,
   private val memory: MemoryRepository,
   private val profile: ProfileRepository,
+  private val connections: ConnectionRepository,
 ) {
   /** Returns how many capture events were erased. */
   fun run(): Int {
@@ -29,6 +32,7 @@ class ForgetEverything(
     ledger.clear()
     summaries.clear()
     memory.deleteAll()
+    connections.clear()
     val p = profile.load()
     if (p.style.nickname.isNotEmpty()) profile.save(p.copy(style = p.style.copy(nickname = "")))
     return erased

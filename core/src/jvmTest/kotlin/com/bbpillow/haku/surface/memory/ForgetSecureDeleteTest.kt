@@ -40,7 +40,7 @@ class ForgetSecureDeleteTest {
     repeat(200) { memory.writeCoreFact(CoreFactInput(CoreCategories.YOU, "$secret $it", Provenance.USER_TYPED, 1L)) }
     assertTrue(String(file.readBytes(), Charsets.ISO_8859_1).contains(secret), "precondition: text is in the file")
 
-    ForgetEverything(events, places, ledger, EveningSummaryStore(fs, "/s".toPath()), memory, ProfileStore(fs, "/p.txt".toPath())).run()
+    ForgetEverything(events, places, ledger, EveningSummaryStore(fs, "/s".toPath()), memory, ProfileStore(fs, "/p.txt".toPath()), com.bbpillow.haku.network.ConnectionStore(db)).run()
     db.close()
 
     assertFalse(String(file.readBytes(), Charsets.ISO_8859_1).contains(secret))

@@ -212,4 +212,50 @@ class ContextAssemblerTest {
   }
 
   private val thaiSynonymsForTest = com.bbpillow.haku.language.thaiSynonyms
+
+  // --- P1.9 "ตอนนี้" ---
+  private fun local(hhmm: String) = RecallRig.at("2026-09-30T$hhmm:00.000Z") - RecallRig.OFFSET_MIN * 60_000L
+
+  private val nowState = NowStateInput(
+    placeName = "ที่ทำงาน", sinceUtcMs = local("09:00"),
+    remaining = listOf(NowAppointmentRecord("หมอฟัน", local("15:00"), local("16:00"))), hasAppointmentsToday = true,
+    lastLeftPlace = "บ้าน", lastLeftUtcMs = local("08:15"), sourceEventIds = listOf("dwell-start-1"),
+  )
+
+  private fun askNow(q: String, now: NowStateInput?, budget: Int = 2000) =
+    rig.assembler.assemble(AssembleInput(q, budget, RecallRig.NOW, RecallRig.OFFSET_MIN, now = now))
+
+  @Test fun `now line carries local Thai date, place, what is left today and the last place left`() {
+    seedDiary()
+    rig.standing("ตอบสั้นๆ ภาษาไทยเสมอ")
+    val c = askNow("ตอนนี้อยู่ไหน วันนี้ไปไหนมา", nowState)
+    assertEquals(listOf(ContextSection.STANDING, ContextSection.NOW), c.items.take(2).map { it.section })
+    val now = c.items[1]
+    assertEquals(
+      "- [ตอนนี้] วันพุธที่ 30 กันยายน พ.ศ. 2569 เวลา 10:00 · อยู่ที่ทำงาน ตั้งแต่ 09:00 · วันนี้ยังมีนัด 15:00 “หมอฟัน” ถึง 16:00 · ล่าสุดออกจากบ้าน เวลา 08:15",
+      now.text,
+    )
+    assertEquals(Provenance.INFERRED_FROM_USER_DATA, now.provenance)
+    assertEquals(ContextAssembler.NOW_ID, now.source.id)
+    assertTrue("dwell-start-1" in now.reason)
+    assertTrue(c.items.drop(2).isNotEmpty() && c.items.drop(2).all { it.section == ContextSection.RECALL })
+    assertEquals(c.items.size, askNow("วันนี้ไปไหนมา", null).items.size + 1)
+  }
+
+  @Test fun `now line says nothing it does not know`() {
+    val bare = askNow("ตอนนี้กี่โมง", NowStateInput()).items.single()
+    assertEquals("- [ตอนนี้] วันพุธที่ 30 กันยายน พ.ศ. 2569 เวลา 10:00", bare.text)
+    val done = askNow("วันนี้เหลือนัดอะไร", NowStateInput(placeName = "สถานที่หนึ่ง", hasAppointmentsToday = true)).items.single()
+    assertEquals("- [ตอนนี้] วันพุธที่ 30 กันยายน พ.ศ. 2569 เวลา 10:00 · อยู่ที่สถานที่หนึ่ง · นัดวันนี้หมดแล้ว", done.text)
+  }
+
+  @Test fun `over budget the now line outlives every diary line but not the standing instruction`() {
+    seedDiary()
+    rig.standing("ตอบสั้นๆ ภาษาไทยเสมอ")
+    val full = askNow("ตอนนี้อยู่ไหน เมื่อวานไปร้านกาแฟไหม", nowState)
+    val (standing, now) = full.items.take(2)
+    for (budget in 0..full.usedTokens + 5) assertTrue(askNow("ตอนนี้อยู่ไหน เมื่อวานไปร้านกาแฟไหม", nowState, budget).usedTokens <= budget)
+    assertEquals(listOf(standing.text, now.text), texts(askNow("ตอนนี้อยู่ไหน เมื่อวานไปร้านกาแฟไหม", nowState, standing.tokens + now.tokens)))
+    assertEquals(listOf(standing.text), texts(askNow("ตอนนี้อยู่ไหน เมื่อวานไปร้านกาแฟไหม", nowState, standing.tokens + now.tokens - 1)))
+  }
 }

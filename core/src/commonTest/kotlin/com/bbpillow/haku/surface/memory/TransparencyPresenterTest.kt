@@ -10,6 +10,9 @@ import com.bbpillow.haku.memory.DailyEventInput
 import com.bbpillow.haku.memory.MemoryStore
 import com.bbpillow.haku.memory.NoteInput
 import com.bbpillow.haku.memory.Provenance
+import com.bbpillow.haku.network.ConnectionPurpose
+import com.bbpillow.haku.network.ConnectionRecord
+import com.bbpillow.haku.network.ConnectionRepository
 import com.bbpillow.haku.surface.onboarding.ProfileStore
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -20,9 +23,10 @@ import okio.fakefilesystem.FakeFileSystem
 class TransparencyPresenterTest {
   private var n = 0
   private val memory = MemoryStore(FakeFileSystem(), "/mem".toPath()) { "f${++n}" }
-  private val forget = ForgetEverything(FakeEvents(emptyList()), FakePlaces(emptyList()), FakeLedger(), FakeSummaries(), memory, ProfileStore(FakeFileSystem(), "/p.txt".toPath()))
-  private val presenter = TransparencyPresenter(memory, forget, 420)
   private val sep23 = 1_790_121_600_000L // 2026-09-23 00:00 UTC
+  private val connections = FakeConnections()
+  private val forget = ForgetEverything(FakeEvents(emptyList()), FakePlaces(emptyList()), FakeLedger(), FakeSummaries(), memory, ProfileStore(FakeFileSystem(), "/p.txt".toPath()), connections)
+  private val presenter = TransparencyPresenter(memory, forget, connections, 420) { sep23 }
 
   @Test fun categoriesAreThaiWithCountsAndProvenance() {
     memory.writeCoreFact(CoreFactInput(CoreCategories.YOU, "ชอบกาแฟไม่หวาน", Provenance.USER_TYPED, sep23))
@@ -40,7 +44,7 @@ class TransparencyPresenterTest {
     val fact = presenter.load().categories[1].facts.single()
     val after = presenter.forget(fact)
     assertEquals(0, after.categories[1].count)
-    assertTrue(TransparencyPresenter(memory, forget, 420).load().categories.all { it.facts.isEmpty() })
+    assertTrue(TransparencyPresenter(memory, forget, connections, 420) { sep23 }.load().categories.all { it.facts.isEmpty() })
   }
 
   @Test fun unknownCategoryFallsBackToItsSlugAndDescription() {
@@ -91,4 +95,37 @@ class TransparencyPresenterTest {
     memory.writeDreamReport("2026-09-23", "รายงานจริง")
     assertEquals(listOf("รายงานจริง"), presenter.load().dreamReports.map { it.text })
   }
+
+  @Test fun connectionsShowLastThirtyDaysWithTotals() {
+    val url = "https://huggingface.co/google/m/resolve/c/m.litertlm?download=true"
+    connections.add(ConnectionRecord.of(sep23 - 31 * 86_400_000L, url, ConnectionPurpose.MODEL_DOWNLOAD, 9, null, "สำเร็จ"))
+    connections.add(ConnectionRecord.of(sep23 - 3_600_000L, url, ConnectionPurpose.MODEL_DOWNLOAD, 2_600_000_000, null, "สำเร็จ"))
+    connections.add(ConnectionRecord.of(sep23 - 60_000L, url, ConnectionPurpose.MODEL_DOWNLOAD, null, null, "หยุดไว้"))
+    val state = presenter.load()
+    assertEquals(
+      listOf(
+        ConnectionItem("23 ก.ย. 06:59", "huggingface.co", "ดาวน์โหลดโมเดล AI ลงเครื่อง", null, "หยุดไว้"),
+        ConnectionItem("23 ก.ย. 06:00", "huggingface.co", "ดาวน์โหลดโมเดล AI ลงเครื่อง", "2.6 GB", "สำเร็จ"),
+      ),
+      state.connections,
+    )
+    assertEquals("30 วันล่าสุด 2 ครั้ง · รับเข้า 2.6 GB · ข้อมูลส่วนตัวที่ส่งออก 0 ไบต์", state.connectionsTotal)
+    assertEquals(0, state.egressToday, "a model download sends no personal data")
+  }
+
+  @Test fun noConnectionsMeansZeroEverything() {
+    assertEquals("30 วันล่าสุด 0 ครั้ง · รับเข้า 0 ไบต์ · ข้อมูลส่วนตัวที่ส่งออก 0 ไบต์", presenter.load().connectionsTotal)
+  }
+
+  @Test fun forgetEverythingClearsTheConnectionLog() {
+    connections.add(ConnectionRecord.of(sep23, "https://huggingface.co/x", ConnectionPurpose.MODEL_DOWNLOAD, 1, null, "สำเร็จ"))
+    assertTrue(presenter.forgetEverything().connections.isEmpty())
+  }
+}
+
+internal class FakeConnections : ConnectionRepository {
+  private val rows = mutableListOf<ConnectionRecord>()
+  override fun add(record: ConnectionRecord) { rows += record }
+  override fun since(fromEpochMs: Long) = rows.filter { it.atEpochMs >= fromEpochMs }.sortedByDescending { it.atEpochMs }
+  override fun clear() = rows.clear()
 }

@@ -31,6 +31,9 @@ import com.bbpillow.haku.memory.index.DictionarySegmenter
 import com.bbpillow.haku.memory.index.IndexedMemoryRepository
 import com.bbpillow.haku.memory.index.SearchIndexStore
 import com.bbpillow.haku.memory.index.SearchQueryInput
+import com.bbpillow.haku.network.ConnectionPurpose
+import com.bbpillow.haku.network.ConnectionRecord
+import com.bbpillow.haku.network.ConnectionStore
 import com.bbpillow.haku.thinking.summary.EveningSummaryRecord
 import com.bbpillow.haku.thinking.summary.EveningSummaryStore
 import com.bbpillow.haku.thinking.summary.SummarySource
@@ -58,9 +61,10 @@ class ForgetTest {
   private val summaries = EveningSummaryStore(fs, "/summaries".toPath())
   private val profile = ProfileStore(fs, "/profile.txt".toPath())
   private val diary = DiaryComposer(events, places, memory, ledger)
-  private val forgetAll = ForgetEverything(events, places, ledger, summaries, memory, profile)
-  private val presenter = TransparencyPresenter(memory, forgetAll, tz)
+  private val connections = ConnectionStore(db)
   private val at = 1_790_121_600_000L
+  private val forgetAll = ForgetEverything(events, places, ledger, summaries, memory, profile, connections)
+  private val presenter = TransparencyPresenter(memory, forgetAll, connections, tz) { at }
 
   @AfterTest fun close() = db.close()
 
@@ -83,6 +87,7 @@ class ForgetTest {
     events.appendAll(SyntheticWeek.events())
     events.append(CaptureEvent("cal-1", at, CaptureSource.CalendarEntry("dentist")))
     places.addNew(listOf(PlaceRecord("p1", 13.75, 100.5)))
+    connections.add(ConnectionRecord.of(at, "https://huggingface.co/m.litertlm", ConnectionPurpose.MODEL_DOWNLOAD, 10, null, "สำเร็จ"))
     diary.compose(DiaryComposeInput("2026-09-08", tz))
     summaries.save(EveningSummaryRecord("2026-09-08", "coffee day", SummarySource.MODEL))
     memory.writeCoreFact(CoreFactInput(CoreCategories.YOU, "likes coffee", Provenance.USER_TYPED, at))
@@ -96,6 +101,8 @@ class ForgetTest {
   private fun assertNothingLeft() {
     assertEquals(0, events.count())
     assertTrue(places.list().isEmpty())
+    assertTrue(connections.since(0).isEmpty())
+    assertTrue(presenter.load().connections.isEmpty())
     assertTrue(memory.listDays().isEmpty())
     assertTrue(memory.listCategories().all { it.factCount == 0 })
     assertTrue(memory.readStanding().isEmpty() && memory.readIntentions().isEmpty())

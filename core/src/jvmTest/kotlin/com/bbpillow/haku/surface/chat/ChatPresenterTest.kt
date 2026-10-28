@@ -7,6 +7,7 @@ import com.bbpillow.haku.thinking.GenerateInput
 import com.bbpillow.haku.thinking.LocalModel
 import com.bbpillow.haku.thinking.LocalModelClient
 import com.bbpillow.haku.thinking.ModelConfig
+import com.bbpillow.haku.thinking.context.NowStateInput
 import com.bbpillow.haku.thinking.context.RecallRig
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -114,5 +115,19 @@ class ChatPresenterTest {
 
   @Test fun echoedSourceStampIsRemoved() {
     assertEquals("ไปวิ่งที่สวนลุมพินี และวิ่งได้สามรอบ ค่ะ", ChatPresenter.cleanAnswer("ไปวิ่งที่สวนลุมพินี และวิ่งได้สามรอบ (24.10.2026 08:21) ค่ะ"))
+  }
+
+  @Test fun `now state is cited first as ตอนนี้ and lets the model answer where the user is`() = runTest {
+    val withNow = ChatPresenter(rig.memory, rig.index, rig.pipeline, RecallRig.OFFSET_MIN, nowState = { NowStateInput(placeName = "ร้านกาแฟ") })
+    val r = withNow.retrieve(ChatQuestionInput("ตอนนี้อยู่ไหน", RecallRig.NOW))
+    assertEquals("ตอนนี้", r.citations.first().label)
+    assertEquals(null, r.citations.first().day)
+    assertEquals("วันพุธที่ 30 กันยายน พ.ศ. 2569 เวลา 10:00 · อยู่ที่ร้านกาแฟ", r.citations.first().text)
+    val out = withNow.answer(r, LocalModelClient(ReplyModel("ตอนนี้อยู่ที่ร้านกาแฟ")))
+    assertEquals(ChatAnswerSource.MODEL, out.source, out.rejectedReasons.toString())
+    // a question that is not about now gets no now line at all (it crowded out the asked day on the Fold5 eval)
+    val off = withNow.answer(withNow.retrieve(ChatQuestionInput("ไปหาหมอฟันครั้งล่าสุดเมื่อไร", RecallRig.NOW, DiaryStyle(EndingParticle.KRAP))), null)
+    assertEquals(EndingParticle.KRAP.appendTo(ChatPresenter.NOT_FOUND), off.text)
+    assertTrue(off.citations.isEmpty())
   }
 }

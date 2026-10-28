@@ -22,6 +22,7 @@ import com.bbpillow.haku.memory.dream.DreamEngine
 import com.bbpillow.haku.memory.index.IndexedMemoryRepository
 import com.bbpillow.haku.memory.index.SearchIndexStore
 import com.bbpillow.haku.memory.index.VectorStore
+import com.bbpillow.haku.network.ConnectionStore
 import com.bbpillow.haku.platform.IcuWordSegmenter
 import com.bbpillow.haku.platform.LiteRtTextEmbedder
 import com.bbpillow.haku.platform.ModelDownloader
@@ -29,6 +30,7 @@ import com.bbpillow.haku.platform.ModelImporter
 import com.bbpillow.haku.platform.billing.PlayBilling
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.surface.chat.ChatPresenter
+import com.bbpillow.haku.surface.chat.NowStateBuilder
 import com.bbpillow.haku.surface.home.HomeBriefPresenter
 import com.bbpillow.haku.surface.memory.ForgetEverything
 import com.bbpillow.haku.surface.memory.TransparencyPresenter
@@ -82,7 +84,8 @@ class AppGraph(private val app: Application) {
   val entitlements = object : Entitlements { override val plan: Plan get() = billing.entitlements.value.plan }
 
   private val modelsDir by lazy { requireNotNull(app.getExternalFilesDir("models")) { "no app-specific storage" } }
-  val downloader by lazy { ModelDownloader(modelsDir, scope) }
+  /** Every connection it opens goes into the E3 connection log (Transparency screen). */
+  val downloader by lazy { ModelDownloader(modelsDir, scope) { record -> io { connections.add(record) } } }
   val importer by lazy { ModelImporter(app, modelsDir, scope) }
 
   /** The stores and presenters. Touch only inside [io]: their constructors create tables. */
@@ -97,16 +100,20 @@ class AppGraph(private val app: Application) {
     val vectors = VectorStore(db)
     val memory = IndexedMemoryRepository(MemoryStore(FileSystem.SYSTEM, app.filesDir.resolve("memory").path.toPath()), index, vectors)
     val ledger = DiaryLedgerStore(db)
+    /** E3: connections the app opened, 30 days. ponytail: Play Billing is IPC to the Play Store app, which connects for us, so not logged. */
+    val connections = ConnectionStore(db)
     val diary = DiaryComposer(events, places, memory, ledger)
     /** P2.7 evening summaries, one file per local day (written by NightlyWorker, read by Home). */
     val summaries = EveningSummaryStore(FileSystem.SYSTEM, app.filesDir.resolve("summaries").path.toPath())
     val home = HomeBriefPresenter(diary, events, places, tz, summaries, StatsSummarizer(entitlements))
     val timeline = TimelinePresenter(diary, memory, summaries, tz)
-    val transparency = TransparencyPresenter(memory, ForgetEverything(events, places, ledger, summaries, memory, profile), tz)
+    val transparency = TransparencyPresenter(
+      memory, ForgetEverything(events, places, ledger, summaries, memory, profile, connections), connections, tz, System::currentTimeMillis,
+    )
     val onboarding = OnboardingPresenter(profile, places)
     val modelManager = ModelManagerPresenter(profile)
     /** P3.3: retrieval runs here (DB thread); the model part of [ChatPresenter.answer] runs outside [io]. */
-    val chat = ChatPresenter(memory, index, pipeline, tz, thaiSynonyms)
+    val chat = ChatPresenter(memory, index, pipeline, tz, thaiSynonyms, nowState = NowStateBuilder(events, places, tz)::build)
 
     /**
      * Writes the rule-based diary for a local day before a screen reads it. Idempotent (ledger), so calling it on

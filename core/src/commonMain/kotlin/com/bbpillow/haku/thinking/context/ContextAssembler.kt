@@ -4,12 +4,14 @@ import com.bbpillow.haku.language.Normalizer
 import com.bbpillow.haku.language.SynonymTable
 import com.bbpillow.haku.language.TextInput
 import com.bbpillow.haku.language.TextPipeline
+import com.bbpillow.haku.language.ThaiDateFormat
 import com.bbpillow.haku.language.TokenEstimator
 import com.bbpillow.haku.memory.MemoryFormat
 import com.bbpillow.haku.memory.MemoryLevel
 import com.bbpillow.haku.memory.MemoryRecord
 import com.bbpillow.haku.memory.MemoryRef
 import com.bbpillow.haku.memory.MemoryRepository
+import com.bbpillow.haku.memory.Provenance
 import com.bbpillow.haku.memory.index.SearchHitOutput
 import com.bbpillow.haku.memory.index.SearchQueryInput
 import com.bbpillow.haku.memory.index.SearchRepository
@@ -17,7 +19,7 @@ import com.bbpillow.haku.memory.index.SearchRepository
 /**
  * The one place that builds model context (P1.9). Pure: reads memory + index, no model calls.
  *
- * Selection: standing instructions always; curated-core categories whose description (or facts) match the question
+ * Selection: standing instructions always; the "ตอนนี้" line when [AssembleInput.now] is given; curated-core categories whose description (or facts) match the question
  * words; daily records by D18 order: date-word filter -> word search -> semantic (embedded question, when a
  * [SemanticTier] is given) -> [link hook]. Semantic lines only add what words missed, rank below them, and stay inside
  * the asked date range, so date questions keep their structural/word answer.
@@ -60,7 +62,10 @@ class ContextAssembler(
     val latest = LATEST_CUES.any { it in normalized }
     trace += "question words=$words range=${range?.word ?: "none"} latest=$latest"
 
-    val standing = standingItems(trace)
+    // Only for questions about now: on every question the line (today's appointments) crowded out the asked day
+    // (Fold5 eval 2026-10-29: 94% -> 68% with it always on).
+    val now = input.now?.takeIf { NOW_CUES.any { cue -> cue in normalized } }
+    val standing = standingItems(trace) + listOfNotNull(now?.let { nowItem(it, input, trace) })
     val pool = Pool()
     coreCandidates(words, lang, pool, trace)
     dailyCandidates(input, range, words, latest, pool, trace)
@@ -76,6 +81,28 @@ class ContextAssembler(
     return ok.map { r ->
       item(ContextSection.STANDING, "- ${r.text}", MemoryRef(MemoryLevel.STANDING, "", r.id), r, listOf(RetrievalTier.ALWAYS), "standing instruction (always included)", Double.MAX_VALUE)
     }
+  }
+
+  // --- now: local date/time, where the user is, what is left today (P1.9) ---
+  private fun nowItem(s: NowStateInput, input: AssembleInput, trace: MutableList<String>): ContextItem {
+    val offMs = input.utcOffsetMinutes * 60_000L
+    fun hhmm(ms: Long) = MemoryFormat.formatUtc(ms + offMs).substring(11, 16)
+    val parts = mutableListOf("${ThaiDateFormat.dayHeader(MemoryFormat.dayOf(input.nowEpochMs + offMs))} เวลา ${hhmm(input.nowEpochMs)}")
+    s.placeName?.let { p -> parts += "อยู่" + (if (p.startsWith("ที่")) p else "ที่$p") + (s.sinceUtcMs?.let { " ตั้งแต่ ${hhmm(it)}" } ?: "") }
+    // "มีนัด" on purpose: the chat prompt counts appointments only from lines that say it
+    if (s.remaining.isNotEmpty()) {
+      parts += "วันนี้ยังมีนัด " + s.remaining.joinToString(", ") { a -> "${hhmm(a.startUtcMs)} “${a.title}”" + (a.endUtcMs?.let { " ถึง ${hhmm(it)}" } ?: "") }
+    } else if (s.hasAppointmentsToday) {
+      parts += "นัดวันนี้หมดแล้ว"
+    }
+    if (s.lastLeftPlace != null && s.lastLeftUtcMs != null) parts += "ล่าสุดออกจาก${s.lastLeftPlace} เวลา ${hhmm(s.lastLeftUtcMs)}"
+    val line = "- [$NOW_LABEL] " + parts.joinToString(" · ")
+    trace += "now: ${parts.size} parts from ${s.sourceEventIds.size} capture events"
+    return ContextItem(
+      ContextSection.NOW, line, TokenEstimator.estimate("$line\n"), MemoryRef(MemoryLevel.DAILY, MemoryFormat.dayOf(input.nowEpochMs), NOW_ID),
+      Provenance.INFERRED_FROM_USER_DATA, input.nowEpochMs, listOf(RetrievalTier.ALWAYS),
+      "current state (always included) from capture events ${s.sourceEventIds}", NOW_VALUE,
+    )
   }
 
   // --- curated core: choose categories by description + question words, not whole files ---
@@ -225,18 +252,24 @@ class ContextAssembler(
     return AssembledContext(input.question, input.budgetTokens, ordered, dropped, trace)
   }
 
-  private companion object {
-    val LATEST_CUES = listOf("ล่าสุด", "สุดท้าย")
-    const val STRUCTURAL_VALUE = 100.0
-    const val REPEAT_PENALTY = 20.0
-    const val OUTSIDE_WINDOW_PENALTY = 30.0
-    const val WORD_IN_RANGE_BONUS = 10.0
+  companion object {
+    const val NOW_LABEL = "ตอนนี้"
+    val NOW_CUES = listOf("ตอนนี้", "ขณะนี้", "เดี๋ยวนี้", "เมื่อกี้", "เมื่อครู่", "เหลือ", "ถัดไป", "นัดต่อไป", "อยู่ไหน", "อยู่ที่ไหน", "กี่โมงแล้ว", "วันอะไร", "วันที่เท่าไหร่", "วันที่เท่าไร")
+    /** Id of the "ตอนนี้" item's [MemoryRef]; no memory file holds it (it is rebuilt from capture events every question). */
+    const val NOW_ID = "now"
+    /** Above every retrieved line, below standing instructions: over budget it goes last but one. */
+    private const val NOW_VALUE = 1_000.0
+    private val LATEST_CUES = listOf("ล่าสุด", "สุดท้าย")
+    private const val STRUCTURAL_VALUE = 100.0
+    private const val REPEAT_PENALTY = 20.0
+    private const val OUTSIDE_WINDOW_PENALTY = 30.0
+    private const val WORD_IN_RANGE_BONUS = 10.0
     /** Semantic lines sit in 30..40: below word hits (50+), above links (20). */
-    const val SEMANTIC_VALUE = 30.0
-    const val SEMANTIC_SPREAD = 10.0
+    private const val SEMANTIC_VALUE = 30.0
+    private const val SEMANTIC_SPREAD = 10.0
 
     /** Question filler that never helps retrieval. Grow from real queries. */
-    val STOP = setOf(
+    private val STOP = setOf(
       "ไป", "ไหน", "ที่ไหน", "มา", "บ้าง", "เมื่อ", "ไร", "เมื่อไร", "เมื่อไหร่", "เมื่อใด", "คือ", "ครั้ง", "ล่าสุด", "สุดท้าย",
       "ที่", "ได้", "ไหม", "หรือ", "อะไร", "ทำ", "ยัง", "แล้ว", "ของ", "ฉัน", "ผม", "เรา", "ให้", "ช่วย", "บอก", "หน่อย",
       "ครับ", "ค่ะ", "คะ", "นะ", "เป็น", "มี", "จำ", "และ", "กี่", "โมง", "ถึง", "the", "a", "is", "what", "when",
