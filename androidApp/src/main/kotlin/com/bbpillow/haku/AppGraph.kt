@@ -228,7 +228,7 @@ class AppGraph(private val app: Application) {
    * onTrimMemory if RAM pressure shows up.
    */
   suspend fun questionSemantic(question: String, waitForLoad: Boolean = false, force: Boolean = false): SemanticTier? {
-    // ponytail: off in chat until the Fold5 stall is fixed (eval 2026-10-29: answers hung ~2 min with the tier on)
+    // eval 2026-10-29 (Fold5, 35 items): tier on 94.3% vs off 91.4%. The earlier "stall" was the cached-app freezer.
     if (!SEMANTIC_CHAT && !force) return null
     try {
       val e = embedder() ?: return null
@@ -262,7 +262,7 @@ class AppGraph(private val app: Application) {
   }
 
   private companion object {
-    const val SEMANTIC_CHAT = false
+    const val SEMANTIC_CHAT = true
     const val GUESS_WINDOW_MS = 14 * 86_400_000L
     const val EMBED_TAG = "HakuEmbed"
     const val DEBUG_EMBED_PATH = "/data/local/tmp/eg2.litertlm"

@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from ask_stress import DEFAULT_ADB, DEFAULT_SERIAL, ask_one, send_unload
+from ask_stress import DEFAULT_ADB, DEFAULT_SERIAL, ask_one, foreground, send_unload
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -289,6 +290,7 @@ def main() -> None:
     ap.add_argument("--out", default=None, help="output JSONL file path")
     ap.add_argument("--dry-run", action="store_true", help="print derived ground-truth questions without calling adb")
     args = ap.parse_args()
+    foreground(os.environ.get("ADB", DEFAULT_ADB), args.serial)
 
     run_date = date.fromisoformat(args.date) if args.date else datetime.now(BKK_TZ).date()
     items = build_questions(run_date)

@@ -60,7 +60,7 @@ object SummaryChecker {
       var bad = false
       while (from >= 0 && !bad) {
         val rest = text.substring(from + cue.length).trimStart(' ', '“', '"')
-        bad = rest.isNotEmpty() && known.none { rest.startsWith(it) } && cueContinuations.none { rest.startsWith(it) }
+        bad = rest.isNotEmpty() && !rest.first().isDigit() && known.none { rest.startsWith(it) } && cueContinuations.none { rest.startsWith(it) }
         from = text.indexOf(cue, from + cue.length)
       }
       bad

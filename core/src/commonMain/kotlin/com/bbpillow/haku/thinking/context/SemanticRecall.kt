@@ -92,7 +92,7 @@ class VectorSemanticTier(
 
   companion object {
     /** Tunable: on-device Thai paraphrases sat well above this, unrelated lines below (EMBED spike). */
-    const val MIN_COSINE = 0.55f
+    const val MIN_COSINE = 0.78f // Fold5: unrelated pairs ~0.72, paraphrases ~0.85-0.90
 
     /** Embeds [question] and returns the tier, or null when nothing is embedded yet (then no model work at all). */
     suspend fun forQuestion(

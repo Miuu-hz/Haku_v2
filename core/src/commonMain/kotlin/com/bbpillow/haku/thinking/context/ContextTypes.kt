@@ -53,7 +53,7 @@ data class AssemblerLimits(
   val maxWordHits: Int = 10,
   val maxLinkSeeds: Int = 3,
   /** New lines the semantic tier may add (ชิ้น ค); its cosine floor lives in VectorSemanticTier.MIN_COSINE. */
-  val maxSemanticHits: Int = 8,
+  val maxSemanticHits: Int = 4,
 )
 
 /** Semantic tier (ชิ้น ค, VectorSemanticTier). Null = disabled; a throwing implementation falls back to word search. */

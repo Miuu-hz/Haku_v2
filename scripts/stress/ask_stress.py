@@ -33,6 +33,13 @@ def pct(vals: List[float], q: float) -> Optional[float]:
     return round(float(s[idx]), 2)
 
 
+def foreground(adb: str, serial: str) -> None:
+    """Android's cached-app freezer stalls a backgrounded app for minutes: keep the screen on and Haku in front."""
+    for args in (["svc", "power", "stayon", "usb"], ["input", "keyevent", "KEYCODE_WAKEUP"],
+                 ["am", "start", "-n", "com.bbpillow.haku/.MainActivity"]):
+        subprocess.run([adb, "-s", serial, "shell", *args], capture_output=True)
+
+
 def send_ask(adb: str, serial: str, qid: str, question: str, warm: bool) -> Optional[str]:
     cmd = [
         adb, "-s", serial, "shell",
@@ -44,6 +51,8 @@ def send_ask(adb: str, serial: str, qid: str, question: str, warm: bool) -> Opti
     ]
     if warm:
         cmd += ["--ez", "warm", "true"]
+    if os.environ.get("HAKU_SEMANTIC") == "1":  # opt into the semantic tier (off in the app until tuned)
+        cmd += ["--ez", "semantic", "true"]
     proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if proc.returncode != 0:
         return (proc.stderr or proc.stdout).strip() or f"adb exit {proc.returncode}"
@@ -114,6 +123,7 @@ def main() -> None:
     ap.add_argument("--timeout", type=float, default=120.0, help="per-question timeout in seconds")
     ap.add_argument("--out", default=None, help="output JSONL file path")
     args = ap.parse_args()
+    foreground(os.environ.get("ADB", DEFAULT_ADB), args.serial)
 
     with open(args.questions, "r", encoding="utf-8") as f:
         base_questions = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]

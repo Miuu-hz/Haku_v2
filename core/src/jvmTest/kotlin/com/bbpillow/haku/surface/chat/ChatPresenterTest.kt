@@ -107,7 +107,8 @@ class ChatPresenterTest {
   @Test fun finalParticleFollowsTheUsersStyle() {
     assertEquals("มีนัดประชุมถึง 10:00 ค่ะ", ChatPresenter.withParticle("มีนัดประชุมถึง 10:00 ครับ", "ค่ะ"))
     assertEquals("ไปร้านกาแฟค่ะ!", ChatPresenter.withParticle("ไปร้านกาแฟครับ!", "ค่ะ"))
-    assertEquals("ไปร้านกาแฟ", ChatPresenter.withParticle("ไปร้านกาแฟ", "ค่ะ"))
+    assertEquals("ไปร้านกาแฟค่ะ", ChatPresenter.withParticle("ไปร้านกาแฟ", "ค่ะ"))
+    assertEquals("ฉันแพ้กุ้งค่ะ", ChatPresenter.withParticle("ฉันแพ้กุ้ง (ค่ะ)", "ค่ะ"))
     assertEquals("ไปร้านกาแฟครับ", ChatPresenter.withParticle("ไปร้านกาแฟครับ", ""))
   }
 
