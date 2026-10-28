@@ -169,7 +169,8 @@ def build_questions(run_date: date) -> List[Dict[str, Any]]:
     d_this_mon = next(d for d, _ in this_week if d.weekday() == 0)
     d_last_mon = next(d for d, _ in last_week if d.weekday() == 0)
 
-    m_today, mn_today = day_place_keywords(p_today, morning_only=True)
+    # ponytail: yesterday, not today — DEMO_SEED only writes events before the moment it runs (often just after midnight)
+    m_ymorn, mn_ymorn = day_place_keywords(p_yest, morning_only=True)
     m_yest, mn_yest = day_place_keywords(p_yest)
     m_dby, mn_dby = day_place_keywords(p_dby)
     ev_yest = p_yest["evening"]
@@ -190,7 +191,7 @@ def build_questions(run_date: date) -> List[Dict[str, Any]]:
         {"category": "fact", "question": "หมอฟันนัดขูดหินปูนอีกทีเมื่อไหร่", "must": ["ปีหน้า"], "must_not": ["เดือนหน้า", "สัปดาห์หน้า"]},
         {"category": "fact", "question": "แวะร้านหนังสือ สยาม ได้หนังสือเกี่ยวกับอะไรมา", "must": ["เชียงใหม่"], "must_not": ["ญี่ปุ่น", "ทำอาหาร"]},
         # --- day-place (6): relative to run_date via DemoDays.plan (DemoDays.kt:37-132, TimeWords.kt:13-21) ---
-        {"category": "day-place", "target_day": str(d_today), "question": "วันนี้ตอนเช้าไปที่ไหนมาบ้าง", "must": m_today, "must_not": mn_today},
+        {"category": "day-place", "target_day": str(d_yest), "question": "เมื่อวานตอนเช้าไปที่ไหนมาบ้าง", "must": m_ymorn, "must_not": mn_ymorn},
         {"category": "day-place", "target_day": str(d_yest), "question": "เมื่อวานไปไหนมาบ้าง", "must": m_yest, "must_not": mn_yest},
         {"category": "day-place", "target_day": str(d_dby), "question": "เมื่อวานซืนไปที่ไหนมาบ้าง", "must": m_dby, "must_not": mn_dby},
         {"category": "day-place", "target_day": str(d_yest), "question": "เมื่อวานช่วงเย็นอยู่ที่ไหน", "must": [ev_yest], "must_not": ev_yest_mn},

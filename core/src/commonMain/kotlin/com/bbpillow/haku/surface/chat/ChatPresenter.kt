@@ -39,6 +39,8 @@ data class ChatAnswerOutput(
   val source: ChatAnswerSource,
   /** Why the model text was refused; empty when the model was not asked or passed. Never shown. */
   val rejectedReasons: List<String> = emptyList(),
+  /** The refused model text, for on-device evals only. Never shown. */
+  val rejectedText: String? = null,
 )
 
 /** What [ChatPresenter.retrieve] found: the model context, its citations and the no-model answer. */
@@ -98,7 +100,7 @@ class ChatPresenter(
       retrieval.citations.mapNotNull { it.day }.distinct().map(ThaiDateFormat::dayHeader) + retrieval.input.question
     // ponytail: reuse SummaryChecker safety rules with minChars=1 so concise 1-sentence chat answers aren't rejected as too-short.
     val check = SummaryChecker.check(SummaryCheckInput(text, facts, retrieval.input.style), minChars = 1, maxChars = MAX_CHAT_CHARS)
-    return if (check.ok) fallback.copy(text = text, source = ChatAnswerSource.MODEL) else fallback.copy(rejectedReasons = check.reasons)
+    return if (check.ok) fallback.copy(text = text, source = ChatAnswerSource.MODEL) else fallback.copy(rejectedReasons = check.reasons, rejectedText = text)
   }
 
   /** Diary lines and core facts (standing instructions are how to answer, not sources). Date questions read in order, others best first. */
@@ -131,6 +133,8 @@ class ChatPresenter(
       appendLine("กติกา:")
       appendLine("- ตอบจากข้อเท็จจริงในรายการนี้เท่านั้น ห้ามเพิ่มเวลา ตัวเลข สถานที่ หรือคำพูดเอง")
       appendLine("- ระบุชื่อสถานที่และเวลา (เวลาหน้าข้อความคือเวลาเริ่ม) ตามที่คำถามถามให้ครบ")
+      appendLine("- ถามว่าไปไหน: บอกชื่อสถานที่ทุกแห่งของช่วงนั้นตามลำดับให้ครบ ไม่ต้องบอกเวลาหรือระยะเวลาถ้าไม่ได้ถาม")
+      appendLine("- ใช้คำตามบันทึก ห้ามแปลงคำเป็นตัวเลขหรือปี เช่น \"ปีหน้า\" ให้ตอบว่า \"ปีหน้า\" \"หนึ่งเล่ม\" ให้ตอบว่า \"หนึ่งเล่ม\"")
       appendLine("- รายการข้อเท็จจริงคัดมาตามช่วงเวลาที่ถามแล้ว ถ้ามีข้อเท็จจริงที่ตอบคำถามได้ ห้ามตอบว่าไม่พบข้อมูล ให้ตอบตามข้อเท็จจริงนั้นทันที (ตอบว่าไม่พบข้อมูลโดยไม่ทวนคำถามเฉพาะเมื่อไม่มีข้อเท็จจริงใดเกี่ยวกับเรื่องที่ถามเลย)")
       append("- ตอบภาษาไทยหนึ่งถึงสองประโยค ห้ามทวนคำถามซ้ำ")
       if (particle.isNotEmpty()) append(" ลงท้ายด้วย \"$particle\" เพียงครั้งเดียว")

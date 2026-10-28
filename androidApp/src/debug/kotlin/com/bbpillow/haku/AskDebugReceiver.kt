@@ -172,6 +172,7 @@ class AskDebugReceiver : BroadcastReceiver() {
       .put("source", answer.source.name)
       .put("citations", JSONArray(answer.citations.map { "${it.label}: ${it.text}" }))
       .put("rejectedReasons", JSONArray(answer.rejectedReasons))
+      .put("rejectedText", answer.rejectedText ?: JSONObject.NULL)
       .put("backend", backend ?: JSONObject.NULL)
       .put("loadMs", loadMs ?: JSONObject.NULL)
       .put("ttftMs", (metrics?.timeToFirstTokenMillis ?: fallbackTtftMs) ?: JSONObject.NULL)
