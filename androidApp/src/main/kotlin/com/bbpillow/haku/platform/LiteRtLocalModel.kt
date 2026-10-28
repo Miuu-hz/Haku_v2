@@ -1,5 +1,6 @@
 package com.bbpillow.haku.platform
 
+import android.util.Log
 import com.bbpillow.haku.thinking.GenerateInput
 import com.bbpillow.haku.thinking.LocalModel
 import com.bbpillow.haku.thinking.ModelBackend
@@ -116,8 +117,19 @@ internal object SharedEngines {
   }
 }
 
-/** Creates and initializes an [Engine] off the caller's thread. Use [SharedEngines], not this, to get one. */
-private suspend fun openEngine(config: ModelConfig): Engine = withContext(Dispatchers.Default) {
+/**
+ * Creates and initializes an [Engine] off the caller's thread. Use [SharedEngines], not this, to get one.
+ * A GPU that LiteRT can't drive (no OpenCL, broken delegate) falls back to CPU: slower, but the chat still answers.
+ */
+private suspend fun openEngine(config: ModelConfig): Engine = try {
+  openEngineOn(config)
+} catch (e: Exception) {
+  if (config.backend != ModelBackend.Gpu) throw e
+  Log.w(TAG, "GPU engine failed, retrying on CPU", e)
+  openEngineOn(config.copy(backend = ModelBackend.Cpu))
+}
+
+private suspend fun openEngineOn(config: ModelConfig): Engine = withContext(Dispatchers.Default) {
   val e = Engine(
     EngineConfig(
       modelPath = config.modelPath,
@@ -136,3 +148,4 @@ private suspend fun openEngine(config: ModelConfig): Engine = withContext(Dispat
 }
 
 internal fun samplerConfig(config: ModelConfig) = SamplerConfig(config.topK, config.topP, config.temperature)
+private const val TAG = "HakuModel"
