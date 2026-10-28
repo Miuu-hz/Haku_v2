@@ -160,7 +160,7 @@ class OnboardingPresenterTest {
 
     assertEquals(ActiveModel.Catalog(ModelChoice.E2B), rawModel("E2B"))
     assertEquals(ActiveModel.Catalog(ModelChoice.E4B), rawModel("E4B"))
-    assertEquals(ActiveModel.Catalog(ModelChoice.GEMMA3_1B), rawModel("GEMMA3_1B"))
+    assertEquals(ActiveModel.Catalog(ModelChoice.QWEN2_5_1_5B), rawModel("QWEN2_5_1_5B"))
     assertEquals(ActiveModel.Imported("x.litertlm"), rawModel("import:x.litertlm"))
     assertEquals(ActiveModel.Catalog(ModelChoice.E2B), rawModel("import:../x"))
     assertEquals(ActiveModel.Catalog(ModelChoice.E2B), rawModel("import:sub/x.litertlm"))

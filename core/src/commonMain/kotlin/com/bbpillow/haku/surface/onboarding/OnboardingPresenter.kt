@@ -54,14 +54,15 @@ enum class ModelChoice(
     minRamGb = 12,
     note = "ฉลาดขึ้น ใช้แรงเครื่องมากขึ้น",
   ),
-  GEMMA3_1B(
-    title = "Gemma 3 1B",
-    fileName = "gemma3-1b-it-int4.litertlm",
-    repo = "litert-community/Gemma3-1B-IT",
-    commit = "42d538a932e8d5b12e6b3b455f5572560bd60b2c",
-    bytes = 584_417_280L,
+  // Not Gemma 3 1B: its repo is gated on Hugging Face (HTTP 401 without a login), and D7 rejected its ~1K context.
+  QWEN2_5_1_5B(
+    title = "Qwen2.5 1.5B",
+    fileName = "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm",
+    repo = "litert-community/Qwen2.5-1.5B-Instruct",
+    commit = "5e6e7a58d03777898b31330a15d2e0a5a9107de3",
+    bytes = 1_597_922_856L,
     minRamGb = 6,
-    note = "เล็กและเร็ว · ภาษาไทยอ่อนกว่า",
+    note = "เล็กกว่า · เครื่อง RAM น้อย · ภาษาไทยอ่อนกว่า Gemma",
   );
 
   val sizeGb: Double get() = round(bytes / 100_000_000.0) / 10.0
@@ -114,7 +115,7 @@ class OnboardingPresenter(
 ) {
   fun start(ramGb: Int, placeGuess: PlaceGuessOutput? = null): OnboardingUiState {
     val saved = profile.load()
-    // Onboarding keeps offering only E2B (always) and E4B (when RAM allows); GEMMA3_1B is in the model manager.
+    // Onboarding keeps offering only E2B (always) and E4B (when RAM allows); QWEN2_5_1_5B is in the model manager.
     val models = listOf(ModelChoice.E2B, ModelChoice.E4B).filter { it == ModelChoice.E2B || ramGb >= it.minRamGb }
     return OnboardingUiState(
       step = OnboardingStep.WELCOME,

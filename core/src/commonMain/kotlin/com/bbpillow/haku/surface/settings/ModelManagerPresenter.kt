@@ -10,11 +10,12 @@ import com.bbpillow.haku.surface.onboarding.ProfileRepository
 import com.bbpillow.haku.surface.onboarding.ProfileStore
 import kotlin.math.round
 
-/** One `.litertlm` file present on disk in the app's models or imports folder. */
+/** One `.litertlm` file (or catalog `.part` partial download) present on disk in the app's models or imports folder. */
 data class InstalledModelRecord(
   val fileName: String,
   val bytes: Long,
   val imported: Boolean = false,
+  val partBytes: Long = 0L,
 )
 
 /** Live download progress for a catalog model from the platform downloader. */
@@ -122,14 +123,24 @@ class ModelManagerPresenter(
     val catalogFiles = ModelChoice.entries.map { it.fileName }.toSet()
 
     val catalogCards = ModelChoice.entries.map { choice ->
-      val record = installed.firstOrNull { !it.imported && it.fileName == choice.fileName && it.bytes > 0L }
+      val entry = installed.firstOrNull { !it.imported && it.fileName == choice.fileName }
+      val record = entry?.takeIf { it.bytes > 0L }
+      val partBytes = entry?.partBytes?.coerceAtLeast(0L) ?: 0L
       val isInstalled = record != null
-      val dl = download?.takeIf { it.choice == choice && !it.done }
+      val dl = download?.takeIf {
+        it.choice == choice && !it.done && !(it.fraction <= 0f && it.error != null && partBytes == 0L)
+      }
+      val hasPartial = !isInstalled && (dl != null || partBytes > 0L)
       val status = when {
         isInstalled && saved.model == ActiveModel.Catalog(choice) -> ModelStatus.ACTIVE
         isInstalled -> ModelStatus.DOWNLOADED
-        dl != null -> ModelStatus.DOWNLOADING
+        hasPartial -> ModelStatus.DOWNLOADING
         else -> ModelStatus.NOT_DOWNLOADED
+      }
+      val fraction = if (hasPartial) {
+        (dl?.fraction?.takeIf { it > 0f } ?: (partBytes.toFloat() / choice.bytes)).coerceIn(0f, 1f)
+      } else {
+        0f
       }
       ModelCardItem(
         ref = ActiveModel.Catalog(choice),
@@ -141,8 +152,8 @@ class ModelManagerPresenter(
         minRamGb = choice.minRamGb,
         ramWarning = ramGb < choice.minRamGb,
         status = status,
-        downloadFraction = dl?.fraction?.coerceIn(0f, 1f) ?: 0f,
-        downloadPaused = dl?.paused ?: false,
+        downloadFraction = fraction,
+        downloadPaused = if (hasPartial) (dl?.paused ?: true) else false,
         isImported = false,
       )
     }
@@ -209,12 +220,12 @@ class ModelManagerPresenter(
   ): ModelManagerUiState {
     val cur = profile.load()
     val catalogFiles = ModelChoice.entries.map { it.fileName }.toSet()
-    val remaining = installedAfterDelete.filterNot { it.bytes <= 0L || matches(it, deleted, catalogFiles) }
+    val remaining = installedAfterDelete.filterNot { (it.bytes <= 0L && it.partBytes <= 0L) || matches(it, deleted, catalogFiles) }
     if (cur.model == deleted) {
       val nextCatalog = ModelChoice.entries.firstOrNull { c ->
-        remaining.any { !it.imported && it.fileName == c.fileName }
+        remaining.any { !it.imported && it.fileName == c.fileName && it.bytes > 0L }
       }?.let { ActiveModel.Catalog(it) }
-      val nextImported = remaining.firstOrNull { it.imported || it.fileName !in catalogFiles }
+      val nextImported = remaining.firstOrNull { it.bytes > 0L && (it.imported || it.fileName !in catalogFiles) }
         ?.let { ActiveModel.Imported(it.fileName) }
       val fallback = nextCatalog ?: nextImported ?: ActiveModel.None
       profile.save(cur.copy(model = fallback))

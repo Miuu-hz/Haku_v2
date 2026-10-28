@@ -78,16 +78,21 @@ class ChatPresenter(
   /** [client] = an already loaded model, or null (no model file): then the retrieval answer is returned as is. */
   suspend fun answer(retrieval: ChatRetrievalOutput, client: LocalModelClient?): ChatAnswerOutput {
     val fallback = retrieval.fallback
-    if (client == null || retrieval.citations.isEmpty()) return fallback
+    if (client == null) return fallback
+    val prompt = if (retrieval.citations.isEmpty()) noCitationPrompt(retrieval.input) else prompt(retrieval)
     val text = try {
       withTimeoutOrNull(timeoutMillis) {
-        client.generate(GenerateInput(prompt(retrieval))).filterIsInstance<GenerateEvent.Finished>().first().output
+        client.generate(GenerateInput(prompt)).filterIsInstance<GenerateEvent.Finished>().first().output
       }?.takeIf { !it.metrics.cancelled }?.text?.trim()
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
       return fallback.copy(rejectedReasons = listOf("model-error: ${e::class.simpleName}"))
     } ?: return fallback.copy(rejectedReasons = listOf("timeout"))
+    if (retrieval.citations.isEmpty()) {
+      return if (text.isBlank()) fallback.copy(rejectedReasons = listOf("blank"))
+      else fallback.copy(text = text.take(MAX_CHAT_CHARS), source = ChatAnswerSource.MODEL)
+    }
     val facts = retrieval.context.items.map { it.text } +
       retrieval.citations.mapNotNull { it.day }.distinct().map(ThaiDateFormat::dayHeader) + retrieval.input.question
     val check = SummaryChecker.check(SummaryCheckInput(text, facts, retrieval.input.style))
@@ -132,10 +137,24 @@ class ChatPresenter(
     }
   }
 
+  private fun noCitationPrompt(input: ChatQuestionInput): String {
+    val particle = input.style.particle.text
+    return buildString {
+      appendLine("คุณคือ Haku ผู้ช่วยบันทึกประจำวันส่วนตัวในเครื่องของผู้ใช้")
+      appendLine("ตอนนี้ไม่มีบันทึกที่ตรงกับคำถามนี้ ห้ามระบุข้อเท็จจริงเกี่ยวกับชีวิต สถานที่ เวลา หรือคนของผู้ใช้ ถ้าถามเรื่องชีวิตของผู้ใช้ให้บอกว่ายังไม่มีบันทึกเรื่องนี้")
+      append("พูดคุยและตอบสั้น ๆ เป็นภาษาไทยหนึ่งถึงสองประโยค")
+      if (particle.isNotEmpty()) append(" ลงท้ายด้วย \"$particle\"")
+      appendLine()
+      appendLine("คำถาม: ${input.question}")
+      append("คำตอบ:")
+    }
+  }
+
   companion object {
     const val FROM_DIARY = "จากบันทึกของคุณ"
     const val NOT_FOUND = "ยังไม่พบเรื่องนี้ในบันทึกของคุณ ลองถามด้วยชื่อสถานที่หรือวันที่"
     const val MAX_CITATIONS = 5
+    const val MAX_CHAT_CHARS = 600
     const val DEFAULT_BUDGET_TOKENS = 900
     const val DEFAULT_TIMEOUT_MS = 30_000L
   }

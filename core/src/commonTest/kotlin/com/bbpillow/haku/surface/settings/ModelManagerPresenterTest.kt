@@ -23,7 +23,7 @@ class ModelManagerPresenterTest {
     store.save(ProfileRecord(model = ActiveModel.Catalog(ModelChoice.E2B), onboarded = true))
     val installed = listOf(
       InstalledModelRecord(ModelChoice.E2B.fileName, ModelChoice.E2B.bytes, imported = false),
-      InstalledModelRecord(ModelChoice.GEMMA3_1B.fileName, ModelChoice.GEMMA3_1B.bytes, imported = false),
+      InstalledModelRecord(ModelChoice.QWEN2_5_1_5B.fileName, ModelChoice.QWEN2_5_1_5B.bytes, imported = false),
       InstalledModelRecord("my-thai-gemma.litertlm", 1_500_000_000L, imported = true),
     )
     val downloading = DownloadProgressInput(ModelChoice.E4B, fraction = 0.42f, paused = true)
@@ -42,7 +42,7 @@ class ModelManagerPresenterTest {
     assertTrue(e4b.downloadPaused)
     assertTrue(e4b.ramWarning, "8 GB device < 12 GB minRamGb for E4B")
 
-    val g3 = ui.models.first { it.choice == ModelChoice.GEMMA3_1B }
+    val g3 = ui.models.first { it.choice == ModelChoice.QWEN2_5_1_5B }
     assertEquals(ModelStatus.DOWNLOADED, g3.status)
     assertFalse(g3.ramWarning)
 
@@ -65,7 +65,7 @@ class ModelManagerPresenterTest {
     assertEquals(ModelStatus.NOT_DOWNLOADED, e4b.status)
     assertTrue(e4b.ramWarning, "6 GB < 12 GB")
 
-    val g3 = ui.models.first { it.choice == ModelChoice.GEMMA3_1B }
+    val g3 = ui.models.first { it.choice == ModelChoice.QWEN2_5_1_5B }
     assertEquals(ModelStatus.NOT_DOWNLOADED, g3.status)
     assertFalse(g3.ramWarning, "6 GB >= 6 GB")
   }
@@ -90,9 +90,9 @@ class ModelManagerPresenterTest {
   @Test fun deletingActiveModelFallsBackToAnotherInstalledOrNone() {
     store.save(ProfileRecord(model = ActiveModel.Catalog(ModelChoice.E2B), onboarded = true))
 
-    // 1) Delete active E2B while GEMMA3_1B and an imported model remain -> falls back to GEMMA3_1B
+    // 1) Delete active E2B while QWEN2_5_1_5B and an imported model remain -> falls back to QWEN2_5_1_5B
     val remainingAfterE2B = listOf(
-      InstalledModelRecord(ModelChoice.GEMMA3_1B.fileName, ModelChoice.GEMMA3_1B.bytes, imported = false),
+      InstalledModelRecord(ModelChoice.QWEN2_5_1_5B.fileName, ModelChoice.QWEN2_5_1_5B.bytes, imported = false),
       InstalledModelRecord("local.litertlm", 900_000_000L, imported = true),
     )
     val state1 = presenter.deleteModel(
@@ -101,16 +101,16 @@ class ModelManagerPresenterTest {
       installedAfterDelete = remainingAfterE2B,
       download = null,
     )
-    assertEquals(ActiveModel.Catalog(ModelChoice.GEMMA3_1B), store.load().model)
-    assertEquals("Gemma 3 1B", state1.activeModelLabel)
-    assertEquals(ModelStatus.ACTIVE, state1.models.first { it.choice == ModelChoice.GEMMA3_1B }.status)
+    assertEquals(ActiveModel.Catalog(ModelChoice.QWEN2_5_1_5B), store.load().model)
+    assertEquals("Qwen2.5 1.5B", state1.activeModelLabel)
+    assertEquals(ModelStatus.ACTIVE, state1.models.first { it.choice == ModelChoice.QWEN2_5_1_5B }.status)
 
-    // 2) Delete active GEMMA3_1B while only imported model remains -> falls back to imported
+    // 2) Delete active QWEN2_5_1_5B while only imported model remains -> falls back to imported
     val remainingOnlyImported = listOf(
       InstalledModelRecord("local.litertlm", 900_000_000L, imported = true),
     )
     val state2 = presenter.deleteModel(
-      deleted = ActiveModel.Catalog(ModelChoice.GEMMA3_1B),
+      deleted = ActiveModel.Catalog(ModelChoice.QWEN2_5_1_5B),
       ramGb = 12,
       installedAfterDelete = remainingOnlyImported,
       download = null,
@@ -144,5 +144,39 @@ class ModelManagerPresenterTest {
     assertTrue(s.lockEnabled)
     assertEquals("Gemma 4 E2B", s.activeModelLabel)
     assertTrue(store.load().lockEnabled)
+  }
+
+  @Test fun partialPartFileShowsPausedDownloadWhenDownloaderIsNullOrOnAnotherModel() {
+    val installed = listOf(
+      InstalledModelRecord(ModelChoice.E2B.fileName, bytes = 0L, partBytes = ModelChoice.E2B.bytes / 2),
+    )
+    val whenNull = presenter.load(ramGb = 12, installed = installed, download = null)
+    val e2bNull = whenNull.models.first { it.choice == ModelChoice.E2B }
+    assertEquals(ModelStatus.DOWNLOADING, e2bNull.status)
+    assertEquals(0.5f, e2bNull.downloadFraction)
+    assertTrue(e2bNull.downloadPaused)
+    assertEquals(ModelManagerPresenter.NO_MODEL_LABEL, whenNull.activeModelLabel)
+
+    val otherDl = DownloadProgressInput(ModelChoice.E4B, fraction = 0.25f, paused = false)
+    val whenOther = presenter.load(ramGb = 12, installed = installed, download = otherDl)
+    val e2bOther = whenOther.models.first { it.choice == ModelChoice.E2B }
+    assertEquals(ModelStatus.DOWNLOADING, e2bOther.status)
+    assertEquals(0.5f, e2bOther.downloadFraction)
+    assertTrue(e2bOther.downloadPaused)
+
+    val e4bOther = whenOther.models.first { it.choice == ModelChoice.E4B }
+    assertEquals(ModelStatus.DOWNLOADING, e4bOther.status)
+    assertEquals(0.25f, e4bOther.downloadFraction)
+    assertFalse(e4bOther.downloadPaused)
+  }
+
+  @Test fun zeroFractionDownloadErrorWithoutPartBytesStaysNotDownloadedAndShowsMessage() {
+    val failed = DownloadProgressInput(ModelChoice.E2B, fraction = 0f, paused = true, error = "พื้นที่ไม่พอ")
+    val ui = presenter.load(ramGb = 12, installed = emptyList(), download = failed)
+    val e2b = ui.models.first { it.choice == ModelChoice.E2B }
+    assertEquals(ModelStatus.NOT_DOWNLOADED, e2b.status)
+    assertEquals(0f, e2b.downloadFraction)
+    assertFalse(e2b.downloadPaused)
+    assertEquals("พื้นที่ไม่พอ", ui.message)
   }
 }

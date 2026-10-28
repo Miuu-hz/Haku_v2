@@ -66,20 +66,20 @@ class ModelImporter(
   /** Starts copying [uri] on [Dispatchers.IO]. Validates `.litertlm` suffix and free space before writing. */
   fun import(uri: Uri, onComplete: (String) -> Unit = {}) {
     if (job?.isActive == true && !job!!.isCancelled) return
-    val meta = queryMeta(uri)
-    val name = meta?.first?.trim().orEmpty()
-    val stem = name.dropLast(ModelManagerPresenter.LITERTLM_SUFFIX.length)
-    if (
-      !name.endsWith(ModelManagerPresenter.LITERTLM_SUFFIX, ignoreCase = true) ||
-      stem.isBlank() ||
-      !ActiveModel.isSafeFileName(name)
-    ) {
-      _state.value = ImportState(name, 0f, done = false, error = ModelManagerPresenter.INVALID_IMPORT_TEXT)
-      return
-    }
-    val docSize = meta?.second ?: -1L
-    _state.value = ImportState(name, 0f, done = false, error = null)
     job = scope.launch(Dispatchers.IO) {
+      val meta = queryMeta(uri)
+      val name = meta?.first?.trim().orEmpty()
+      val stem = name.dropLast(ModelManagerPresenter.LITERTLM_SUFFIX.length)
+      if (
+        !name.endsWith(ModelManagerPresenter.LITERTLM_SUFFIX, ignoreCase = true) ||
+        stem.isBlank() ||
+        !ActiveModel.isSafeFileName(name)
+      ) {
+        _state.value = ImportState(name, 0f, done = false, error = ModelManagerPresenter.INVALID_IMPORT_TEXT)
+        return@launch
+      }
+      val docSize = meta?.second ?: -1L
+      _state.value = ImportState(name, 0f, done = false, error = null)
       val part = File(importsDir, "$name.part")
       val out = File(importsDir, name)
       try {
@@ -88,11 +88,11 @@ class ModelImporter(
           throw IOException("พื้นที่ไม่พอ ต้องว่างอีก ${docSize / 1_000_000_000 + 1} GB")
         }
         part.delete()
+        var written = 0L
         val input = app.contentResolver.openInputStream(uri) ?: throw IOException("เปิดไฟล์ไม่สำเร็จ")
         input.use { stream ->
           FileOutputStream(part).use { output ->
             val buf = ByteArray(BUFFER)
-            var written = 0L
             var lastReported = -1
             while (true) {
               coroutineContext.ensureActive()
@@ -111,6 +111,8 @@ class ModelImporter(
             }
           }
         }
+        coroutineContext.ensureActive()
+        if (written <= 0L || (docSize > 0L && written != docSize)) throw IOException("ไฟล์ไม่ครบ")
         if (out.exists()) out.delete()
         if (!part.renameTo(out)) throw IOException("rename failed")
         _state.value = ImportState(name, 1f, done = true)
@@ -130,12 +132,16 @@ class ModelImporter(
   suspend fun delete(fileName: String) {
     if (!ActiveModel.isSafeFileName(fileName)) return
     if (_state.value?.fileName == fileName) {
-      job?.cancelAndJoin()
-      _state.value = null
+      val active = job
+      job = null
+      active?.cancelAndJoin()
     }
     withContext(Dispatchers.IO) {
       File(importsDir, fileName).delete()
       File(importsDir, "$fileName.part").delete()
+    }
+    if (_state.value?.fileName == fileName) {
+      _state.value = null
     }
   }
 

@@ -47,7 +47,9 @@ import com.bbpillow.haku.surface.memory.TransparencyUiState
 import com.bbpillow.haku.surface.node.HomeNodeScreen
 import com.bbpillow.haku.surface.onboarding.ActiveModel
 import com.bbpillow.haku.surface.onboarding.ModelChoice
+import com.bbpillow.haku.surface.onboarding.OnboardingPresenter
 import com.bbpillow.haku.surface.onboarding.ProfileRecord
+import com.bbpillow.haku.surface.onboarding.ProfileStore
 import com.bbpillow.haku.surface.plus.PlusScreen
 import com.bbpillow.haku.surface.settings.DownloadProgressInput
 import com.bbpillow.haku.surface.settings.InstalledModelRecord
@@ -104,6 +106,19 @@ fun MainShell(
   // the conversation lives as long as the shell, so switching tabs keeps it
   var chatTurns by remember { mutableStateOf(listOf<ChatTurn>()) }
   val shellScope = rememberCoroutineScope() // an answer still lands if the user switches tabs while it is being written
+  val dl by graph.downloader.state.collectAsState()
+  val imp by graph.importer.state.collectAsState()
+  LaunchedEffect(dl?.done, imp?.done) {
+    val choice = dl?.takeIf { it.done }?.choice
+    val imported = imp?.takeIf { it.done }?.fileName
+    if (choice == null && imported == null) return@LaunchedEffect
+    val installed = withContext(Dispatchers.IO) { graph.installedModels() }
+    graph.safeIo {
+      if (choice != null) modelManager.activateIfNoneReady(ActiveModel.Catalog(choice), installed)
+      if (imported != null) modelManager.activateIfNoneReady(ActiveModel.Imported(imported), installed)
+      profile.load()
+    }?.let(onProfileChanged)
+  }
   BackHandler(enabled = plusOpen) { plusOpen = false }
   BackHandler(enabled = !plusOpen && modelsOpen) { modelsOpen = false }
   BackHandler(enabled = !plusOpen && !modelsOpen && settingsOpen) { settingsOpen = false }
@@ -158,10 +173,18 @@ private fun SettingsTab(
   val scope = rememberCoroutineScope()
   var state by remember { mutableStateOf<SettingsUiState?>(null) }
   val dl by graph.downloader.state.collectAsState()
+  val imp by graph.importer.state.collectAsState()
 
-  LaunchedEffect(dl?.done) {
+  LaunchedEffect(dl?.done, imp?.done) {
+    val choice = dl?.takeIf { it.done }?.choice
+    val imported = imp?.takeIf { it.done }?.fileName
     val installed = withContext(Dispatchers.IO) { graph.installedModels() }
-    state = graph.safeIo { modelManager.loadSettings(installed) }
+    val loaded = graph.safeIo {
+      if (choice != null) modelManager.activateIfNoneReady(ActiveModel.Catalog(choice), installed)
+      if (imported != null) modelManager.activateIfNoneReady(ActiveModel.Imported(imported), installed)
+      modelManager.loadSettings(installed)
+    } ?: return@LaunchedEffect
+    state = state?.copy(activeModelLabel = loaded.activeModelLabel) ?: loaded
   }
 
   fun update(block: ModelManagerPresenter.(List<InstalledModelRecord>) -> SettingsUiState) {
@@ -181,7 +204,16 @@ private fun SettingsTab(
     onOpenModels = onOpenModels,
     onParticle = { p -> update { setParticle(p, it) } },
     onAddress = { a -> update { setAddress(a, it) } },
-    onNickname = { n -> update { setNickname(n, it) } },
+    onNickname = { n ->
+      val nextStyle = s.style.copy(nickname = n.take(ProfileStore.MAX_NICKNAME))
+      state = s.copy(style = nextStyle, stylePreview = OnboardingPresenter.preview(nextStyle))
+      scope.launch {
+        graph.safeIo {
+          modelManager.setNickname(n, emptyList())
+          profile.load()
+        }?.let(onProfileChanged)
+      }
+    },
     onToggleLock = { enabled ->
       if (enabled) {
         if (!BiometricLock.available(activity)) {
@@ -236,7 +268,9 @@ private fun ModelManagerTab(
   LaunchedEffect(dl?.choice, dl?.paused, dl?.done, dl?.error) {
     val current = dl
     if (current?.error != null) {
+      message = current.error
       Toast.makeText(activity, "ดาวน์โหลดหยุด: ${current.error}", Toast.LENGTH_LONG).show()
+      graph.downloader.clearError()
     }
     refresh(activateChoice = current?.takeIf { it.done }?.choice)
   }
@@ -261,6 +295,7 @@ private fun ModelManagerTab(
     if (current.error != null) {
       message = current.error
       Toast.makeText(activity, current.error, Toast.LENGTH_LONG).show()
+      graph.importer.clearError()
     }
     refresh(activateImport = current.takeIf { it.done }?.fileName)
   }
@@ -271,10 +306,15 @@ private fun ModelManagerTab(
     state = state?.copy(importingFileName = current.fileName, importFraction = current.fraction)
   }
 
+  fun clearErrors() {
+    message = null
+    graph.downloader.clearError()
+    graph.importer.clearError()
+  }
+
   val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
     if (uri != null) {
-      message = null
-      graph.importer.clearError()
+      clearErrors()
       graph.importer.import(uri) { importedName ->
         scope.launch { refresh(activateImport = importedName) }
       }
@@ -286,26 +326,29 @@ private fun ModelManagerTab(
     state = s,
     onBack = onClose,
     onDownload = { choice ->
+      clearErrors()
       if (!graph.downloader.start(choice)) {
         message = ModelManagerPresenter.BUSY_DOWNLOAD_TEXT
         state = s.copy(message = ModelManagerPresenter.BUSY_DOWNLOAD_TEXT)
         Toast.makeText(activity, ModelManagerPresenter.BUSY_DOWNLOAD_TEXT, Toast.LENGTH_SHORT).show()
       } else {
-        message = null
         scope.launch { refresh() }
       }
     },
     onPauseResume = { choice, pause ->
       if (pause) {
         graph.downloader.pause()
-      } else if (!graph.downloader.start(choice)) {
-        message = ModelManagerPresenter.BUSY_DOWNLOAD_TEXT
-        state = s.copy(message = ModelManagerPresenter.BUSY_DOWNLOAD_TEXT)
-        Toast.makeText(activity, ModelManagerPresenter.BUSY_DOWNLOAD_TEXT, Toast.LENGTH_SHORT).show()
+      } else {
+        clearErrors()
+        if (!graph.downloader.start(choice)) {
+          message = ModelManagerPresenter.BUSY_DOWNLOAD_TEXT
+          state = s.copy(message = ModelManagerPresenter.BUSY_DOWNLOAD_TEXT)
+          Toast.makeText(activity, ModelManagerPresenter.BUSY_DOWNLOAD_TEXT, Toast.LENGTH_SHORT).show()
+        }
       }
     },
     onSetActive = { target ->
-      message = null
+      clearErrors()
       scope.launch {
         val ram = graph.ramGb()
         val installed = withContext(Dispatchers.IO) { graph.installedModels() }
@@ -320,7 +363,7 @@ private fun ModelManagerTab(
       }
     },
     onDelete = { card ->
-      message = null
+      clearErrors()
       scope.launch {
         val choice = card.choice
         if (choice != null) graph.downloader.delete(choice) else graph.importer.delete(card.fileName)
@@ -336,7 +379,10 @@ private fun ModelManagerTab(
         }
       }
     },
-    onImport = { importPicker.launch(arrayOf("*/*")) },
+    onImport = {
+      clearErrors()
+      importPicker.launch(arrayOf("*/*"))
+    },
     contentPadding = TabPadding,
   )
 }
@@ -403,9 +449,16 @@ private fun ChatTab(
 ) {
   var modelLabel by remember { mutableStateOf(ModelManagerPresenter.NO_MODEL_LABEL) }
   val dl by graph.downloader.state.collectAsState()
-  LaunchedEffect(dl?.done) {
+  val imp by graph.importer.state.collectAsState()
+  LaunchedEffect(dl?.done, imp?.done) {
+    val choice = dl?.takeIf { it.done }?.choice
+    val imported = imp?.takeIf { it.done }?.fileName
     val installed = withContext(Dispatchers.IO) { graph.installedModels() }
-    modelLabel = graph.safeIo { modelManager.activeModelLabel(installed) } ?: ModelManagerPresenter.NO_MODEL_LABEL
+    modelLabel = graph.safeIo {
+      if (choice != null) modelManager.activateIfNoneReady(ActiveModel.Catalog(choice), installed)
+      if (imported != null) modelManager.activateIfNoneReady(ActiveModel.Imported(imported), installed)
+      modelManager.activeModelLabel(installed)
+    } ?: ModelManagerPresenter.NO_MODEL_LABEL
   }
   ChatScreen(
     turns,

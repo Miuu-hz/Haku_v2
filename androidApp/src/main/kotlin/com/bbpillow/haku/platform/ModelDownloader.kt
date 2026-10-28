@@ -43,6 +43,7 @@ class ModelDownloader(private val dir: File, private val scope: CoroutineScope) 
   private val _state = MutableStateFlow<DownloadState?>(null)
   val state: StateFlow<DownloadState?> = _state.asStateFlow()
   private var job: Job? = null
+  private val pausedChoices = mutableSetOf<ModelChoice>()
 
   fun file(choice: ModelChoice) = File(dir, choice.fileName)
 
@@ -53,49 +54,75 @@ class ModelDownloader(private val dir: File, private val scope: CoroutineScope) 
     if (previous?.isActive == true && !previous.isCancelled) {
       return current?.choice == choice
     }
-    val initialFraction = if (current?.choice == choice && !current.done) {
-      current.fraction
-    } else {
-      val have = partOf(choice).takeIf { it.exists() }?.length() ?: 0L
-      DownloadResume.fraction(have, choice.bytes)
-    }
+    pausedChoices.remove(choice)
+    val initialFraction = if (current?.choice == choice && !current.done) current.fraction else 0f
     _state.value = DownloadState(choice, initialFraction, paused = false, error = null)
     job = scope.launch(Dispatchers.IO) {
       try {
         previous?.cancelAndJoin() // a paused job may still be writing its last chunk: never two writers on the .part file
         download(choice)
       } catch (e: CancellationException) {
-        _state.value = _state.value?.takeIf { it.choice == choice && !it.done }?.copy(paused = true) ?: _state.value
+        if (job === coroutineContext[Job]) {
+          _state.value = _state.value?.takeIf { it.choice == choice && !it.done }?.copy(paused = true) ?: _state.value
+        }
         throw e
       } catch (e: Exception) {
         Log.e(TAG, "model download stopped", e)
-        val base = _state.value?.takeIf { it.choice == choice } ?: DownloadState(choice, 0f, true)
-        _state.value = base.copy(paused = true, error = e.message ?: e.javaClass.simpleName)
+        val have = partOf(choice).takeIf { it.exists() }?.length() ?: 0L
+        if (have <= 0L) partOf(choice).delete()
+        val fraction = if (have > 0L) DownloadResume.fraction(have, choice.bytes) else 0f
+        _state.value = DownloadState(
+          choice = choice,
+          fraction = fraction,
+          paused = have > 0L,
+          error = e.message ?: e.javaClass.simpleName,
+        )
       }
     }
     return true
   }
 
   fun pause() {
+    _state.value?.takeIf { !it.done }?.let {
+      pausedChoices.add(it.choice)
+      _state.value = it.copy(paused = true)
+    }
     job?.cancel()
-    _state.value = _state.value?.takeIf { !it.done }?.copy(paused = true) ?: _state.value
+  }
+
+  fun clearError() {
+    val cur = _state.value ?: return
+    if (cur.error != null) {
+      _state.value = if (cur.paused && cur.fraction > 0f) cur.copy(error = null) else null
+    }
   }
 
   /** Cancels any active/paused download for [choice] and removes both the model file and its `.part`. */
   suspend fun delete(choice: ModelChoice) {
+    pausedChoices.remove(choice)
     if (_state.value?.choice == choice) {
-      job?.cancelAndJoin()
-      _state.value = null
+      val active = job
+      job = null
+      active?.cancelAndJoin()
     }
     withContext(Dispatchers.IO) {
       file(choice).delete()
       partOf(choice).delete()
     }
+    if (_state.value?.choice == choice) {
+      _state.value = null
+    }
   }
 
   /** App start after onboarding: continue a download the process lost. No-op when nothing was started. */
   fun resumeIfPartial(choice: ModelChoice) {
-    if (!file(choice).exists() && partOf(choice).exists()) start(choice)
+    if (_state.value?.paused == true || choice in pausedChoices) return
+    val previous = job
+    if (previous?.isActive == true && !previous.isCancelled) return
+    scope.launch(Dispatchers.IO) {
+      if (_state.value?.paused == true || choice in pausedChoices) return@launch
+      if (!file(choice).exists() && partOf(choice).exists()) start(choice)
+    }
   }
 
   private suspend fun download(choice: ModelChoice) {
@@ -106,6 +133,7 @@ class ModelDownloader(private val dir: File, private val scope: CoroutineScope) 
     // one retry from zero when the partial file turns out to belong to another version of the file
     repeat(2) {
       val have = if (part.exists()) part.length() else 0L
+      _state.value = DownloadState(choice, DownloadResume.fraction(have, choice.bytes), paused = false)
       val needed = (choice.bytes - have).coerceAtLeast(0L)
       if (dir.usableSpace < needed) throw IOException("พื้นที่ไม่พอ ต้องว่างอีก ${needed / 1_000_000_000 + 1} GB")
       val conn = URL(choice.url).openConnection() as HttpURLConnection
@@ -145,6 +173,7 @@ class ModelDownloader(private val dir: File, private val scope: CoroutineScope) 
           if (n < 0) break
           output.write(buf, 0, n)
           have += n
+          coroutineContext.ensureActive()
           val fraction = DownloadResume.fraction(have, decision.totalBytes)
           val permille = (fraction * 1000).toInt()
           if (permille != lastReported) {

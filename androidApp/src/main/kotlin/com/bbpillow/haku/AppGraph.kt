@@ -41,6 +41,7 @@ import com.bbpillow.haku.surface.timeline.TimelinePresenter
 import com.bbpillow.haku.thinking.ModelBackend
 import com.bbpillow.haku.thinking.ModelConfig
 import com.bbpillow.haku.thinking.summary.EveningSummaryStore
+import java.io.File
 import java.util.TimeZone
 import kotlin.math.ceil
 import kotlinx.coroutines.CoroutineScope
@@ -136,11 +137,14 @@ class AppGraph(private val app: Application) {
     return ceil(info.totalMem / 1e9).toInt()
   }
 
-  /** Catalog and imported `.litertlm` files currently on disk. */
+  /** Catalog and imported `.litertlm` files (plus any catalog `.part` partial files) currently on disk. */
   fun installedModels(): List<InstalledModelRecord> = runCatching {
     val catalog = ModelChoice.entries.mapNotNull { c ->
       val f = downloader.file(c)
-      if (f.exists() && f.length() > 0L) InstalledModelRecord(c.fileName, f.length(), imported = false) else null
+      val bytes = if (f.exists()) f.length() else 0L
+      val part = File(f.path + ".part")
+      val partBytes = if (part.exists()) part.length() else 0L
+      if (bytes > 0L || partBytes > 0L) InstalledModelRecord(c.fileName, bytes, imported = false, partBytes = partBytes) else null
     }
     catalog + importer.listInstalled()
   }.getOrDefault(emptyList())
@@ -151,7 +155,7 @@ class AppGraph(private val app: Application) {
       is ActiveModel.Catalog -> downloader.file(active.choice)
       is ActiveModel.Imported -> importer.file(active.fileName)
       ActiveModel.None -> null
-    }?.takeIf { it.exists() } ?: return null
+    }?.takeIf { it.exists() && it.length() > 0L } ?: return null
     // ponytail: GPU as in the P0.4 spike; fall back to CPU when the Fold5 numbers say so
     return ModelConfig(file.path, ModelBackend.Gpu, cacheDir = app.cacheDir.path)
   }

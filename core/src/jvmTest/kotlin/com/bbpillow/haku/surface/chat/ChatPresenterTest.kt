@@ -56,12 +56,28 @@ class ChatPresenterTest {
     assertEquals(listOf("08:00 ออกจากบ้าน", "12:00 ไปกินข้าวที่ร้านกาแฟ"), out.citations.map { it.text })
   }
 
-  @Test fun `nothing found says so and never asks the model`() = runTest {
-    val model = ReplyModel("ไปหาหมอฟันเมื่อวันจันทร์ที่ 14 กันยายน ตอน 10:00 นะ")
+  @Test fun `no citations with a model answers via the no-record prompt`() = runTest {
+    val reply = "สวัสดีครับ ผมชื่อ Haku ยังไม่มีบันทึกเรื่องหมอฟันของคุณครับ"
+    val model = ReplyModel(reply)
     val out = chat.answer(ask("ไปหาหมอฟันครั้งล่าสุดเมื่อไร", DiaryStyle(EndingParticle.KRAP)), LocalModelClient(model))
     assertTrue(out.citations.isEmpty())
+    assertEquals(ChatAnswerSource.MODEL, out.source)
+    assertEquals(reply, out.text)
+    assertTrue("Haku" in model.prompts.single() && "\"ครับ\"" in model.prompts.single())
+  }
+
+  @Test fun `no citations without a model returns the not-found fallback`() = runTest {
+    val out = chat.answer(ask("ไปหาหมอฟันครั้งล่าสุดเมื่อไร", DiaryStyle(EndingParticle.KRAP)), client = null)
+    assertTrue(out.citations.isEmpty())
+    assertEquals(ChatAnswerSource.RETRIEVAL, out.source)
     assertEquals(EndingParticle.KRAP.appendTo(ChatPresenter.NOT_FOUND), out.text)
-    assertTrue(model.prompts.isEmpty())
+  }
+
+  @Test fun `no citations with blank model output falls back`() = runTest {
+    val out = chat.answer(ask("ทดสอบ", DiaryStyle(EndingParticle.KRAP)), LocalModelClient(ReplyModel("   \n  ")))
+    assertTrue(out.citations.isEmpty())
+    assertEquals(ChatAnswerSource.RETRIEVAL, out.source)
+    assertEquals(EndingParticle.KRAP.appendTo(ChatPresenter.NOT_FOUND), out.text)
   }
 
   @Test fun `checked model answer is used and keeps the citations`() = runTest {
