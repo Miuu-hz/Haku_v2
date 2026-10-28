@@ -131,6 +131,7 @@ class OnboardingPresenterTest {
     assertEquals(listOf(ModelChoice.E2B), small.models)
     assertEquals(ModelChoice.E2B, presenter.chooseModel(small, ModelChoice.E4B).model)
     val big = presenter.start(12)
+    assertEquals(listOf(ModelChoice.E2B, ModelChoice.E4B), big.models)
     assertEquals(ModelChoice.E2B, big.model) // D7 default
     val picked = presenter.chooseModel(big, ModelChoice.E4B)
     assertEquals(ModelChoice.E4B, picked.model)
@@ -140,11 +141,39 @@ class OnboardingPresenterTest {
 
   @Test fun profileStoreRoundTripsAndCleansTheNickname() {
     val style = DiaryStyle(EndingParticle.KRAP, AddressForm.NICKNAME, " บอส\nonboarded=true ")
-    store.save(ProfileRecord(style, ModelChoice.E4B, lockEnabled = true, onboarded = false))
+    store.save(ProfileRecord(style, ActiveModel.Catalog(ModelChoice.E4B), lockEnabled = true, onboarded = false))
     val back = store.load()
     assertEquals("บอสonboarded=true", back.style.nickname)
     assertFalse(back.onboarded)
-    assertEquals(ModelChoice.E4B, back.model)
+    assertEquals(ActiveModel.Catalog(ModelChoice.E4B), back.model)
     assertEquals(ProfileRecord(), ProfileStore(fs, "/nope/profile.txt".toPath()).load())
+  }
+
+  @Test fun profileStoreParsesCatalogImportedAndRejectsTraversalAndGarbage() {
+    val file = "/profile/profile.txt".toPath()
+    fs.createDirectories(file.parent!!)
+
+    fun rawModel(value: String): ActiveModel {
+      fs.write(file) { writeUtf8("model=$value\n") }
+      return store.load().model
+    }
+
+    assertEquals(ActiveModel.Catalog(ModelChoice.E2B), rawModel("E2B"))
+    assertEquals(ActiveModel.Catalog(ModelChoice.E4B), rawModel("E4B"))
+    assertEquals(ActiveModel.Catalog(ModelChoice.GEMMA3_1B), rawModel("GEMMA3_1B"))
+    assertEquals(ActiveModel.Imported("x.litertlm"), rawModel("import:x.litertlm"))
+    assertEquals(ActiveModel.Catalog(ModelChoice.E2B), rawModel("import:../x"))
+    assertEquals(ActiveModel.Catalog(ModelChoice.E2B), rawModel("import:sub/x.litertlm"))
+    assertEquals(ActiveModel.Catalog(ModelChoice.E2B), rawModel("import:sub\\x.litertlm"))
+    assertEquals(ActiveModel.Catalog(ModelChoice.E2B), rawModel("import:"))
+    assertEquals(ActiveModel.Catalog(ModelChoice.E2B), rawModel("garbage"))
+    assertEquals(ActiveModel.None, rawModel("none"))
+
+    // Round-trip imported and none
+    store.save(ProfileRecord(model = ActiveModel.Imported("custom-model.litertlm"), onboarded = true))
+    assertEquals(ActiveModel.Imported("custom-model.litertlm"), store.load().model)
+
+    store.save(ProfileRecord(model = ActiveModel.None, onboarded = true))
+    assertEquals(ActiveModel.None, store.load().model)
   }
 }

@@ -7,6 +7,7 @@ import com.bbpillow.haku.capture.PlaceRepository
 import com.bbpillow.haku.capture.diary.AddressForm
 import com.bbpillow.haku.capture.diary.DiaryStyle
 import com.bbpillow.haku.capture.diary.EndingParticle
+import kotlin.math.round
 
 /** Asset B1-B7, in order. [FIRST_PLACE] is only part of the flow when a home/work guess exists. */
 enum class OnboardingStep(val skippable: Boolean) {
@@ -25,10 +26,46 @@ enum class PermissionKind { LOCATION, ACTIVITY, CALENDAR, BACKGROUND_LOCATION }
 /** One explainer card (B3): why we ask, and what happens without it. Shown before the system dialog, every time. */
 data class PermissionItem(val kind: PermissionKind, val title: String, val reason: String, val ifDenied: String)
 
-/** D7: E2B by default, E4B only where the device can hold it. Sizes from the P0.4 spike. */
-enum class ModelChoice(val title: String, val sizeGb: Double, val minRamGb: Int, val note: String) {
-  E2B("Gemma 4 E2B", 2.4, 8, "แนะนำ · เร็วและประหยัดแบต"),
-  E4B("Gemma 4 E4B", 3.4, 12, "ฉลาดขึ้น ใช้แรงเครื่องมากขึ้น"),
+/** Built-in on-device models (Google AI Edge Gallery 1_0_20 allowlist, pinned Hugging Face commits). */
+enum class ModelChoice(
+  val title: String,
+  val fileName: String,
+  val repo: String,
+  val commit: String,
+  val bytes: Long,
+  val minRamGb: Int,
+  val note: String,
+) {
+  E2B(
+    title = "Gemma 4 E2B",
+    fileName = "gemma-4-E2B-it.litertlm",
+    repo = "litert-community/gemma-4-E2B-it-litert-lm",
+    commit = "6e5c4f1e395deb959c494953478fa5cec4b8008f",
+    bytes = 2_588_147_712L,
+    minRamGb = 8,
+    note = "แนะนำ · เร็วและประหยัดแบต",
+  ),
+  E4B(
+    title = "Gemma 4 E4B",
+    fileName = "gemma-4-E4B-it.litertlm",
+    repo = "litert-community/gemma-4-E4B-it-litert-lm",
+    commit = "28299f30ee4d43294517a4ac93abd6163412f07f",
+    bytes = 3_659_530_240L,
+    minRamGb = 12,
+    note = "ฉลาดขึ้น ใช้แรงเครื่องมากขึ้น",
+  ),
+  GEMMA3_1B(
+    title = "Gemma 3 1B",
+    fileName = "gemma3-1b-it-int4.litertlm",
+    repo = "litert-community/Gemma3-1B-IT",
+    commit = "42d538a932e8d5b12e6b3b455f5572560bd60b2c",
+    bytes = 584_417_280L,
+    minRamGb = 6,
+    note = "เล็กและเร็ว · ภาษาไทยอ่อนกว่า",
+  );
+
+  val sizeGb: Double get() = round(bytes / 100_000_000.0) / 10.0
+  val url: String get() = "https://huggingface.co/$repo/resolve/$commit/$fileName?download=true"
 }
 
 /**
@@ -77,7 +114,8 @@ class OnboardingPresenter(
 ) {
   fun start(ramGb: Int, placeGuess: PlaceGuessOutput? = null): OnboardingUiState {
     val saved = profile.load()
-    val models = ModelChoice.entries.filter { it == ModelChoice.E2B || ramGb >= it.minRamGb }
+    // Onboarding keeps offering only E2B (always) and E4B (when RAM allows); GEMMA3_1B is in the model manager.
+    val models = listOf(ModelChoice.E2B, ModelChoice.E4B).filter { it == ModelChoice.E2B || ramGb >= it.minRamGb }
     return OnboardingUiState(
       step = OnboardingStep.WELCOME,
       steps = OnboardingStep.entries.filter { it != OnboardingStep.FIRST_PLACE || placeGuess != null },
@@ -86,7 +124,7 @@ class OnboardingPresenter(
       style = saved.style,
       ramGb = ramGb,
       models = models,
-      model = saved.model.takeIf { it in models } ?: ModelChoice.E2B,
+      model = (saved.model as? ActiveModel.Catalog)?.choice?.takeIf { it in models } ?: ModelChoice.E2B,
       lockEnabled = saved.lockEnabled,
       placeGuess = placeGuess,
     )
@@ -161,7 +199,7 @@ class OnboardingPresenter(
   }
 
   private fun save(state: OnboardingUiState, onboarded: Boolean) =
-    profile.save(ProfileRecord(state.style, state.model, state.lockEnabled, onboarded))
+    profile.save(ProfileRecord(state.style, ActiveModel.Catalog(state.model), state.lockEnabled, onboarded))
 
   companion object {
     /** "มิ้นท์ วันนี้มีสามนัดนะคะ นัดแรก 09:30" (B4 preview) for the current style. */

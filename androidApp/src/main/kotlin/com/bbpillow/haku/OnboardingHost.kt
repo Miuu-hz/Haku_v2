@@ -61,7 +61,7 @@ fun OnboardingHost(graph: AppGraph, activity: FragmentActivity, onDone: (Profile
 
   // keep the last download report on top of whatever the presenter returned (a save may race a progress tick)
   fun withDownload(p: OnboardingPresenter, s: OnboardingUiState): OnboardingUiState =
-    downloads.state.value?.let { p.downloadUpdate(s, it.fraction, it.paused) } ?: s
+    downloads.state.value?.takeIf { it.choice == s.model }?.let { p.downloadUpdate(s, it.fraction, it.paused) } ?: s
 
   fun write(step: OnboardingPresenter.(OnboardingUiState) -> OnboardingUiState) {
     val s = state ?: return
@@ -84,7 +84,7 @@ fun OnboardingHost(graph: AppGraph, activity: FragmentActivity, onDone: (Profile
     downloads.state.collect { d ->
       val p = presenter ?: return@collect
       val s = state ?: return@collect
-      if (d != null) state = p.downloadUpdate(s, d.fraction, d.paused)
+      if (d != null && d.choice == s.model) state = p.downloadUpdate(s, d.fraction, d.paused)
       d?.error?.let { Toast.makeText(activity, "ดาวน์โหลดหยุด: $it", Toast.LENGTH_LONG).show() }
     }
   }

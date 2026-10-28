@@ -24,7 +24,7 @@ import com.bbpillow.haku.memory.NoteInput
 import com.bbpillow.haku.memory.Provenance
 import com.bbpillow.haku.memory.dream.DreamEngine
 import com.bbpillow.haku.memory.dream.DreamInput
-import com.bbpillow.haku.surface.onboarding.ModelChoice
+import com.bbpillow.haku.surface.onboarding.ActiveModel
 import com.bbpillow.haku.surface.onboarding.ProfileRecord
 import com.bbpillow.haku.surface.onboarding.ProfileRepository
 import com.bbpillow.haku.thinking.summary.EveningSummaryRecord
@@ -87,7 +87,7 @@ class DemoSeed(
     if (events.query(CaptureQueryInput(windowStart, nowUtcMs + 1)).any { it.id.startsWith(PREFIX) }) return DemoSeedOutput(true)
 
     val style = DiaryStyle(EndingParticle.KA, AddressForm.NICKNAME, NICKNAME)
-    profile.save(ProfileRecord(style, ModelChoice.E2B, lockEnabled = false, onboarded = true))
+    profile.save(ProfileRecord(style, ActiveModel.DEFAULT, lockEnabled = false, onboarded = true))
     places.addNew(DemoPlace.entries.map { PlaceRecord(it.id, it.lat, it.lon) })
     DemoPlace.entries.forEach { places.confirm(it.id, it.label, it.category) }
 

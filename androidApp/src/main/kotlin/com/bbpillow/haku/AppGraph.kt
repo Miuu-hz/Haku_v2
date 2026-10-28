@@ -23,15 +23,20 @@ import com.bbpillow.haku.memory.index.IndexedMemoryRepository
 import com.bbpillow.haku.memory.index.SearchIndexStore
 import com.bbpillow.haku.platform.IcuWordSegmenter
 import com.bbpillow.haku.platform.ModelDownloader
+import com.bbpillow.haku.platform.ModelImporter
 import com.bbpillow.haku.platform.billing.PlayBilling
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.surface.chat.ChatPresenter
 import com.bbpillow.haku.surface.home.HomeBriefPresenter
 import com.bbpillow.haku.surface.memory.ForgetEverything
 import com.bbpillow.haku.surface.memory.TransparencyPresenter
+import com.bbpillow.haku.surface.onboarding.ActiveModel
+import com.bbpillow.haku.surface.onboarding.ModelChoice
 import com.bbpillow.haku.surface.onboarding.OnboardingPresenter
 import com.bbpillow.haku.surface.onboarding.ProfileStore
 import com.bbpillow.haku.surface.plus.EntitlementStore
+import com.bbpillow.haku.surface.settings.InstalledModelRecord
+import com.bbpillow.haku.surface.settings.ModelManagerPresenter
 import com.bbpillow.haku.surface.timeline.TimelinePresenter
 import com.bbpillow.haku.thinking.ModelBackend
 import com.bbpillow.haku.thinking.ModelConfig
@@ -64,7 +69,9 @@ class AppGraph(private val app: Application) {
   /** What the stats gate asks; follows [PlayBilling.entitlements], so a purchase or an expired grace shows on the next load. */
   val entitlements = object : Entitlements { override val plan: Plan get() = billing.entitlements.value.plan }
 
-  val downloader by lazy { ModelDownloader(requireNotNull(app.getExternalFilesDir("models")) { "no app-specific storage" }, scope) }
+  private val modelsDir by lazy { requireNotNull(app.getExternalFilesDir("models")) { "no app-specific storage" } }
+  val downloader by lazy { ModelDownloader(modelsDir, scope) }
+  val importer by lazy { ModelImporter(app, modelsDir, scope) }
 
   /** The stores and presenters. Touch only inside [io]: their constructors create tables. */
   inner class Data {
@@ -83,6 +90,7 @@ class AppGraph(private val app: Application) {
     val timeline = TimelinePresenter(diary, memory, summaries, tz)
     val transparency = TransparencyPresenter(memory, ForgetEverything(events, places, ledger, summaries, memory, profile), tz)
     val onboarding = OnboardingPresenter(profile, places)
+    val modelManager = ModelManagerPresenter(profile)
     /** P3.3: retrieval runs here (DB thread); the model part of [ChatPresenter.answer] runs outside [io]. */
     val chat = ChatPresenter(memory, index, pipeline, tz, thaiSynonyms)
 
@@ -128,9 +136,22 @@ class AppGraph(private val app: Application) {
     return ceil(info.totalMem / 1e9).toInt()
   }
 
-  /** Where a LiteRtLocalModel loads from (debug spikes, NightlyWorker), once the chosen model is fully downloaded; null before that. */
+  /** Catalog and imported `.litertlm` files currently on disk. */
+  fun installedModels(): List<InstalledModelRecord> = runCatching {
+    val catalog = ModelChoice.entries.mapNotNull { c ->
+      val f = downloader.file(c)
+      if (f.exists() && f.length() > 0L) InstalledModelRecord(c.fileName, f.length(), imported = false) else null
+    }
+    catalog + importer.listInstalled()
+  }.getOrDefault(emptyList())
+
+  /** Where a LiteRtLocalModel loads from (debug spikes, NightlyWorker, Chat), once the active model is on disk; null before that. */
   suspend fun modelConfig(): ModelConfig? {
-    val file = downloader.file(io { profile.load().model }).takeIf { it.exists() } ?: return null
+    val file = when (val active = io { profile.load().model }) {
+      is ActiveModel.Catalog -> downloader.file(active.choice)
+      is ActiveModel.Imported -> importer.file(active.fileName)
+      ActiveModel.None -> null
+    }?.takeIf { it.exists() } ?: return null
     // ponytail: GPU as in the P0.4 spike; fall back to CPU when the Fold5 numbers say so
     return ModelConfig(file.path, ModelBackend.Gpu, cacheDir = app.cacheDir.path)
   }

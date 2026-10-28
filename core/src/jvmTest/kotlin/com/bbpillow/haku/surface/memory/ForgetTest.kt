@@ -23,6 +23,7 @@ import com.bbpillow.haku.memory.Provenance
 import com.bbpillow.haku.memory.DREAM_LEDGER_DAY
 import com.bbpillow.haku.capture.diary.DiaryStyle
 import com.bbpillow.haku.capture.diary.EndingParticle
+import com.bbpillow.haku.surface.onboarding.ActiveModel
 import com.bbpillow.haku.surface.onboarding.ModelChoice
 import com.bbpillow.haku.surface.onboarding.ProfileRecord
 import com.bbpillow.haku.surface.onboarding.ProfileStore
@@ -128,7 +129,7 @@ class ForgetTest {
   }
 
   @Test fun forgetEverythingErasesNicknameButKeepsSettings() {
-    val kept = ProfileRecord(DiaryStyle(particle = EndingParticle.KA, nickname = "น้องแบงค์"), ModelChoice.E4B, lockEnabled = true, onboarded = true)
+    val kept = ProfileRecord(DiaryStyle(particle = EndingParticle.KA, nickname = "น้องแบงค์"), ActiveModel.Catalog(ModelChoice.E4B), lockEnabled = true, onboarded = true)
     profile.save(kept)
     presenter.forgetEverything()
     assertEquals(kept.copy(style = kept.style.copy(nickname = "")), profile.load())

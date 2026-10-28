@@ -56,8 +56,8 @@ val ChatSuggestions = listOf("ครั้งล่าสุดที่ไป�
 
 /**
  * Screen 3 of haku-mockup.html: black question bubbles, white answer cards whose source lines carry a date chip
- * (tap = open that day's timeline), and a pill input. [engineLabel] says honestly what answers ("ในเครื่อง · Gemma" or
- * "ในเครื่อง · ค้นจากบันทึก" when no model is downloaded). State-hoisted: the caller runs ChatPresenter.
+ * (tap = open that day's timeline), and a pill input. [engineLabel] shows the active model's short name or
+ * "ยังไม่มีโมเดล" when none is ready; tapping it opens the model manager. State-hoisted: the caller runs ChatPresenter.
  */
 @Composable
 fun ChatScreen(
@@ -65,6 +65,7 @@ fun ChatScreen(
   engineLabel: String,
   onAsk: (String) -> Unit,
   onOpenDay: (String) -> Unit,
+  onOpenModels: () -> Unit = {},
   modifier: Modifier = Modifier,
   contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
 ) {
@@ -79,7 +80,13 @@ fun ChatScreen(
       item {
         Row(verticalAlignment = Alignment.CenterVertically) {
           ScreenTitle("ถาม Haku", Modifier.weight(1f), eyebrow = "ตอบจากบันทึกของคุณ พร้อมวันที่อ้างอิง")
-          StatChip(engineLabel, Modifier.padding(top = 30.dp))
+          StatChip(
+            engineLabel,
+            Modifier
+              .padding(top = 30.dp)
+              .clip(HakuRadius.Pill)
+              .clickable(role = Role.Button, onClickLabel = "AI ในเครื่อง", onClick = onOpenModels),
+          )
         }
       }
       if (turns.isEmpty()) {

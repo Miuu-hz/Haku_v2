@@ -63,6 +63,8 @@ fun TransparencyScreen(
   onOpenPlus: () -> Unit = {},
   /** Mockup screen 6: the home node status (P7, coming soon). */
   onOpenHomeNode: () -> Unit = {},
+  /** Opens the Settings screen ("ตั้งค่า") from the gear button in the header. */
+  onOpenSettings: () -> Unit = {},
   /** Small action at the top-right of the title area that scrolls with the list (debug builds: the demo-data chip). */
   headerAction: (@Composable () -> Unit)? = null,
   modifier: Modifier = Modifier,
@@ -77,7 +79,22 @@ fun TransparencyScreen(
     item {
       Box(Modifier.fillMaxWidth()) {
         ScreenTitle("สิ่งที่ Haku จำ", eyebrow = "เปิดดูและลบได้ทุกบรรทัด")
-        headerAction?.let { Box(Modifier.align(Alignment.TopEnd)) { it() } }
+        Row(
+          Modifier.align(Alignment.TopEnd),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+          headerAction?.invoke()
+          Box(
+            Modifier
+              .size(36.dp)
+              .clip(HakuRadius.Pill)
+              .clickable(role = Role.Button, onClickLabel = "ตั้งค่า", onClick = onOpenSettings),
+            contentAlignment = Alignment.Center,
+          ) {
+            Icon(HakuIcons.Settings, contentDescription = "ตั้งค่า", tint = HakuColors.Ink, modifier = Modifier.size(20.dp))
+          }
+        }
       }
     }
     item { EgressCounter(state.egressToday) }

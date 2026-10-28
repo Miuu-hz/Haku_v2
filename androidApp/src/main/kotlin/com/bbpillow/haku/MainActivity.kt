@@ -32,6 +32,7 @@ import com.bbpillow.haku.platform.NightlyWorker
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.surface.components.CapsuleButton
 import com.bbpillow.haku.surface.components.ScreenBackdrop
+import com.bbpillow.haku.surface.onboarding.ActiveModel
 import com.bbpillow.haku.surface.onboarding.AppStart
 import com.bbpillow.haku.surface.onboarding.ProfileRecord
 import com.bbpillow.haku.surface.onboarding.StartScreen
@@ -99,12 +100,15 @@ private fun AppRoot(graph: AppGraph, activity: FragmentActivity) {
     StartScreen.LOCKED -> LockGate(activity) { unlocked = true }
     StartScreen.MAIN -> {
       LaunchedEffect(Unit) {
-        graph.downloader.resumeIfPartial(profile.model)
+        (profile.model as? ActiveModel.Catalog)?.let { graph.downloader.resumeIfPartial(it.choice) }
         if (AppStart.shouldStartCaptureOnMain(grantedKinds(activity), CaptureController.isEnabled(activity))) CaptureController.start(activity)
         NightlyWorker.schedule(activity) // onboarded from here on; KEEP = no-op after the first time
         graph.billing.refresh() // P9.4 restore on start; offline = keep the saved plan within its 7-day grace
       }
-      MainShell(graph, activity)
+      MainShell(graph, activity) { updated ->
+        unlocked = true
+        record = updated
+      }
     }
   }
 }

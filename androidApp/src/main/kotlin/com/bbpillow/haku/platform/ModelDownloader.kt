@@ -20,47 +20,77 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 
-/** Download state for the onboarding MODEL step. [error] is set when it stopped on its own (network, space). */
-data class DownloadState(val fraction: Float, val paused: Boolean, val done: Boolean = false, val error: String? = null)
+/** Download state for a catalog model (onboarding + model manager). [error] is set when it stopped on its own (network, space). */
+data class DownloadState(
+  val choice: ModelChoice,
+  val fraction: Float,
+  val paused: Boolean,
+  val done: Boolean = false,
+  val error: String? = null,
+)
 
 /**
- * Resumable HTTP download of the chosen Gemma file into app-specific storage (P3.6, D7). Writes `<name>.part`, resumes
+ * Resumable HTTP download of a chosen Gemma file into app-specific storage (P3.6, D7). Writes `<name>.part`, resumes
  * with a Range request, renames when the size matches the server's. Pause = cancel the job; the partial file stays.
  *
- * ponytail: a coroutine on the app scope, no foreground service or WorkManager. It survives activity recreation and the
- * user moving through onboarding; if Android kills the process in the background the `.part` file stays and
- * [resumeIfPartial] continues it on the next launch. Add a dataSync foreground service if testers see it stall.
+ * ponytail: a coroutine on the app scope, no foreground service or WorkManager; one download at a time (starting
+ * another while one is running returns false instead of queueing).
  */
 class ModelDownloader(private val dir: File, private val scope: CoroutineScope) {
   private val _state = MutableStateFlow<DownloadState?>(null)
   val state: StateFlow<DownloadState?> = _state.asStateFlow()
   private var job: Job? = null
 
-  fun file(choice: ModelChoice) = File(dir, sourceOf(choice).fileName)
+  fun file(choice: ModelChoice) = File(dir, choice.fileName)
 
-  fun start(choice: ModelChoice) {
+  /** Starts or resumes [choice]. Returns false when another model is actively downloading right now. */
+  fun start(choice: ModelChoice): Boolean {
     val previous = job
-    if (previous?.isActive == true && !previous.isCancelled) return
-    _state.value = (_state.value ?: DownloadState(0f, paused = false)).copy(paused = false, error = null)
+    val current = _state.value
+    if (previous?.isActive == true && !previous.isCancelled) {
+      return current?.choice == choice
+    }
+    val initialFraction = if (current?.choice == choice && !current.done) {
+      current.fraction
+    } else {
+      val have = partOf(choice).takeIf { it.exists() }?.length() ?: 0L
+      DownloadResume.fraction(have, choice.bytes)
+    }
+    _state.value = DownloadState(choice, initialFraction, paused = false, error = null)
     job = scope.launch(Dispatchers.IO) {
       try {
         previous?.cancelAndJoin() // a paused job may still be writing its last chunk: never two writers on the .part file
         download(choice)
       } catch (e: CancellationException) {
-        _state.value = _state.value?.copy(paused = true) // a chunk may have reported "running" after pause()
+        _state.value = _state.value?.takeIf { it.choice == choice && !it.done }?.copy(paused = true) ?: _state.value
         throw e
       } catch (e: Exception) {
         Log.e(TAG, "model download stopped", e)
-        _state.value = (_state.value ?: DownloadState(0f, true)).copy(paused = true, error = e.message ?: e.javaClass.simpleName)
+        val base = _state.value?.takeIf { it.choice == choice } ?: DownloadState(choice, 0f, true)
+        _state.value = base.copy(paused = true, error = e.message ?: e.javaClass.simpleName)
       }
     }
+    return true
   }
 
   fun pause() {
     job?.cancel()
     _state.value = _state.value?.takeIf { !it.done }?.copy(paused = true) ?: _state.value
+  }
+
+  /** Cancels any active/paused download for [choice] and removes both the model file and its `.part`. */
+  suspend fun delete(choice: ModelChoice) {
+    if (_state.value?.choice == choice) {
+      job?.cancelAndJoin()
+      _state.value = null
+    }
+    withContext(Dispatchers.IO) {
+      file(choice).delete()
+      partOf(choice).delete()
+    }
   }
 
   /** App start after onboarding: continue a download the process lost. No-op when nothing was started. */
@@ -69,17 +99,16 @@ class ModelDownloader(private val dir: File, private val scope: CoroutineScope) 
   }
 
   private suspend fun download(choice: ModelChoice) {
-    val source = sourceOf(choice)
     val out = file(choice)
     val part = partOf(choice)
-    if (out.exists()) return finished()
+    if (out.exists()) return finished(choice)
     dir.mkdirs()
     // one retry from zero when the partial file turns out to belong to another version of the file
     repeat(2) {
       val have = if (part.exists()) part.length() else 0L
-      val needed = (choice.sizeGb * 1e9).toLong() - have
+      val needed = (choice.bytes - have).coerceAtLeast(0L)
       if (dir.usableSpace < needed) throw IOException("พื้นที่ไม่พอ ต้องว่างอีก ${needed / 1_000_000_000 + 1} GB")
-      val conn = URL(source.url).openConnection() as HttpURLConnection
+      val conn = URL(choice.url).openConnection() as HttpURLConnection
       try {
         conn.connectTimeout = TIMEOUT_MS
         conn.readTimeout = TIMEOUT_MS
@@ -88,13 +117,13 @@ class ModelDownloader(private val dir: File, private val scope: CoroutineScope) 
           DownloadResponseInput(have, conn.responseCode, conn.contentLengthLong, conn.getHeaderField("Content-Range")),
         )
         when (decision) {
-          is ResumeDecision.Complete -> return rename(part, out)
+          is ResumeDecision.Complete -> return rename(choice, part, out)
           is ResumeDecision.StartOver -> part.delete()
           is ResumeDecision.Failed -> throw IOException("HTTP ${decision.status}")
           is ResumeDecision.Write -> {
-            write(conn, part, decision)
+            write(choice, conn, part, decision)
             if (!DownloadResume.isComplete(part.length(), decision.totalBytes)) throw IOException("ไฟล์ไม่ครบ")
-            return rename(part, out)
+            return rename(choice, part, out)
           }
         }
       } finally {
@@ -104,7 +133,7 @@ class ModelDownloader(private val dir: File, private val scope: CoroutineScope) 
     throw IOException("เซิร์ฟเวอร์ส่งไฟล์ไม่ตรงกัน")
   }
 
-  private suspend fun write(conn: HttpURLConnection, part: File, decision: ResumeDecision.Write) {
+  private suspend fun write(choice: ModelChoice, conn: HttpURLConnection, part: File, decision: ResumeDecision.Write) {
     var have = decision.fromByte
     var lastReported = -1
     conn.inputStream.use { input ->
@@ -120,41 +149,27 @@ class ModelDownloader(private val dir: File, private val scope: CoroutineScope) 
           val permille = (fraction * 1000).toInt()
           if (permille != lastReported) {
             lastReported = permille
-            _state.value = DownloadState(fraction, paused = false)
+            _state.value = DownloadState(choice, fraction, paused = false)
           }
         }
       }
     }
   }
 
-  private fun rename(part: File, out: File) {
+  private fun rename(choice: ModelChoice, part: File, out: File) {
     if (!part.renameTo(out)) throw IOException("rename failed")
-    finished()
+    finished(choice)
   }
 
-  private fun finished() {
-    _state.value = DownloadState(1f, paused = false, done = true)
+  private fun finished(choice: ModelChoice) {
+    _state.value = DownloadState(choice, 1f, paused = false, done = true)
   }
 
-  private fun partOf(choice: ModelChoice) = File(dir, sourceOf(choice).fileName + ".part")
-
-  private data class Source(val fileName: String, val url: String)
+  private fun partOf(choice: ModelChoice) = File(dir, choice.fileName + ".part")
 
   private companion object {
     const val TAG = "HakuModel"
     const val TIMEOUT_MS = 30_000
     const val BUFFER = 256 * 1024
-
-    // Same pins as scripts/get-model.sh. ponytail: E4B on main there too; pin both to the Gallery 1.0.19 commit together.
-    const val REV_E2B = "6e5c4f1e395deb959c494953478fa5cec4b8008f"
-
-    fun sourceOf(choice: ModelChoice) = when (choice) {
-      ModelChoice.E2B -> "gemma-4-E2B-it.litertlm".let {
-        Source(it, "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/$REV_E2B/$it?download=true")
-      }
-      ModelChoice.E4B -> "gemma-4-E4B-it.litertlm".let {
-        Source(it, "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/$it?download=true")
-      }
-    }
   }
 }

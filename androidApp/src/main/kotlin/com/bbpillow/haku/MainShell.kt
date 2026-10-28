@@ -1,6 +1,7 @@
 package com.bbpillow.haku
 
-import android.app.Activity
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,41 +20,53 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.bbpillow.haku.platform.BiometricLock
+import com.bbpillow.haku.platform.LiteRtLocalModel
 import com.bbpillow.haku.platform.capture.CaptureController
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import com.bbpillow.haku.surface.components.FloatingNav
-import com.bbpillow.haku.surface.components.FloatingNavHeight
 import com.bbpillow.haku.surface.chat.ChatAnswerOutput
 import com.bbpillow.haku.surface.chat.ChatAnswerSource
 import com.bbpillow.haku.surface.chat.ChatQuestionInput
 import com.bbpillow.haku.surface.chat.ChatScreen
 import com.bbpillow.haku.surface.chat.ChatTurn
-import com.bbpillow.haku.surface.node.HomeNodeScreen
-import com.bbpillow.haku.platform.LiteRtLocalModel
-import com.bbpillow.haku.thinking.LocalModelClient
-import com.bbpillow.haku.thinking.ModelConfig
-import android.util.Log
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.CoroutineScope
+import com.bbpillow.haku.surface.components.FloatingNav
+import com.bbpillow.haku.surface.components.FloatingNavHeight
 import com.bbpillow.haku.surface.components.HakuIcons
 import com.bbpillow.haku.surface.components.NavItem
 import com.bbpillow.haku.surface.home.HomeBriefScreen
 import com.bbpillow.haku.surface.home.HomeBriefUiState
 import com.bbpillow.haku.surface.memory.TransparencyScreen
 import com.bbpillow.haku.surface.memory.TransparencyUiState
+import com.bbpillow.haku.surface.node.HomeNodeScreen
+import com.bbpillow.haku.surface.onboarding.ActiveModel
+import com.bbpillow.haku.surface.onboarding.ModelChoice
+import com.bbpillow.haku.surface.onboarding.ProfileRecord
 import com.bbpillow.haku.surface.plus.PlusScreen
+import com.bbpillow.haku.surface.settings.DownloadProgressInput
+import com.bbpillow.haku.surface.settings.InstalledModelRecord
+import com.bbpillow.haku.surface.settings.ModelManagerPresenter
+import com.bbpillow.haku.surface.settings.ModelManagerScreen
+import com.bbpillow.haku.surface.settings.ModelManagerUiState
+import com.bbpillow.haku.surface.settings.ModelStatus
+import com.bbpillow.haku.surface.settings.SettingsScreen
+import com.bbpillow.haku.surface.settings.SettingsUiState
 import com.bbpillow.haku.surface.timeline.TimelineScreen
 import com.bbpillow.haku.surface.timeline.TimelineUiState
+import com.bbpillow.haku.thinking.LocalModelClient
+import com.bbpillow.haku.thinking.ModelConfig
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val NavItems = listOf(
   NavItem(HakuIcons.Home, "หน้าแรก"),
@@ -73,39 +86,55 @@ private val NavMargin = 12.dp
 private val TabPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = NavMargin + FloatingNavHeight + 24.dp)
 
 /**
- * Four tabs over one [FloatingNav] (mockup: home, timeline, chat, memory). Home Node opens inside the memory tab. Each tab loads from its presenter on the DB thread and holds only the returned state.
- * Haku Plus (P9.4) opens over the tabs from Home's weekly chip or the Memory tab; back closes it.
+ * Four tabs over one [FloatingNav] (mockup: home, timeline, chat, memory). Home Node, Settings, Model Manager, and
+ * Haku Plus open as sub-screens without a nav library; back closes the top-most sub-screen.
  */
 @Composable
-fun MainShell(graph: AppGraph, activity: Activity) {
+fun MainShell(
+  graph: AppGraph,
+  activity: FragmentActivity,
+  onProfileChanged: (ProfileRecord) -> Unit = {},
+) {
   var tab by rememberSaveable { mutableIntStateOf(0) }
   var day by rememberSaveable { mutableStateOf<String?>(null) }
   var plusOpen by rememberSaveable { mutableStateOf(false) }
   var nodeOpen by rememberSaveable { mutableStateOf(false) }
+  var settingsOpen by rememberSaveable { mutableStateOf(false) }
+  var modelsOpen by rememberSaveable { mutableStateOf(false) }
   // the conversation lives as long as the shell, so switching tabs keeps it
   var chatTurns by remember { mutableStateOf(listOf<ChatTurn>()) }
   val shellScope = rememberCoroutineScope() // an answer still lands if the user switches tabs while it is being written
   BackHandler(enabled = plusOpen) { plusOpen = false }
-  BackHandler(enabled = !plusOpen && nodeOpen && tab == NavItems.lastIndex) { nodeOpen = false }
+  BackHandler(enabled = !plusOpen && modelsOpen) { modelsOpen = false }
+  BackHandler(enabled = !plusOpen && !modelsOpen && settingsOpen) { settingsOpen = false }
+  BackHandler(enabled = !plusOpen && !modelsOpen && !settingsOpen && nodeOpen && tab == NavItems.lastIndex) { nodeOpen = false }
   Box(Modifier.fillMaxSize()) {
     if (plusOpen) {
       PlusTab(graph, activity) { plusOpen = false }
+      return@Box
+    }
+    if (modelsOpen) {
+      ModelManagerTab(graph, activity, onProfileChanged) { modelsOpen = false }
+      return@Box
+    }
+    if (settingsOpen) {
+      SettingsTab(graph, activity, { modelsOpen = true }, onProfileChanged) { settingsOpen = false }
       return@Box
     }
     val openDay = { d: String -> day = d; tab = TAB_TIMELINE }
     when (tab) {
       TAB_HOME -> HomeTab(graph, CaptureController.isEnabled(activity), openDay, { plusOpen = true })
       TAB_TIMELINE -> TimelineTab(graph, day) { day = it }
-      TAB_CHAT -> ChatTab(graph, shellScope, chatTurns, { chatTurns = it }, openDay)
+      TAB_CHAT -> ChatTab(graph, shellScope, chatTurns, { chatTurns = it }, openDay, { modelsOpen = true })
       else -> if (nodeOpen) HomeNodeScreen(onBack = { nodeOpen = false }, contentPadding = TabPadding)
-      else MemoryTab(graph, { plusOpen = true }, { nodeOpen = true })
+      else MemoryTab(graph, { plusOpen = true }, { nodeOpen = true }, { settingsOpen = true })
     }
     FloatingNav(NavItems, tab, { tab = it; nodeOpen = false }, Modifier.align(Alignment.BottomCenter).padding(horizontal = 20.dp, vertical = NavMargin))
   }
 }
 
 @Composable
-private fun PlusTab(graph: AppGraph, activity: Activity, onClose: () -> Unit) {
+private fun PlusTab(graph: AppGraph, activity: FragmentActivity, onClose: () -> Unit) {
   val state by graph.billing.ui.collectAsState()
   val scope = rememberCoroutineScope()
   LaunchedEffect(Unit) { graph.billing.refresh() } // fresh prices and status each time it opens
@@ -114,6 +143,200 @@ private fun PlusTab(graph: AppGraph, activity: Activity, onClose: () -> Unit) {
     onBuy = { graph.billing.buy(activity, it) },
     onRestore = { scope.launch { graph.billing.restore() } },
     onBack = onClose,
+    contentPadding = TabPadding,
+  )
+}
+
+@Composable
+private fun SettingsTab(
+  graph: AppGraph,
+  activity: FragmentActivity,
+  onOpenModels: () -> Unit,
+  onProfileChanged: (ProfileRecord) -> Unit,
+  onClose: () -> Unit,
+) {
+  val scope = rememberCoroutineScope()
+  var state by remember { mutableStateOf<SettingsUiState?>(null) }
+  val dl by graph.downloader.state.collectAsState()
+
+  LaunchedEffect(dl?.done) {
+    val installed = withContext(Dispatchers.IO) { graph.installedModels() }
+    state = graph.safeIo { modelManager.loadSettings(installed) }
+  }
+
+  fun update(block: ModelManagerPresenter.(List<InstalledModelRecord>) -> SettingsUiState) {
+    scope.launch {
+      val installed = withContext(Dispatchers.IO) { graph.installedModels() }
+      graph.safeIo { modelManager.block(installed) to profile.load() }?.let { (ui, rec) ->
+        state = ui
+        onProfileChanged(rec)
+      }
+    }
+  }
+
+  val s = state ?: return
+  SettingsScreen(
+    state = s,
+    onBack = onClose,
+    onOpenModels = onOpenModels,
+    onParticle = { p -> update { setParticle(p, it) } },
+    onAddress = { a -> update { setAddress(a, it) } },
+    onNickname = { n -> update { setNickname(n, it) } },
+    onToggleLock = { enabled ->
+      if (enabled) {
+        if (!BiometricLock.available(activity)) {
+          Toast.makeText(activity, "ตั้งล็อกหน้าจอหรือสแกนนิ้วในการตั้งค่าเครื่องก่อน", Toast.LENGTH_LONG).show()
+        } else {
+          BiometricLock.prompt(activity, "เปิดล็อก Haku") { ok -> if (ok) update { setLock(true, it) } }
+        }
+      } else {
+        update { setLock(false, it) }
+      }
+    },
+    contentPadding = TabPadding,
+  )
+}
+
+@Composable
+private fun ModelManagerTab(
+  graph: AppGraph,
+  activity: FragmentActivity,
+  onProfileChanged: (ProfileRecord) -> Unit,
+  onClose: () -> Unit,
+) {
+  val scope = rememberCoroutineScope()
+  val dl by graph.downloader.state.collectAsState()
+  val imp by graph.importer.state.collectAsState()
+  var state by remember { mutableStateOf<ModelManagerUiState?>(null) }
+  var message by remember { mutableStateOf<String?>(null) }
+
+  suspend fun refresh(activateChoice: ModelChoice? = null, activateImport: String? = null) {
+    val ram = graph.ramGb()
+    val installed = withContext(Dispatchers.IO) { graph.installedModels() }
+    val currentDl = graph.downloader.state.value
+    val dlInput = currentDl?.let { DownloadProgressInput(it.choice, it.fraction, it.paused, it.done, it.error) }
+    val currentImp = graph.importer.state.value
+    graph.safeIo {
+      if (activateChoice != null) modelManager.activateIfNoneReady(ActiveModel.Catalog(activateChoice), installed)
+      if (activateImport != null) modelManager.activateIfNoneReady(ActiveModel.Imported(activateImport), installed)
+      modelManager.load(
+        ramGb = ram,
+        installed = installed,
+        download = dlInput,
+        importingFileName = currentImp?.takeIf { !it.done && it.error == null }?.fileName,
+        importFraction = currentImp?.takeIf { !it.done && it.error == null }?.fraction ?: 0f,
+        message = message ?: currentImp?.error ?: currentDl?.error,
+      ) to profile.load()
+    }?.let { (ui, rec) ->
+      state = ui
+      onProfileChanged(rec)
+    }
+  }
+
+  LaunchedEffect(dl?.choice, dl?.paused, dl?.done, dl?.error) {
+    val current = dl
+    if (current?.error != null) {
+      Toast.makeText(activity, "ดาวน์โหลดหยุด: ${current.error}", Toast.LENGTH_LONG).show()
+    }
+    refresh(activateChoice = current?.takeIf { it.done }?.choice)
+  }
+
+  LaunchedEffect(dl?.fraction) {
+    val current = dl ?: return@LaunchedEffect
+    if (current.done || current.error != null) return@LaunchedEffect
+    val s = state ?: return@LaunchedEffect
+    state = s.copy(
+      models = s.models.map { card ->
+        if (card.choice == current.choice && card.status == ModelStatus.DOWNLOADING) {
+          card.copy(downloadFraction = current.fraction, downloadPaused = current.paused)
+        } else {
+          card
+        }
+      },
+    )
+  }
+
+  LaunchedEffect(imp?.fileName, imp?.done, imp?.error) {
+    val current = imp ?: return@LaunchedEffect
+    if (current.error != null) {
+      message = current.error
+      Toast.makeText(activity, current.error, Toast.LENGTH_LONG).show()
+    }
+    refresh(activateImport = current.takeIf { it.done }?.fileName)
+  }
+
+  LaunchedEffect(imp?.fraction) {
+    val current = imp ?: return@LaunchedEffect
+    if (current.done || current.error != null) return@LaunchedEffect
+    state = state?.copy(importingFileName = current.fileName, importFraction = current.fraction)
+  }
+
+  val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    if (uri != null) {
+      message = null
+      graph.importer.clearError()
+      graph.importer.import(uri) { importedName ->
+        scope.launch { refresh(activateImport = importedName) }
+      }
+    }
+  }
+
+  val s = state ?: return
+  ModelManagerScreen(
+    state = s,
+    onBack = onClose,
+    onDownload = { choice ->
+      if (!graph.downloader.start(choice)) {
+        message = ModelManagerPresenter.BUSY_DOWNLOAD_TEXT
+        state = s.copy(message = ModelManagerPresenter.BUSY_DOWNLOAD_TEXT)
+        Toast.makeText(activity, ModelManagerPresenter.BUSY_DOWNLOAD_TEXT, Toast.LENGTH_SHORT).show()
+      } else {
+        message = null
+        scope.launch { refresh() }
+      }
+    },
+    onPauseResume = { choice, pause ->
+      if (pause) {
+        graph.downloader.pause()
+      } else if (!graph.downloader.start(choice)) {
+        message = ModelManagerPresenter.BUSY_DOWNLOAD_TEXT
+        state = s.copy(message = ModelManagerPresenter.BUSY_DOWNLOAD_TEXT)
+        Toast.makeText(activity, ModelManagerPresenter.BUSY_DOWNLOAD_TEXT, Toast.LENGTH_SHORT).show()
+      }
+    },
+    onSetActive = { target ->
+      message = null
+      scope.launch {
+        val ram = graph.ramGb()
+        val installed = withContext(Dispatchers.IO) { graph.installedModels() }
+        val currentDl = graph.downloader.state.value
+        val dlInput = currentDl?.let { DownloadProgressInput(it.choice, it.fraction, it.paused, it.done, it.error) }
+        graph.safeIo {
+          modelManager.setActive(target, ram, installed, dlInput) to profile.load()
+        }?.let { (ui, rec) ->
+          state = ui
+          onProfileChanged(rec)
+        }
+      }
+    },
+    onDelete = { card ->
+      message = null
+      scope.launch {
+        val choice = card.choice
+        if (choice != null) graph.downloader.delete(choice) else graph.importer.delete(card.fileName)
+        val ram = graph.ramGb()
+        val installed = withContext(Dispatchers.IO) { graph.installedModels() }
+        val currentDl = graph.downloader.state.value
+        val dlInput = currentDl?.let { DownloadProgressInput(it.choice, it.fraction, it.paused, it.done, it.error) }
+        graph.safeIo {
+          modelManager.deleteModel(card.ref, ram, installed, dlInput) to profile.load()
+        }?.let { (ui, rec) ->
+          state = ui
+          onProfileChanged(rec)
+        }
+      }
+    },
+    onImport = { importPicker.launch(arrayOf("*/*")) },
     contentPadding = TabPadding,
   )
 }
@@ -170,12 +393,23 @@ private fun TimelineTab(graph: AppGraph, selected: String?, onSelectDay: (String
 }
 
 @Composable
-private fun ChatTab(graph: AppGraph, scope: CoroutineScope, turns: List<ChatTurn>, onTurns: (List<ChatTurn>) -> Unit, onOpenDay: (String) -> Unit) {
-  var hasModel by remember { mutableStateOf(false) }
-  LaunchedEffect(Unit) { hasModel = modelConfigOrNull(graph) != null }
+private fun ChatTab(
+  graph: AppGraph,
+  scope: CoroutineScope,
+  turns: List<ChatTurn>,
+  onTurns: (List<ChatTurn>) -> Unit,
+  onOpenDay: (String) -> Unit,
+  onOpenModels: () -> Unit,
+) {
+  var modelLabel by remember { mutableStateOf(ModelManagerPresenter.NO_MODEL_LABEL) }
+  val dl by graph.downloader.state.collectAsState()
+  LaunchedEffect(dl?.done) {
+    val installed = withContext(Dispatchers.IO) { graph.installedModels() }
+    modelLabel = graph.safeIo { modelManager.activeModelLabel(installed) } ?: ModelManagerPresenter.NO_MODEL_LABEL
+  }
   ChatScreen(
     turns,
-    engineLabel = if (hasModel) "ในเครื่อง · Gemma" else "ในเครื่อง · ค้นจากบันทึก",
+    engineLabel = modelLabel,
     onAsk = { q ->
       val asked = turns + ChatTurn(q, null)
       onTurns(asked)
@@ -185,6 +419,7 @@ private fun ChatTab(graph: AppGraph, scope: CoroutineScope, turns: List<ChatTurn
       }
     },
     onOpenDay = onOpenDay,
+    onOpenModels = onOpenModels,
     contentPadding = TabPadding,
   )
 }
@@ -219,7 +454,12 @@ private suspend fun modelConfigOrNull(graph: AppGraph): ModelConfig? = try {
 }
 
 @Composable
-private fun MemoryTab(graph: AppGraph, onOpenPlus: () -> Unit, onOpenHomeNode: () -> Unit) {
+private fun MemoryTab(
+  graph: AppGraph,
+  onOpenPlus: () -> Unit,
+  onOpenHomeNode: () -> Unit,
+  onOpenSettings: () -> Unit,
+) {
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
   var state by remember { mutableStateOf<TransparencyUiState?>(null) }
@@ -240,6 +480,7 @@ private fun MemoryTab(graph: AppGraph, onOpenPlus: () -> Unit, onOpenHomeNode: (
     onExport = { picker.launch("haku-memory.md") },
     onOpenPlus = onOpenPlus,
     onOpenHomeNode = onOpenHomeNode,
+    onOpenSettings = onOpenSettings,
     contentPadding = TabPadding,
     // debug builds only (release DemoTools draws nothing)
     headerAction = { DemoSeedButton(graph, { scope.launch { graph.safeIo { transparency.load() }?.let { state = it } } }) },

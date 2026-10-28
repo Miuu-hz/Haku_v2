@@ -6,10 +6,44 @@ import com.bbpillow.haku.capture.diary.EndingParticle
 import okio.FileSystem
 import okio.Path
 
+/** Reference to the active on-device model: a built-in catalog [ModelChoice], a user-imported `.litertlm` file, or [None]. */
+sealed interface ActiveModel {
+  data class Catalog(val choice: ModelChoice) : ActiveModel
+  data class Imported(val fileName: String) : ActiveModel
+  data object None : ActiveModel
+
+  fun encode(): String = when (this) {
+    is Catalog -> choice.name
+    is Imported -> "$IMPORT_PREFIX$fileName"
+    None -> NONE_VALUE
+  }
+
+  companion object {
+    const val IMPORT_PREFIX = "import:"
+    const val NONE_VALUE = "none"
+    val DEFAULT: ActiveModel = Catalog(ModelChoice.E2B)
+
+    /** Rejects path traversal (`/`, `\`, `..`), blank names and control characters. */
+    fun isSafeFileName(name: String): Boolean =
+      name.isNotBlank() && !name.contains('/') && !name.contains('\\') && !name.contains("..") && name.none { it.isISOControl() }
+
+    fun parse(raw: String?): ActiveModel {
+      if (raw == null) return DEFAULT
+      if (raw == NONE_VALUE) return None
+      if (raw.startsWith(IMPORT_PREFIX)) {
+        val name = raw.removePrefix(IMPORT_PREFIX)
+        return if (isSafeFileName(name)) Imported(name) else DEFAULT
+      }
+      val choice = ModelChoice.entries.firstOrNull { it.name == raw }
+      return if (choice != null) Catalog(choice) else DEFAULT
+    }
+  }
+}
+
 /** What onboarding decides once and the app reads on every start (D15 style, D7 model, D11 lock, completion flag). */
 data class ProfileRecord(
   val style: DiaryStyle = DiaryStyle(),
-  val model: ModelChoice = ModelChoice.E2B,
+  val model: ActiveModel = ActiveModel.Catalog(ModelChoice.E2B),
   val lockEnabled: Boolean = false,
   val onboarded: Boolean = false,
 )
@@ -35,7 +69,7 @@ class ProfileStore(private val fs: FileSystem, private val file: Path) : Profile
         address = AddressForm.entries.firstOrNull { it.name == kv["address"] } ?: AddressForm.NONE,
         nickname = kv["nickname"].orEmpty(),
       ),
-      model = ModelChoice.entries.firstOrNull { it.name == kv["model"] } ?: ModelChoice.E2B,
+      model = ActiveModel.parse(kv["model"]),
       lockEnabled = kv["lock"] == "true",
       onboarded = kv["onboarded"] == "true",
     )
@@ -46,7 +80,7 @@ class ProfileStore(private val fs: FileSystem, private val file: Path) : Profile
       "particle" to profile.style.particle.name,
       "address" to profile.style.address.name,
       "nickname" to cleanNickname(profile.style.nickname),
-      "model" to profile.model.name,
+      "model" to profile.model.encode(),
       "lock" to profile.lockEnabled.toString(),
       "onboarded" to profile.onboarded.toString(),
     ).joinToString("\n", postfix = "\n") { (k, v) -> "$k=$v" }
