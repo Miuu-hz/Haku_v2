@@ -8,3 +8,6 @@
 4. Single question over adb:
    `adb shell am broadcast -n com.bbpillow.haku/.AskDebugReceiver -a com.bbpillow.haku.debug.ASK --es id test1 --es q "'เมื่อวานไปไหนมาบ้าง'"`
 5. Read summary at the end: check `ok`/`timeouts`, `MODEL` vs `RETRIEVAL` share (`rejected` = checker refusals), `p50`/`p95` `ttftMs`/`tokensPerSec`, and `max nativeHeapMb`/`batteryTempC`.
+6. Run the accuracy evaluation against `DEMO_SEED` ground truth (30 questions across `fact`, `day-place`, `day-appointment`, `week`, `no-answer`, `injection`):
+   `python scripts/stress/demo_eval.py --warm --out eval_results.jsonl`
+   Use `--date YYYY-MM-DD` if `DEMO_SEED` ran on an earlier day, or `--dry-run` to inspect the derived ground truth without adb.

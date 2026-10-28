@@ -16,6 +16,8 @@ if hasattr(sys.stderr, "reconfigure"):
 RECEIVER = "com.bbpillow.haku/.AskDebugReceiver"
 ACTION_ASK = "com.bbpillow.haku.debug.ASK"
 ACTION_UNLOAD = "com.bbpillow.haku.debug.ASK_UNLOAD"
+DEFAULT_ADB = os.environ.get("ADB", "F:/AndroidSDK/platform-tools/adb.exe")
+DEFAULT_SERIAL = "RFCW70ZSNDY"
 
 
 def sh_quote(s: str) -> str:
@@ -84,16 +86,27 @@ def wait_for_result(adb: str, serial: str, qid: str, timeout: float) -> Optional
     return None
 
 
+def ask_one(adb: str, serial: str, qid: str, question: str, warm: bool, timeout: float) -> Dict[str, Any]:
+    send_err = send_ask(adb, serial, qid, question, warm)
+    if send_err is not None:
+        return {"id": qid, "question": question, "error": send_err, "timeout": False}
+    res = wait_for_result(adb, serial, qid, timeout)
+    if res is None:
+        return {"id": qid, "question": question, "error": "timeout", "timeout": True}
+    res["timeout"] = False
+    return res
+
+
 def main() -> None:
     # ponytail: self-check quoting and percentile math at startup
     assert sh_quote('สวัสดี "Haku" it\'s me') == "'สวัสดี \"Haku\" it'\"'\"'s me'"
     assert pct([10, 20, 30, 40, 50], 50) == 30.0
 
-    default_adb = os.environ.get("ADB", "F:/AndroidSDK/platform-tools/adb.exe")
+    default_adb = DEFAULT_ADB
     default_q = Path(__file__).resolve().parent / "questions_th.txt"
 
     ap = argparse.ArgumentParser(description="Stress-test Haku Chat over adb")
-    ap.add_argument("-s", "--serial", default="RFCW70ZSNDY", help="adb device serial")
+    ap.add_argument("-s", "--serial", default=DEFAULT_SERIAL, help="adb device serial")
     ap.add_argument("--questions", default=str(default_q), help="path to UTF-8 questions file")
     ap.add_argument("--repeat", type=int, default=1, help="repeat question list N times")
     ap.add_argument("--warm", action="store_true", help="keep model loaded between questions")
@@ -116,16 +129,7 @@ def main() -> None:
     try:
         for i, q in enumerate(questions, 1):
             qid = f"ask-{run_tag}-{i}"
-            send_err = send_ask(default_adb, args.serial, qid, q, args.warm)
-            if send_err is not None:
-                rec: Dict[str, Any] = {"id": qid, "question": q, "error": send_err, "timeout": False}
-            else:
-                res = wait_for_result(default_adb, args.serial, qid, args.timeout)
-                if res is None:
-                    rec = {"id": qid, "question": q, "error": "timeout", "timeout": True}
-                else:
-                    res["timeout"] = False
-                    rec = res
+            rec = ask_one(default_adb, args.serial, qid, q, args.warm, args.timeout)
 
             results.append(rec)
             if out_file:

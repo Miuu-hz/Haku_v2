@@ -54,14 +54,19 @@ class LiteRtLocalModel : LocalModel {
     conv.sendMessageAsync(
       Contents.of(listOf(Content.Text(input.prompt))),
       object : MessageCallback {
-        override fun onMessage(message: Message) { trySend(message.toString()) } // never fails: unlimited buffer below
+        override fun onMessage(message: Message) {
+          val text = message.toString()
+          // As LiteRtAgentSession / Gallery: drop control tokens such as "<ctrl99>". trySend never fails: unlimited buffer below
+          if (text.isNotEmpty() && !text.startsWith("<ctrl")) trySend(text)
+        }
         override fun onDone() { finished.set(true); close() }
         override fun onError(throwable: Throwable) {
           finished.set(true)
           if (throwable is CancellationException) close() else close(throwable)
         }
       },
-      emptyMap(),
+      // Gemma 4 can think out loud; Gallery runs with thinking off and so do we (summaries and chat want the answer only).
+      mapOf("enable_thinking" to false),
     )
     awaitClose { if (!finished.get()) this@LiteRtLocalModel.cancel() } // bare cancel() would hit ProducerScope.cancel, not the native stop
   }.buffer(Channel.UNLIMITED).flowOn(Dispatchers.Default)
