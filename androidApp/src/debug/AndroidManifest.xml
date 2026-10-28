@@ -23,5 +23,9 @@
     <receiver
       android:name=".CaptureDebugReceiver"
       android:exported="true" />
+    <!-- Stress-test Chat pipeline over adb, logcat tag HakuAsk, see scripts/stress/README.md -->
+    <receiver
+      android:name=".AskDebugReceiver"
+      android:exported="true" />
   </application>
 </manifest>
