@@ -65,6 +65,8 @@ fun TransparencyScreen(
   onOpenHomeNode: () -> Unit = {},
   /** Opens the Settings screen ("ตั้งค่า") from the gear button in the header. */
   onOpenSettings: () -> Unit = {},
+  /** P5.3 the standing-intentions list ("ความตั้งใจค้างไว้"). */
+  onOpenIntentions: () -> Unit = {},
   /** Small action at the top-right of the title area that scrolls with the list (debug builds: the demo-data chip). */
   headerAction: (@Composable () -> Unit)? = null,
   modifier: Modifier = Modifier,
@@ -126,6 +128,7 @@ fun TransparencyScreen(
     item { SectionLabel("ตั้งค่าและข้อมูล", Modifier.padding(top = 8.dp)) }
     item {
       SurfaceCard(Modifier.fillMaxWidth(), padding = PaddingValues(horizontal = 18.dp, vertical = 2.dp)) {
+        ActionRow("ความตั้งใจค้างไว้", onOpenIntentions)
         ActionRow("เครื่องที่บ้าน", onOpenHomeNode, chip = "เร็ว ๆ นี้")
         ActionRow("Haku Plus", onOpenPlus)
         ActionRow("ส่งออกความจำทั้งหมดเป็นไฟล์", onExport)

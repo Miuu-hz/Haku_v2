@@ -41,6 +41,9 @@ interface MemoryRepository {
   // pending intentions
   fun addIntention(input: NoteInput): MemoryRecord
   fun readIntentions(): List<MemoryRecord>
+
+  /** Rewrite one intention's text in place, same id and provenance (P5.3 fire counters). Null when the id is unknown. */
+  fun updateIntention(id: String, newText: String): MemoryRecord?
   fun deleteIntention(id: String): Boolean
 
   // dream report

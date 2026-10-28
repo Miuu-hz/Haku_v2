@@ -71,6 +71,10 @@ class IndexedMemoryRepository(
 
   override fun addIntention(input: NoteInput): MemoryRecord = delegate.addIntention(input).indexAs(MemoryLevel.INTENTION, "")
 
+  override fun updateIntention(id: String, newText: String): MemoryRecord? =
+    delegate.updateIntention(id, newText)?.indexAs(MemoryLevel.INTENTION, "")
+      ?.also { vectors?.remove(MemoryRef(MemoryLevel.INTENTION, "", id).key) }
+
   override fun deleteIntention(id: String): Boolean =
     delegate.deleteIntention(id).also { if (it) drop(MemoryRef(MemoryLevel.INTENTION, "", id)) }
 

@@ -12,6 +12,7 @@ import android.os.BatteryManager
 import android.util.Log
 import androidx.sqlite.SQLiteConnection
 import com.bbpillow.haku.BuildConfig
+import com.bbpillow.haku.HakuApplication
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.bbpillow.haku.capture.CaptureEvent
 import com.bbpillow.haku.capture.CaptureEventStore
@@ -21,6 +22,7 @@ import com.bbpillow.haku.capture.DwellDetector
 import com.bbpillow.haku.capture.EventPlace
 import com.bbpillow.haku.platform.signals.CalendarReader
 import com.bbpillow.haku.platform.signals.DeviceSignalReceiver
+import com.bbpillow.haku.platform.widget.HakuWidget
 import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionRequest
@@ -127,11 +129,16 @@ object CaptureController {
     ?: BundledSQLiteDriver().open(File(context.noBackupFilesDir, "haku.db").path).also { connection = it }
 
   @Synchronized fun recorder(context: Context): CaptureRecorder =
-    recorder ?: CaptureRecorder(CaptureEventStore(connection(context))).also { recorder = it }
+    recorder ?: CaptureRecorder(CaptureEventStore(connection(context))) { fresh ->
+      // P5.3: new stays and appointments can fire intentions; this runs on the capture thread, as onCaptureThread wants
+      val data = (context.applicationContext as HakuApplication).graph.onCaptureThread()
+      data.fireIntents { data.intents.onCapture(fresh, System.currentTimeMillis()) }
+    }.also { recorder = it }
 
   /** Keep the geofence on the open stay: fence a new one, drop it when the stay ended. */
   fun syncGeofence(context: Context, before: CaptureEvent?, after: DwellDetectOutput) {
     if (after.openDwell?.id == before?.id) return
+    HakuWidget.refresh(context) // P3.5 status line: stay started/ended (queued behind this capture-thread work)
     val place = after.openDwell?.place
     if (place != null) fence(context, place) else LocationServices.getGeofencingClient(context).removeGeofences(listOf(GEOFENCE_ID))
   }

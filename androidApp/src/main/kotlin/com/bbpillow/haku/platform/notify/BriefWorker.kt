@@ -10,6 +10,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.bbpillow.haku.BuildConfig
 import com.bbpillow.haku.HakuApplication
+import com.bbpillow.haku.platform.widget.HakuWidget
 import com.bbpillow.haku.surface.onboarding.ProfileRecord
 import com.bbpillow.haku.surface.settings.BriefKind
 import com.bbpillow.haku.surface.settings.DailyBrief
@@ -44,6 +45,7 @@ class BriefWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
       Log.e(TAG, "brief failed: ${e::class.simpleName}") // today's brief is lost; tomorrow's is still enqueued below
     }
     enqueue(applicationContext, kind, minute, ExistingWorkPolicy.APPEND_OR_REPLACE) // runs after this one finishes
+    HakuWidget.update(applicationContext) // P3.5: the brief just composed the diary; show it on the widget too
     return Result.success()
   }
 

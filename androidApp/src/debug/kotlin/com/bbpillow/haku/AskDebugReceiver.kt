@@ -78,7 +78,9 @@ class AskDebugReceiver : BroadcastReceiver() {
     var semanticOn = false
     var semanticLines = 0
 
-    val answer: ChatAnswerOutput = try {
+    // P5.3 as MainShell.askHaku: "ถ้า … ให้เตือน …" is stored and confirmed, not retrieved
+    val intent = runCatching { graph.io { intentCommand.tryHandle(question, System.currentTimeMillis()) } }.getOrNull()
+    val answer: ChatAnswerOutput = intent ?: try {
       // as MainShell.askHaku, but waits for a cold embedder so every adb run uses the semantic tier when it can
       val semantic = graph.questionSemantic(question, waitForLoad = true, force = forceSemantic)
       val (presenter, retrieval) = graph.io {

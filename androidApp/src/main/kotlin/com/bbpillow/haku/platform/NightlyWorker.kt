@@ -16,6 +16,7 @@ import com.bbpillow.haku.HakuApplication
 import com.bbpillow.haku.capture.diary.DiaryStyle
 import com.bbpillow.haku.memory.dream.DreamInput
 import com.bbpillow.haku.platform.capture.CaptureController
+import com.bbpillow.haku.platform.widget.HakuWidget
 import com.bbpillow.haku.thinking.LocalModelClient
 import com.bbpillow.haku.thinking.ModelConfig
 import com.bbpillow.haku.thinking.summary.EveningSummarizer
@@ -61,6 +62,7 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     if (config != null && plan.summarizeDays.isNotEmpty()) summarize(graph, config, plan.summarizeDays, facts)
     dream(graph, plan.dreamDay)
     embed(graph)
+    HakuWidget.update(applicationContext) // P3.5: the new diary/summary shows on the widget
     return Result.success()
   }
 

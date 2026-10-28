@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- P3.5 widget + quick note. System dynamic colors (API 31+); dark variants in values-night. -->
+<resources>
+  <string name="widget_description">สรุปช่วงนี้ของวันและปุ่มบันทึกด่วน (ล็อกแอปอยู่ = ไม่แสดงเนื้อหา)</string>
+  <string name="quick_note_label">บันทึกด่วน</string>
+  <color name="widget_bg">@android:color/system_neutral1_50</color>
+  <color name="widget_text">@android:color/system_neutral1_900</color>
+  <color name="widget_muted">@android:color/system_neutral2_600</color>
+  <color name="widget_button">@android:color/system_accent1_100</color>
+  <color name="widget_button_text">@android:color/system_accent1_900</color>
+  <style name="QuickNoteTheme" parent="@android:style/Theme.DeviceDefault.Light.Dialog.NoActionBar" />
+</resources>

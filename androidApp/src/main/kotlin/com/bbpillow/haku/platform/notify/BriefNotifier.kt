@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.RemoteInput
 import com.bbpillow.haku.MainActivity
 import com.bbpillow.haku.R
 import com.bbpillow.haku.surface.settings.BriefKind
@@ -55,10 +56,18 @@ object BriefNotifier {
       .setPublicVersion(lockScreen)
       .setContentIntent(open)
       .setAutoCancel(true)
+      .addAction(noteReply(context, NOTIFICATION_BASE_ID + kind.ordinal))
       .build()
     NotificationManagerCompat.from(context).notify(NOTIFICATION_BASE_ID + kind.ordinal, notification)
     return true
   }
+
+  /** P3.5 inline "จดเพิ่ม": the reply is saved as today's user note (NoteReplyReceiver). Hidden on the lock screen with the rest. */
+  private fun noteReply(context: Context, notificationId: Int) =
+    NotificationCompat.Action.Builder(R.drawable.ic_stat_haku, "จดเพิ่ม", NoteReplyReceiver.pendingIntent(context, notificationId))
+      .addRemoteInput(RemoteInput.Builder(NoteReplyReceiver.KEY_TEXT).setLabel("เล่าเพิ่มสั้น ๆ").build())
+      .setAllowGeneratedReplies(false) // no smart replies: the note must be the user's own words
+      .build()
 
   private fun ensureChannel(context: Context) {
     val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT).apply {

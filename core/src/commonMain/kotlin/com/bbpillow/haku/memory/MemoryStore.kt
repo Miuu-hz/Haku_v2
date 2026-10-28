@@ -60,14 +60,8 @@ class MemoryStore(
     return append(corePath(input.category), coreMeta(input.category), input.text, input.provenance, input.atEpochMs)
   }
 
-  override fun updateCoreFact(category: String, id: String, newText: String): MemoryRecord? {
-    val path = corePath(category)
-    val file = read(path)
-    val old = file.records.firstOrNull { it.id == id } ?: return null
-    val new = old.copy(text = newText)
-    write(path, file.copy(records = file.records.map { if (it.id == id) new else it }))
-    return new
-  }
+  override fun updateCoreFact(category: String, id: String, newText: String): MemoryRecord? =
+    updateRecord(corePath(category), id, newText)
 
   override fun deleteCoreFact(category: String, id: String): Boolean = deleteRecord(corePath(category), id)
   override fun readCategory(category: String): List<MemoryRecord> = read(corePath(category)).records
@@ -96,6 +90,7 @@ class MemoryStore(
     append(intentionsPath, mapOf("kind" to "pending-intentions"), input.text, input.provenance, input.atEpochMs)
 
   override fun readIntentions(): List<MemoryRecord> = read(intentionsPath).records
+  override fun updateIntention(id: String, newText: String): MemoryRecord? = updateRecord(intentionsPath, id, newText)
   override fun deleteIntention(id: String): Boolean = deleteRecord(intentionsPath, id)
 
   // dream report: plain markdown text, one file per day
@@ -154,6 +149,13 @@ class MemoryStore(
     val file = read(path)
     write(path, MemoryFile(file.meta.ifEmpty { meta }, file.records + record))
     return record
+  }
+
+  private fun updateRecord(path: Path, id: String, newText: String): MemoryRecord? {
+    val file = read(path)
+    val new = file.records.firstOrNull { it.id == id }?.copy(text = newText) ?: return null
+    write(path, file.copy(records = file.records.map { if (it.id == id) new else it }))
+    return new
   }
 
   private fun deleteRecord(path: Path, id: String): Boolean {

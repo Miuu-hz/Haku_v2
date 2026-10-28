@@ -14,8 +14,14 @@ data class CalendarRowInput(
 /**
  * The one place platform adapters (P2.2 location, P2.5 signals/calendar) write capture events through. Keeps the
  * Android side a thin translator: it reads the OS, this decides what is worth storing. Not thread-safe (as the store).
+ *
+ * [onNewEvents] hears the stay and calendar rows that are new (or retitled) in the store, never re-reads or user-deleted
+ * ids; P5.3 intentions fire from it. Called on the caller's thread after the write. Device signals are not passed on.
  */
-class CaptureRecorder(private val events: CaptureEventRepository) {
+class CaptureRecorder(
+  private val events: CaptureEventRepository,
+  private val onNewEvents: (List<CaptureEvent>) -> Unit = {},
+) {
   /** The stay still open: the latest dwell event within [LOOKBACK_MS], if it is a start. The store is the only state. */
   fun openDwell(nowUtcMs: Long): CaptureEvent? =
     events.query(CaptureQueryInput(nowUtcMs - LOOKBACK_MS, nowUtcMs + 1, setOf(CaptureTypes.DWELL_START, CaptureTypes.DWELL_END)))
@@ -25,7 +31,7 @@ class CaptureRecorder(private val events: CaptureEventRepository) {
   /** Runs [DwellDetector] and stores what it produced. [output.events] lists all produced, including ones already stored. */
   fun onWake(triggers: List<WakeTrigger>, fix: EventPlace?, nowUtcMs: Long): DwellDetectOutput {
     val output = DwellDetector.detect(DwellDetectInput(triggers, fix, openDwell(nowUtcMs)))
-    events.appendAll(output.events)
+    output.events.filter(events::append).takeIf { it.isNotEmpty() }?.let(onNewEvents)
     return output
   }
 
@@ -59,7 +65,11 @@ class CaptureRecorder(private val events: CaptureEventRepository) {
     val real = rows.filter { !it.allDay && !it.canceled && !it.declined && !it.title.isNullOrBlank() }.map {
       CaptureEvent(CaptureIds.calendar(it.eventId, it.beginUtcMs), it.beginUtcMs, CaptureSource.CalendarEntry(it.title!!.trim()), endUtcMs = it.endUtcMs)
     }
-    return events.replaceCalendar(from, to, real)
+    val window = CaptureQueryInput(from, to, setOf(CaptureTypes.CALENDAR))
+    val before = events.query(window).associate { it.id to it.source }
+    val changed = events.replaceCalendar(from, to, real)
+    if (changed > 0) events.query(window).filter { before[it.id] != it.source }.takeIf { it.isNotEmpty() }?.let(onNewEvents)
+    return changed
   }
 
   companion object {

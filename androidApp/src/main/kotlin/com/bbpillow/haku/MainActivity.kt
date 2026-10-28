@@ -30,6 +30,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.bbpillow.haku.platform.BiometricLock
 import com.bbpillow.haku.platform.NightlyWorker
 import com.bbpillow.haku.platform.notify.BriefWorker
+import com.bbpillow.haku.platform.widget.HakuWidget
 import androidx.work.ExistingWorkPolicy
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.surface.components.CapsuleButton
@@ -56,6 +57,12 @@ class MainActivity : FragmentActivity() {
         }
       }
     }
+  }
+
+  /** P3.5: edits, deletes, lock or capture switched in the app show on the widget once the user leaves. */
+  override fun onStop() {
+    super.onStop()
+    HakuWidget.refresh(this)
   }
 }
 

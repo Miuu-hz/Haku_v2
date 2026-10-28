@@ -1,8 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Debug-only tools, merged into debug builds only. -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools">
 
   <application>
+    <!-- P3.5 open the quick note over adb: adb shell am start -n com.bbpillow.haku/.QuickNoteActivity -->
+    <activity
+      android:name=".QuickNoteActivity"
+      android:exported="true"
+      android:permission="android.permission.DUMP"
+      tools:replace="android:exported" />
     <!-- Component kit showcase, launch with adb shell am start -n com.bbpillow.haku/.ShowcaseActivity -->
     <activity
       android:name=".ShowcaseActivity"

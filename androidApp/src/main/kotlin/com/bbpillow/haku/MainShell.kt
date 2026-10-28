@@ -43,6 +43,8 @@ import com.bbpillow.haku.surface.components.HakuIcons
 import com.bbpillow.haku.surface.components.NavItem
 import com.bbpillow.haku.surface.home.HomeBriefScreen
 import com.bbpillow.haku.surface.home.HomeBriefUiState
+import com.bbpillow.haku.surface.intent.IntentListScreen
+import com.bbpillow.haku.surface.intent.IntentListUiState
 import com.bbpillow.haku.surface.memory.TransparencyScreen
 import com.bbpillow.haku.surface.memory.TransparencyUiState
 import com.bbpillow.haku.surface.node.HomeNodeScreen
@@ -530,6 +532,7 @@ private fun ChatTab(
 
 /** Retrieval on the DB thread, then the downloaded model if there is one (loaded for this question, released after). */
 private suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutput? {
+  graph.safeIo { intentCommand.tryHandle(question, System.currentTimeMillis()) }?.let { return it } // P5.3 "ถ้า … ให้เตือน …"
   val semantic = graph.questionSemantic(question) // words-only while the embedder is cold or absent
   val (presenter, retrieval) = graph.safeIo { chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style), semantic) } ?: return null
   val config = modelConfigOrNull(graph) ?: return retrieval.fallback
@@ -567,6 +570,16 @@ private fun MemoryTab(
 ) {
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
+  var intentsOpen by rememberSaveable { mutableStateOf(false) } // P5.3 sub-screen of this tab
+  if (intentsOpen) {
+    var list by remember { mutableStateOf<IntentListUiState?>(null) }
+    LaunchedEffect(Unit) { list = graph.safeIo { intentList.load() } }
+    BackHandler { intentsOpen = false }
+    list?.let { l ->
+      IntentListScreen(l, onCancel = { item -> scope.launch { graph.safeIo { intentList.cancel(item.id) }?.let { list = it } } }, onBack = { intentsOpen = false }, contentPadding = TabPadding)
+    }
+    return
+  }
   var state by remember { mutableStateOf<TransparencyUiState?>(null) }
   LaunchedEffect(Unit) { state = graph.safeIo { transparency.load() } }
   // SAF: the user picks where the file goes; nothing is sent anywhere (not egress)
@@ -586,6 +599,7 @@ private fun MemoryTab(
     onOpenPlus = onOpenPlus,
     onOpenHomeNode = onOpenHomeNode,
     onOpenSettings = onOpenSettings,
+    onOpenIntentions = { intentsOpen = true },
     contentPadding = TabPadding,
     // debug builds only (release DemoTools draws nothing)
     headerAction = { DemoSeedButton(graph, { scope.launch { graph.safeIo { transparency.load() }?.let { state = it } } }) },

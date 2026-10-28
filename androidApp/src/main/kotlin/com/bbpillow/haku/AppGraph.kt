@@ -16,7 +16,10 @@ import com.bbpillow.haku.capture.stats.Plan
 import com.bbpillow.haku.capture.stats.StatsSummarizer
 import com.bbpillow.haku.language.TextPipeline
 import com.bbpillow.haku.language.thaiSynonyms
+import com.bbpillow.haku.memory.DailyEventInput
 import com.bbpillow.haku.memory.MemoryFormat
+import com.bbpillow.haku.memory.MemoryRepository
+import com.bbpillow.haku.memory.Provenance
 import com.bbpillow.haku.memory.MemoryStore
 import com.bbpillow.haku.memory.dream.DreamEngine
 import com.bbpillow.haku.memory.index.IndexedMemoryRepository
@@ -29,11 +32,17 @@ import com.bbpillow.haku.platform.ModelDownloader
 import com.bbpillow.haku.platform.ModelImporter
 import com.bbpillow.haku.platform.billing.PlayBilling
 import com.bbpillow.haku.platform.capture.CaptureController
+import com.bbpillow.haku.platform.notify.IntentNotifier
+import com.bbpillow.haku.surface.chat.IntentCommand
+import com.bbpillow.haku.surface.intent.IntentListPresenter
+import com.bbpillow.haku.thinking.intent.IntentFireOutput
+import com.bbpillow.haku.thinking.intent.IntentService
 import com.bbpillow.haku.surface.chat.ChatPresenter
 import com.bbpillow.haku.surface.chat.NowStateBuilder
 import com.bbpillow.haku.surface.home.HomeBriefPresenter
 import com.bbpillow.haku.surface.memory.ForgetEverything
 import com.bbpillow.haku.surface.memory.TransparencyPresenter
+import com.bbpillow.haku.surface.note.QuickNote
 import com.bbpillow.haku.surface.onboarding.ActiveModel
 import com.bbpillow.haku.surface.onboarding.ModelChoice
 import com.bbpillow.haku.surface.onboarding.OnboardingPresenter
@@ -106,7 +115,19 @@ class AppGraph(private val app: Application) {
     /** P2.7 evening summaries, one file per local day (written by NightlyWorker, read by Home). */
     val summaries = EveningSummaryStore(FileSystem.SYSTEM, app.filesDir.resolve("summaries").path.toPath())
     val home = HomeBriefPresenter(diary, events, places, tz, summaries, StatsSummarizer(entitlements))
-    val timeline = TimelinePresenter(diary, memory, summaries, tz)
+    /** P5.3 standing intentions (INTENTIONS.md): chat adds them, capture and typed notes fire them. */
+    val intents = IntentService(memory, places, pipeline)
+    val intentCommand = IntentCommand(intents)
+    val intentList = IntentListPresenter(intents, tz, System::currentTimeMillis)
+    /** A line the user types (timeline edit, quick note) is a new note: it can set an intention off. */
+    private val notesWatched = object : MemoryRepository by memory {
+      override fun appendDaily(input: DailyEventInput) = memory.appendDaily(input).also {
+        if (input.provenance == Provenance.USER_TYPED) fireIntents { intents.onNote(input.text, System.currentTimeMillis()) }
+      }
+    }
+    val timeline = TimelinePresenter(diary, notesWatched, summaries, tz)
+    /** P3.5 widget / lock-screen / notification-reply notes (write-only). */
+    val quickNote = QuickNote(notesWatched, tz) // notesWatched: P5.3 a quick note can fire an intention
     val transparency = TransparencyPresenter(
       memory, ForgetEverything(events, places, ledger, summaries, memory, profile, connections), connections, tz, System::currentTimeMillis,
     )
@@ -114,6 +135,15 @@ class AppGraph(private val app: Application) {
     val modelManager = ModelManagerPresenter(profile)
     /** P3.3: retrieval runs here (DB thread); the model part of [ChatPresenter.answer] runs outside [io]. */
     val chat = ChatPresenter(memory, index, pipeline, tz, thaiSynonyms, nowState = NowStateBuilder(events, places, tz)::build)
+
+    /** Posts what [check] fired. A failure here never breaks capture or the note write that triggered it. */
+    fun fireIntents(check: () -> List<IntentFireOutput>) {
+      try {
+        check().forEach { IntentNotifier.post(app, it) }
+      } catch (e: Exception) {
+        Log.e("HakuIntent", "intent check failed: ${e::class.simpleName}")
+      }
+    }
 
     /**
      * Writes the rule-based diary for a local day before a screen reads it. Idempotent (ledger), so calling it on
