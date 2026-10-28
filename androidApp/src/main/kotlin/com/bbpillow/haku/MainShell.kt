@@ -468,6 +468,7 @@ private fun ChatTab(
   onOpenModels: () -> Unit,
 ) {
   var modelLabel by remember { mutableStateOf(ModelManagerPresenter.NO_MODEL_LABEL) }
+  LaunchedEffect(Unit) { graph.warmEmbedder() }
   val dl by graph.downloader.state.collectAsState()
   val imp by graph.importer.state.collectAsState()
   LaunchedEffect(dl?.done, imp?.done) {
@@ -499,7 +500,8 @@ private fun ChatTab(
 
 /** Retrieval on the DB thread, then the downloaded model if there is one (loaded for this question, released after). */
 private suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutput? {
-  val (presenter, retrieval) = graph.safeIo { chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style)) } ?: return null
+  val semantic = graph.questionSemantic(question) // words-only while the embedder is cold or absent
+  val (presenter, retrieval) = graph.safeIo { chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style), semantic) } ?: return null
   val config = modelConfigOrNull(graph) ?: return retrieval.fallback
   val model = LiteRtLocalModel()
   return try {

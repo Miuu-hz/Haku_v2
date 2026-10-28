@@ -21,7 +21,9 @@ import com.bbpillow.haku.memory.MemoryStore
 import com.bbpillow.haku.memory.dream.DreamEngine
 import com.bbpillow.haku.memory.index.IndexedMemoryRepository
 import com.bbpillow.haku.memory.index.SearchIndexStore
+import com.bbpillow.haku.memory.index.VectorStore
 import com.bbpillow.haku.platform.IcuWordSegmenter
+import com.bbpillow.haku.platform.LiteRtTextEmbedder
 import com.bbpillow.haku.platform.ModelDownloader
 import com.bbpillow.haku.platform.ModelImporter
 import com.bbpillow.haku.platform.billing.PlayBilling
@@ -40,12 +42,21 @@ import com.bbpillow.haku.surface.settings.ModelManagerPresenter
 import com.bbpillow.haku.surface.timeline.TimelinePresenter
 import com.bbpillow.haku.thinking.ModelBackend
 import com.bbpillow.haku.thinking.ModelConfig
+import com.bbpillow.haku.thinking.context.SemanticTier
+import com.bbpillow.haku.thinking.context.VectorIndexOutput
+import com.bbpillow.haku.thinking.context.VectorIndexer
+import com.bbpillow.haku.thinking.context.VectorSemanticTier
 import com.bbpillow.haku.thinking.summary.EveningSummaryStore
 import java.io.File
 import java.util.TimeZone
 import kotlin.math.ceil
+import android.util.Log
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okio.FileSystem
 import okio.Path.Companion.toPath
@@ -82,7 +93,9 @@ class AppGraph(private val app: Application) {
     val places = PlaceStore(db)
     private val pipeline = TextPipeline(IcuWordSegmenter())
     private val index = SearchIndexStore(db, pipeline)
-    val memory = IndexedMemoryRepository(MemoryStore(FileSystem.SYSTEM, app.filesDir.resolve("memory").path.toPath()), index)
+    /** ชิ้น ค embeddings: same no-backup DB as the FTS index, deleted with each line and by forget-everything. */
+    val vectors = VectorStore(db)
+    val memory = IndexedMemoryRepository(MemoryStore(FileSystem.SYSTEM, app.filesDir.resolve("memory").path.toPath()), index, vectors)
     val ledger = DiaryLedgerStore(db)
     val diary = DiaryComposer(events, places, memory, ledger)
     /** P2.7 evening summaries, one file per local day (written by NightlyWorker, read by Home). */
@@ -108,6 +121,8 @@ class AppGraph(private val app: Application) {
      * undone by a stale copy written back. ponytail: template wording only; pass a FactPhraser over the model later.
      */
     fun dreamEngine() = DreamEngine(memory, TextPipeline(IcuWordSegmenter()))
+
+    fun vectorIndexer() = VectorIndexer(memory, vectors, EMBED_MODEL_ID)
 
     /** B7: recognize the last two weeks of stays, keep the places, and return one unconfirmed home/work guess. */
     fun firstPlaceGuess(nowUtcMs: Long): PlaceGuessOutput? {
@@ -160,7 +175,98 @@ class AppGraph(private val app: Application) {
     return ModelConfig(file.path, ModelBackend.Gpu, cacheDir = app.cacheDir.path)
   }
 
+  /** EmbeddingGemma for the semantic tier: the model manager's download; debug builds also take the adb-pushed spike copy. */
+  fun embeddingModelPath(): String? {
+    val f = runCatching { downloader.file(ModelChoice.EMBEDDING_GEMMA_2) }.getOrNull() // external storage can be missing
+    if (f != null && f.length() > 0L) return f.path
+    return DEBUG_EMBED_PATH.takeIf { BuildConfig.DEBUG && File(it).length() > 0L }
+  }
+
+  private val embedLock = Mutex()
+  private val indexLock = Mutex()
+  private var embedder: LiteRtTextEmbedder? = null
+
+  /** One embedder for chat and indexing (engine opens on first use); null without a model file. */
+  private suspend fun embedder(): LiteRtTextEmbedder? = embedLock.withLock {
+    val path = embeddingModelPath() ?: return@withLock null
+    embedder?.takeIf { it.modelPath == path } ?: LiteRtTextEmbedder(path, cacheDir = app.cacheDir.path).also {
+      embedder?.close()
+      embedder = it
+    }
+  }
+
+  /**
+   * Embeds daily lines that have no vector yet ([cap] per run, newest first), then releases the engine. No pending line =
+   * no model load. Null when there is no embedding model. Called by NightlyWorker and after bulk writes.
+   */
+  suspend fun indexVectors(cap: Int = VectorIndexer.DEFAULT_CAP): VectorIndexOutput? = indexLock.withLock {
+    val e = embedder() ?: return@withLock null
+    try {
+      io { vectorIndexer() }.run(e, cap, CaptureController.dispatcher)
+    } finally {
+      e.close()
+    }
+  }
+
+  /** Background [indexVectors] after a bulk write (demo seed); failures only logged. */
+  fun indexVectorsSoon() {
+    scope.launch {
+      try {
+        Log.i(EMBED_TAG, "indexed ${indexVectors()}")
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        Log.e(EMBED_TAG, "vector indexing failed: ${e::class.simpleName}")
+      }
+    }
+  }
+
+  /**
+   * Chat-time semantic tier: embeds only the question (~0.3 s) when the engine is open. A cold engine takes ~27 s, so
+   * unless [waitForLoad] it starts loading in the background and this question goes words-only. Null = no model, no
+   * vectors yet, or a failure (never throws). ponytail: the engine stays open for the process once warm; release on
+   * onTrimMemory if RAM pressure shows up.
+   */
+  suspend fun questionSemantic(question: String, waitForLoad: Boolean = false, force: Boolean = false): SemanticTier? {
+    // ponytail: off in chat until the Fold5 stall is fixed (eval 2026-10-29: answers hung ~2 min with the tier on)
+    if (!SEMANTIC_CHAT && !force) return null
+    try {
+      val e = embedder() ?: return null
+      val store = io { vectors.takeIf { it.count(EMBED_MODEL_ID) > 0 } } ?: return null
+      if (!e.isLoaded && !waitForLoad) return null.also { warm(e) }
+      return VectorSemanticTier.forQuestion(question, e, store, EMBED_MODEL_ID, CaptureController.dispatcher)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Log.e(EMBED_TAG, "semantic tier unavailable: ${e::class.simpleName}")
+      return null
+    }
+  }
+
+  /** Chat tab opened: open the engine early so the first question can use the semantic tier. */
+  fun warmEmbedder() {
+    scope.launch {
+      try {
+        val e = embedder() ?: return@launch
+        if (!e.isLoaded && io { vectors.count(EMBED_MODEL_ID) } > 0) warm(e)
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        Log.e(EMBED_TAG, "embedder warm-up failed: ${e::class.simpleName}")
+      }
+    }
+  }
+
+  private fun warm(e: LiteRtTextEmbedder) {
+    scope.launch { runCatching { e.load() }.onFailure { Log.e(EMBED_TAG, "embedder load failed: ${it::class.simpleName}") } }
+  }
+
   private companion object {
+    const val SEMANTIC_CHAT = false
     const val GUESS_WINDOW_MS = 14 * 86_400_000L
+    const val EMBED_TAG = "HakuEmbed"
+    const val DEBUG_EMBED_PATH = "/data/local/tmp/eg2.litertlm"
+    /** Vectors are tagged with this; another embedding model means re-embed (VectorRepository.retainModel). */
+    val EMBED_MODEL_ID = ModelChoice.EMBEDDING_GEMMA_2.name
   }
 }

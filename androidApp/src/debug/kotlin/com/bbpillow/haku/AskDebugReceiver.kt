@@ -18,6 +18,7 @@ import com.bbpillow.haku.thinking.LocalModel
 import com.bbpillow.haku.thinking.LocalModelClient
 import com.bbpillow.haku.thinking.ModelBackend
 import com.bbpillow.haku.thinking.ModelConfig
+import com.bbpillow.haku.thinking.context.RetrievalTier
 import kotlin.math.roundToInt
 import kotlin.time.TimeSource
 import kotlinx.coroutines.CancellationException
@@ -40,36 +41,33 @@ import org.json.JSONObject
 class AskDebugReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     val app = context.applicationContext as HakuApplication
-    val pending = goAsync()
+    // No goAsync: model loads and indexing outlive the 60 s broadcast limit (ANR kill); the app scope runs them.
     when (intent.action) {
       ACTION_UNLOAD -> app.graph.scope.launch {
         try {
           mutex.withLock { unloadWarm() }
         } catch (t: Throwable) {
           Log.e(TAG, "unload failed", t)
-        } finally {
-          runCatching { pending.finish() }
-        }
+      }
       }
       ACTION_ASK -> {
         val question = intent.getStringExtra("q").orEmpty()
         val id = intent.getStringExtra("id") ?: System.currentTimeMillis().toString()
         val warm = intent.getBooleanExtra("warm", false)
+        val semantic = intent.getBooleanExtra("semantic", false)
         app.graph.scope.launch {
           try {
-            mutex.withLock { runAsk(app, id, question, warm) }
+            mutex.withLock { runAsk(app, id, question, warm, semantic) }
           } catch (t: Throwable) {
             Log.e(TAG, "ask failed", t)
-          } finally {
-            runCatching { pending.finish() }
           }
         }
       }
-      else -> runCatching { pending.finish() }
+      else -> Unit
     }
   }
 
-  private suspend fun runAsk(app: HakuApplication, id: String, question: String, warm: Boolean) {
+  private suspend fun runAsk(app: HakuApplication, id: String, question: String, warm: Boolean, forceSemantic: Boolean) {
     val graph = app.graph
     var loadMs: Long? = null
     var metrics: GenerateMetrics? = null
@@ -77,11 +75,17 @@ class AskDebugReceiver : BroadcastReceiver() {
     var fallbackTotalMs: Long? = null
     var backend: String? = null
     var error: String? = null
+    var semanticOn = false
+    var semanticLines = 0
 
     val answer: ChatAnswerOutput = try {
+      // as MainShell.askHaku, but waits for a cold embedder so every adb run uses the semantic tier when it can
+      val semantic = graph.questionSemantic(question, waitForLoad = true, force = forceSemantic)
       val (presenter, retrieval) = graph.io {
-        chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style))
+        chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style), semantic)
       }
+      semanticLines = retrieval.context.items.count { RetrievalTier.SEMANTIC in it.tiers && it.tiers.size == 1 }
+      semanticOn = semantic != null
       val config = try {
         graph.modelConfig()
       } catch (e: CancellationException) {
@@ -181,6 +185,8 @@ class AskDebugReceiver : BroadcastReceiver() {
       .put("javaHeapMb", javaHeapMb)
       .put("nativeHeapMb", nativeHeapMb)
       .put("batteryTempC", batteryTempC ?: JSONObject.NULL)
+      .put("semantic", semanticOn)
+      .put("semanticLines", semanticLines)
       .put("error", error ?: JSONObject.NULL)
     Log.i(TAG, json.toString())
   }

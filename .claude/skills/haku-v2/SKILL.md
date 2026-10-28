@@ -38,12 +38,14 @@ description: >
 
 [5 ดัชนี] IndexedMemoryRepository (decorator) ── ทุก write/delete ──► ไฟล์ก่อน แล้ว SearchIndexStore
    (SQLite FTS5 บนสำเนาที่ normalize+ตัดคำ, ต้นฉบับไม่แตะ) · ไฟล์คือความจริง: MemoryIndexer.rebuild()/resync()
+   + VectorStore (float32 ต่อบรรทัด daily + model id, DB เดียวกัน) ลบตามทุก delete/ลืมทุกอย่าง · VectorIndexer ฝังจากไฟล์
+   ≤500/รอบ (กลางคืน + หลัง DEMO_SEED, EmbeddingGemma ถ้ามีไฟล์, ปล่อย engine หลังใช้)
 
 [6 ภาษา] ทุกข้อความก่อนเก็บดัชนี/เทียบ: language/TextPipeline = Normalizer(D13, กฎไทยใน ThaiRules ไฟล์เดียว)
    → ScriptSplitter → WordSegmenter(Android: IcuWordSegmenter) → ขยายไม้ยมก · คำพ้อง ThaiSynonyms (ร่าง)
 
 [7 คิด] คำถาม ──► thinking/context/ContextAssembler: standing(เสมอ) → หมวด core ที่เกี่ยว(≤2) → daily ตามคำบอกวัน(TimeWords)
-   → FTS → [semantic hook ปิด] → [link hook] · ตัดของค่าน้อยจนไม่เกินงบ (TokenEstimator) · ทุกบรรทัดมี source+provenance
+   → FTS → semantic (ฝังแค่คำถาม, VectorSemanticTier cos≥0.55 ใหม่≤8 ค่าต่ำกว่าคำ ในช่วงวันที่ถาม; ไม่มีโมเดล/เวกเตอร์=ปิด) → [link hook] · งบ TokenEstimator · ทุกบรรทัดมี source+provenance
    โมเดล: thinking/LocalModel (stateless, สร้าง conversation ใหม่ทุกครั้ง) ← LocalModelClient วัด load/TTFT/tok/s
           thinking/AgentSession (มีประวัติจน reset) ← androidApp/platform/agent/LiteRtAgentSession (+ ToolDefinition.runTool = ทางเดียวของเครื่องมือ)
 
@@ -51,7 +53,7 @@ description: >
    (ห้ามเวลา/ตัวเลข/สถานที่/คำพูดที่ไม่มีในข้อเท็จจริง · คำลงท้ายต้องตรง) ── ผ่าน→ MODEL (เก็บครั้งเดียวต่อวัน) / ไม่ผ่าน→ SummaryTemplate
 
 [8b กลางคืน] androidApp/platform/NightlyWorker (WorkManager: ชาร์จ+idle, ทุก 3 ชม.) ── core/thinking/summary/NightlyPlan ตัดสิน
-   → เรียบเรียงไดอารี เมื่อวาน+วันนี้ → สรุปเย็น (ถ้ามีไฟล์โมเดล; ปล่อย engine หลังใช้) → memory/dream/DreamEngine
+   → เรียบเรียงไดอารี เมื่อวาน+วันนี้ → สรุปเย็น (ถ้ามีไฟล์โมเดล; ปล่อย engine หลังใช้) → memory/dream/DreamEngine → AppGraph.indexVectors
    Dream: จัดระเบียบ(ซ้ำตรงตัว, ยกเลิกถ้าลบ>30%) → เรื่องซ้ำด้วยกฎ(สถานที่/นัด/โน้ต ≥3 วัน) → ด่าน(ที่มาถาวรได้ · ไม่เคยถูกลืม/ปฏิเสธ
    · คะแนน≥0.3 · ≤5 ต่อคืน) → MemoryRepository.promote → รายงานไทยใน dreams/<day> (ledger ที่วันสงวน 0000-00-00)
 

@@ -17,48 +17,62 @@ internal fun MemoryRecord.toIndexInput(ref: MemoryRef) =
 /**
  * Keeps the search index in step with memory: every write/update/delete goes to [delegate] (the files, source of truth)
  * first, then to [index]. If the index step throws, the file change already happened; call [MemoryIndexer.rebuild].
+ * [vectors] (semantic tier) follow every delete the same way, so a forgotten line's vector never outlives it.
  */
 class IndexedMemoryRepository(
   private val delegate: MemoryRepository,
   private val index: SearchRepository,
+  private val vectors: VectorRepository? = null,
 ) : MemoryRepository by delegate {
+  private fun drop(ref: MemoryRef) {
+    index.remove(ref.key)
+    vectors?.remove(ref.key)
+  }
+
+  private fun dropGroup(level: MemoryLevel, group: String) {
+    index.removeGroup(level, group)
+    vectors?.removeGroup(level, group)
+  }
+
   private fun MemoryRecord.indexAs(level: MemoryLevel, group: String): MemoryRecord =
     also { index.index(toIndexInput(MemoryRef(level, group, id))) }
 
   override fun appendDaily(input: DailyEventInput): MemoryRecord =
     delegate.appendDaily(input).let { it.indexAs(MemoryLevel.DAILY, MemoryFormat.dayOf(it.atEpochMs)) }
 
-  override fun deleteDay(day: String): Boolean = delegate.deleteDay(day).also { index.removeGroup(MemoryLevel.DAILY, day) }
+  override fun deleteDay(day: String): Boolean = delegate.deleteDay(day).also { dropGroup(MemoryLevel.DAILY, day) }
 
   override fun deleteDaily(day: String, id: String): Boolean =
-    delegate.deleteDaily(day, id).also { if (it) index.remove(MemoryRef(MemoryLevel.DAILY, day, id).key) }
+    delegate.deleteDaily(day, id).also { if (it) drop(MemoryRef(MemoryLevel.DAILY, day, id)) }
 
   override fun writeCoreFact(input: CoreFactInput): MemoryRecord = delegate.writeCoreFact(input).indexAs(MemoryLevel.CORE, input.category)
 
   override fun updateCoreFact(category: String, id: String, newText: String): MemoryRecord? =
     delegate.updateCoreFact(category, id, newText)?.indexAs(MemoryLevel.CORE, category)
+      ?.also { vectors?.remove(MemoryRef(MemoryLevel.CORE, category, id).key) } // text changed: the old vector is wrong
 
   override fun deleteCoreFact(category: String, id: String): Boolean =
-    delegate.deleteCoreFact(category, id).also { if (it) index.remove(MemoryRef(MemoryLevel.CORE, category, id).key) }
+    delegate.deleteCoreFact(category, id).also { if (it) drop(MemoryRef(MemoryLevel.CORE, category, id)) }
 
   override fun deleteCategory(category: String): Boolean =
-    delegate.deleteCategory(category).also { index.removeGroup(MemoryLevel.CORE, category) }
+    delegate.deleteCategory(category).also { dropGroup(MemoryLevel.CORE, category) }
 
   override fun deleteAll() {
     delegate.deleteAll()
+    vectors?.clear()
     index.clear()
-    index.compact() // last database step of "forget everything": erase free pages
+    index.compact() // last database step of "forget everything": erase free pages (vectors share the file)
   }
 
   override fun addStanding(input: NoteInput): MemoryRecord = delegate.addStanding(input).indexAs(MemoryLevel.STANDING, "")
 
   override fun deleteStanding(id: String): Boolean =
-    delegate.deleteStanding(id).also { if (it) index.remove(MemoryRef(MemoryLevel.STANDING, "", id).key) }
+    delegate.deleteStanding(id).also { if (it) drop(MemoryRef(MemoryLevel.STANDING, "", id)) }
 
   override fun addIntention(input: NoteInput): MemoryRecord = delegate.addIntention(input).indexAs(MemoryLevel.INTENTION, "")
 
   override fun deleteIntention(id: String): Boolean =
-    delegate.deleteIntention(id).also { if (it) index.remove(MemoryRef(MemoryLevel.INTENTION, "", id).key) }
+    delegate.deleteIntention(id).also { if (it) drop(MemoryRef(MemoryLevel.INTENTION, "", id)) }
 
   override fun promote(from: MemoryRef, to: PromotionTarget): MemoryRecord? =
     delegate.promote(from, to)?.let {

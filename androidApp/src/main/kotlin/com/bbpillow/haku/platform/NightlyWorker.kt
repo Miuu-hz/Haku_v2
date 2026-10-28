@@ -28,8 +28,9 @@ import kotlinx.coroutines.withContext
 
 /**
  * P2.7 "runs while charging, screen off": composes the rule-based diary for yesterday and today, then the evening
- * summary with the downloaded model for the days [NightlyPlan] picks, then Dream (no model) for local yesterday. Idempotent (diary ledger, summary stored once).
- * The model is loaded only when a day needs it and released at the end, so the shared engine never outlives the job.
+ * summary with the downloaded model for the days [NightlyPlan] picks, then Dream (no model) for local yesterday, then
+ * embeds new diary lines for the semantic tier (ชิ้น ค, only if the EmbeddingGemma file exists). Idempotent (diary ledger,
+ * summary stored once, lines with a vector skipped). Each model is loaded only when needed and released after its step.
  */
 class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
   private class Facts(val style: DiaryStyle, val lines: Map<String, List<String>>, val stored: Set<String>, val dreamed: Set<String>)
@@ -59,6 +60,7 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     log("diary composed for $days; model=${config != null} summarize=${plan.summarizeDays}")
     if (config != null && plan.summarizeDays.isNotEmpty()) summarize(graph, config, plan.summarizeDays, facts)
     dream(graph, plan.dreamDay)
+    embed(graph)
     return Result.success()
   }
 
@@ -105,6 +107,17 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
       throw e
     } catch (e: Exception) {
       Log.e(TAG, "nightly dream failed: ${e::class.simpleName}")
+    }
+  }
+
+  /** Vectors for lines written since the last run (cap per run); the engine is released inside indexVectors. */
+  private suspend fun embed(graph: AppGraph) {
+    try {
+      log("vectors ${graph.indexVectors() ?: "skipped: no embedding model"}")
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Log.e(TAG, "nightly embedding failed: ${e::class.simpleName}")
     }
   }
 

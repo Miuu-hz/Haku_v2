@@ -13,6 +13,7 @@ import com.bbpillow.haku.memory.index.DictionarySegmenter
 import com.bbpillow.haku.memory.index.IndexedMemoryRepository
 import com.bbpillow.haku.memory.index.MemoryIndexer
 import com.bbpillow.haku.memory.index.SearchIndexStore
+import com.bbpillow.haku.memory.index.VectorStore
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
 
@@ -25,7 +26,8 @@ class RecallRig : AutoCloseable {
   private val db: SQLiteConnection = BundledSQLiteDriver().open(":memory:")
   val pipeline = TextPipeline(DictionarySegmenter(VOCAB))
   val index = SearchIndexStore(db, pipeline, thaiSynonyms)
-  val memory = IndexedMemoryRepository(store, index)
+  val vectors = VectorStore(db)
+  val memory = IndexedMemoryRepository(store, index, vectors)
   val indexer = MemoryIndexer(store, index)
   val assembler = ContextAssembler(memory, index, pipeline, thaiSynonyms)
 

@@ -23,15 +23,28 @@ import org.json.JSONObject
  * to logcat tag `HakuEmbed` (load ms, per-text ms p50/p95, dims, 3 Thai similarity checks):
  * `adb shell am broadcast -n com.bbpillow.haku/.EmbedDebugReceiver -a com.bbpillow.haku.debug.EMBED [--ei n 50] [--es path /data/local/tmp/x.litertlm] [--ez cpu true]`
  * Default path = the model manager's download of [ModelChoice.EMBEDDING_GEMMA_2].
+ *
+ * `-a com.bbpillow.haku.debug.EMBED_INDEX [--ei n 500]` runs the semantic-tier indexing job now (AppGraph.indexVectors,
+ * same as NightlyWorker) and logs `{"indexed":…,"ms":…}`.
  */
 class EmbedDebugReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
-    val pending = goAsync()
-    if (intent.action != ACTION_EMBED) {
-      runCatching { pending.finish() }
+    // No goAsync: model loads and indexing outlive the 60 s broadcast limit (ANR kill); the app scope runs them.
+    val app = context.applicationContext as HakuApplication
+    if (intent.action == ACTION_INDEX) {
+      val cap = intent.getIntExtra("n", 500).coerceIn(1, 5000)
+      app.graph.scope.launch {
+        try {
+          mutex.withLock { index(app, cap) }
+        } catch (t: Throwable) {
+          Log.e(TAG, "index failed", t)
+        }
+      }
       return
     }
-    val app = context.applicationContext as HakuApplication
+    if (intent.action != ACTION_EMBED) {
+      return
+    }
     val n = intent.getIntExtra("n", 50).coerceIn(1, 1000)
     val path = intent.getStringExtra("path") ?: app.graph.downloader.file(ModelChoice.EMBEDDING_GEMMA_2).path
     val cpu = intent.getBooleanExtra("cpu", false)
@@ -40,10 +53,23 @@ class EmbedDebugReceiver : BroadcastReceiver() {
         mutex.withLock { run(app, n, path, cpu) }
       } catch (t: Throwable) {
         Log.e(TAG, "embed failed", t)
-      } finally {
-        runCatching { pending.finish() }
       }
     }
+  }
+
+  private suspend fun index(app: HakuApplication, cap: Int) {
+    val json = JSONObject().put("model", app.graph.embeddingModelPath() ?: JSONObject.NULL)
+    val mark = TimeSource.Monotonic.markNow()
+    try {
+      val out = app.graph.indexVectors(cap)
+      json.put("indexed", out?.indexed ?: 0).put("pruned", out?.pruned ?: 0).put("pending", out?.pending ?: 0)
+        .put("vectors", app.graph.io { vectors.count() })
+        .put("error", if (out == null) "no embedding model" else JSONObject.NULL)
+    } catch (t: Throwable) {
+      json.put("indexed", 0).put("error", "${t::class.simpleName}: ${t.message}")
+    }
+    json.put("ms", mark.elapsedNow().inWholeMilliseconds)
+    Log.i(TAG, json.toString())
   }
 
   private suspend fun run(app: HakuApplication, n: Int, path: String, cpu: Boolean) {
@@ -93,6 +119,7 @@ class EmbedDebugReceiver : BroadcastReceiver() {
   private companion object {
     const val TAG = "HakuEmbed"
     const val ACTION_EMBED = "com.bbpillow.haku.debug.EMBED"
+    const val ACTION_INDEX = "com.bbpillow.haku.debug.EMBED_INDEX"
     const val MIB = 1024.0 * 1024.0
     val mutex = Mutex()
 

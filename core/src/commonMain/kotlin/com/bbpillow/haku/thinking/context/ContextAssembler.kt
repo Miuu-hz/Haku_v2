@@ -18,7 +18,10 @@ import com.bbpillow.haku.memory.index.SearchRepository
  * The one place that builds model context (P1.9). Pure: reads memory + index, no model calls.
  *
  * Selection: standing instructions always; curated-core categories whose description (or facts) match the question
- * words; daily records by D18 order: date-word filter -> word search -> [semantic hook] -> [link hook].
+ * words; daily records by D18 order: date-word filter -> word search -> semantic (embedded question, when a
+ * [SemanticTier] is given) -> [link hook]. Semantic lines only add what words missed, rank below them, and stay inside
+ * the asked date range, so date questions keep their structural/word answer.
+
  * Over budget: the lowest-value item goes first (standing instructions are highest value, so they go last).
  * Long-term levels only ever contribute records with canBePermanent provenance, even if a file was hand-edited.
  */
@@ -47,7 +50,8 @@ class ContextAssembler(
     fun get(ref: MemoryRef, rec: MemoryRecord, section: ContextSection) = items.getOrPut(ref) { Candidate(ref, rec, section) }
   }
 
-  fun assemble(input: AssembleInput): AssembledContext {
+  /** [semantic] = this question's tier (its vector is embedded per question); defaults to the constructor's. */
+  fun assemble(input: AssembleInput, semantic: SemanticTier? = this.semantic): AssembledContext {
     val trace = mutableListOf<String>()
     val lang = input.languageCode
     val normalized = Normalizer.normalize(TextInput(input.question, lang)).normalized
@@ -60,6 +64,7 @@ class ContextAssembler(
     val pool = Pool()
     coreCandidates(words, lang, pool, trace)
     dailyCandidates(input, range, words, latest, pool, trace)
+    semantic?.let { semanticCandidates(it, input.question, range, pool, trace) }
     val others = pool.items.values.map { toItem(it, input.utcOffsetMinutes) }
     return fit(input, standing, others, trace)
   }
@@ -133,21 +138,37 @@ class ContextAssembler(
       val v = inRange ?: (50.0 + 10.0 * (1.0 - i.toDouble() / maxOf(1, ordered.size)))
       addHit(h, RetrievalTier.WORDS, v, if (latest) "word match, newest first" else "word match rank ${i + 1}", pool)
     }
-    // 3. semantic tier: disabled unless a hook is supplied; a failure falls back to the word results
-    semantic?.let { tier ->
-      try {
-        tier.search(input.question, limits.maxWordHits).filter { it.memory?.ref?.level == MemoryLevel.DAILY }
-          .forEach { addHit(it, RetrievalTier.SEMANTIC, 40.0, "semantic match", pool) }
-      } catch (e: Exception) {
-        trace += "semantic tier failed (${e::class.simpleName}: ${e.message}); using word results only"
-      }
-    }
+    // 3. semantic: semanticCandidates, run by assemble after this so it sees every word/link pick
     // 4. link following from the best word hits
     links?.let { tier ->
       val seeds = ordered.take(limits.maxLinkSeeds).mapNotNull { it.memory?.ref }
       if (seeds.isNotEmpty()) tier.follow(seeds).forEach { addHit(it, RetrievalTier.LINK, 20.0, "linked from a top hit", pool) }
     }
   }
+
+  /**
+   * Up to [AssemblerLimits.maxSemanticHits] daily lines the word tiers did not already pick (those only get the tag),
+   * valued below every word hit and ranked by similarity. A failure falls back to the word results.
+   */
+  private fun semanticCandidates(tier: SemanticTier, question: String, range: TimeRange?, pool: Pool, trace: MutableList<String>) {
+    val hits = try {
+      tier.search(question, limits.maxSemanticHits + pool.items.size)
+    } catch (e: Exception) {
+      trace += "semantic tier failed (${e::class.simpleName}: ${e.message}); using word results only"
+      return
+    }
+    val daily = hits.filter { h ->
+      val m = h.memory ?: return@filter false
+      m.ref.level == MemoryLevel.DAILY && (range == null || (m.atEpochMs >= range.fromEpochMs && m.atEpochMs < range.toEpochMs))
+    }
+    val (known, fresh) = daily.partition { it.memory!!.ref in pool.items }
+    known.forEach { pool.items.getValue(it.memory!!.ref).add(RetrievalTier.SEMANTIC, 0.0, "also a semantic match") }
+    val added = fresh.take(limits.maxSemanticHits)
+    added.forEach { addHit(it, RetrievalTier.SEMANTIC, SEMANTIC_VALUE + SEMANTIC_SPREAD * it.score.coerceIn(0.0, 1.0), "semantic match (cos ${round2(it.score)})", pool) }
+    trace += "semantic: ${hits.size} hits, ${added.size} new lines" + (if (range != null) " inside '${range.word}'" else "")
+  }
+
+  private fun round2(v: Double) = kotlin.math.round(v * 100) / 100
 
   private fun addHit(h: SearchHitOutput, tier: RetrievalTier, value: Double, reason: String, pool: Pool) {
     val ref = h.memory?.ref ?: return
@@ -210,6 +231,9 @@ class ContextAssembler(
     const val REPEAT_PENALTY = 20.0
     const val OUTSIDE_WINDOW_PENALTY = 30.0
     const val WORD_IN_RANGE_BONUS = 10.0
+    /** Semantic lines sit in 30..40: below word hits (50+), above links (20). */
+    const val SEMANTIC_VALUE = 30.0
+    const val SEMANTIC_SPREAD = 10.0
 
     /** Question filler that never helps retrieval. Grow from real queries. */
     val STOP = setOf(

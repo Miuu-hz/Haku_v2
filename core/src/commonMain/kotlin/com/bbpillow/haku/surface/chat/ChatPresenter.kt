@@ -17,6 +17,7 @@ import com.bbpillow.haku.thinking.context.ContextAssembler
 import com.bbpillow.haku.thinking.context.ContextItem
 import com.bbpillow.haku.thinking.context.ContextSection
 import com.bbpillow.haku.thinking.context.RetrievalTier
+import com.bbpillow.haku.thinking.context.SemanticTier
 import com.bbpillow.haku.thinking.summary.SummaryCheckInput
 import com.bbpillow.haku.thinking.summary.SummaryChecker
 import kotlin.coroutines.cancellation.CancellationException
@@ -69,9 +70,10 @@ class ChatPresenter(
 ) {
   private val assembler = ContextAssembler(memory, search, pipeline, synonyms)
 
-  fun retrieve(input: ChatQuestionInput): ChatRetrievalOutput {
+  /** [semantic] = this question's embedded-vector tier (VectorSemanticTier.forQuestion), null = words only. */
+  fun retrieve(input: ChatQuestionInput, semantic: SemanticTier? = null): ChatRetrievalOutput {
     val question = input.question.trim()
-    val context = assembler.assemble(AssembleInput(question, budgetTokens, input.nowEpochMs, tzOffsetMinutes))
+    val context = assembler.assemble(AssembleInput(question, budgetTokens, input.nowEpochMs, tzOffsetMinutes), semantic)
     val citations = citations(context.items)
     val found = context.items.count { it.section != ContextSection.STANDING } // all retrieved lines, not just the cited few
     return ChatRetrievalOutput(input, context, citations, ChatAnswerOutput(question, retrievalText(citations, found, input.style), citations, ChatAnswerSource.RETRIEVAL))
@@ -94,10 +96,14 @@ class ChatPresenter(
     val text = withParticle(cleanAnswer(raw, retrieval.input.question), retrieval.input.style.particle.text)
     if (text.isBlank()) return fallback.copy(rejectedReasons = listOf("blank"))
     if (retrieval.citations.isEmpty()) {
-      return fallback.copy(text = text.take(MAX_CHAT_CHARS), source = ChatAnswerSource.MODEL)
+      // No records: any time, number, place or quote in the answer is made up (or dictated by the question).
+      val check = SummaryChecker.check(SummaryCheckInput(text, emptyList(), retrieval.input.style), minChars = 1, maxChars = MAX_CHAT_CHARS)
+      val invented = check.reasons.filter { it.startsWith("invented-") }
+      return if (invented.isEmpty()) fallback.copy(text = text.take(MAX_CHAT_CHARS), source = ChatAnswerSource.MODEL)
+      else fallback.copy(rejectedReasons = invented, rejectedText = text)
     }
     val facts = retrieval.context.items.map { it.text } +
-      retrieval.citations.mapNotNull { it.day }.distinct().map(ThaiDateFormat::dayHeader) + retrieval.input.question
+      retrieval.citations.mapNotNull { it.day }.distinct().map(ThaiDateFormat::dayHeader)
     // ponytail: reuse SummaryChecker safety rules with minChars=1 so concise 1-sentence chat answers aren't rejected as too-short.
     val check = SummaryChecker.check(SummaryCheckInput(text, facts, retrieval.input.style), minChars = 1, maxChars = MAX_CHAT_CHARS)
     return if (check.ok) fallback.copy(text = text, source = ChatAnswerSource.MODEL) else fallback.copy(rejectedReasons = check.reasons, rejectedText = text)

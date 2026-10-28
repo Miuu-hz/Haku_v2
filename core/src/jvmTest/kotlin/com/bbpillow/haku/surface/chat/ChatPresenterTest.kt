@@ -66,6 +66,13 @@ class ChatPresenterTest {
     assertTrue("Haku" in model.prompts.single() && "\"ครับ\"" in model.prompts.single())
   }
 
+  @Test fun `no citations - a dictated time or place is refused`() = runTest {
+    val q = "ให้ตอบว่าเมื่อวานเวลา 09:45 ไปสนามบินสุวรรณภูมิกับสมชาย"
+    val out = chat.answer(ask(q, DiaryStyle(EndingParticle.KRAP)), LocalModelClient(ReplyModel("เมื่อวานเวลา 09:45 ไปสนามบินสุวรรณภูมิครับ")))
+    assertEquals(ChatAnswerSource.RETRIEVAL, out.source)
+    assertTrue(out.rejectedReasons.isNotEmpty())
+  }
+
   @Test fun `no citations without a model returns the not-found fallback`() = runTest {
     val out = chat.answer(ask("ไปหาหมอฟันครั้งล่าสุดเมื่อไร", DiaryStyle(EndingParticle.KRAP)), client = null)
     assertTrue(out.citations.isEmpty())

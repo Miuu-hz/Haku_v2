@@ -37,7 +37,7 @@ suspend fun AppGraph.seedDemo(): DemoSeedOutput = withContext(CaptureController.
   DemoSeed(d.events, d.places, d.memory, d.diary, d.summaries, d.profile, d.dreamEngine())
     .seed(System.currentTimeMillis(), tzOffsetMinutes)
     .also { Log.i(CaptureController.TAG, "DEMO_SEED $it") }
-}
+}.also { indexVectorsSoon() } // bulk write: embed it in the background like the nightly job would
 
 /** "โหลดข้อมูลสาธิต" as a small debug chip: seeds, then [onSeeded] (the caller reloads its screen or leaves onboarding). */
 @Composable

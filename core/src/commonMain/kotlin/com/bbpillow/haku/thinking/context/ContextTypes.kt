@@ -52,9 +52,11 @@ data class AssemblerLimits(
   val maxOtherFactsPerCategory: Int = 5,
   val maxWordHits: Int = 10,
   val maxLinkSeeds: Int = 3,
+  /** New lines the semantic tier may add (ชิ้น ค); its cosine floor lives in VectorSemanticTier.MIN_COSINE. */
+  val maxSemanticHits: Int = 8,
 )
 
-/** Semantic tier hook (P1.5, deferred). Left null = disabled; a throwing implementation falls back to word search. */
+/** Semantic tier (ชิ้น ค, VectorSemanticTier). Null = disabled; a throwing implementation falls back to word search. */
 fun interface SemanticTier { fun search(question: String, limit: Int): List<SearchHitOutput> }
 
 /** Link-following tier hook (D18 step 4): records related to the given ones. Null = disabled. */

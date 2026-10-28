@@ -29,7 +29,8 @@ data class SearchQueryInput(
   val toEpochMs: Long? = null,
 )
 
-enum class MatchKind { WORDS, SUBSTRING }
+/** SEMANTIC = cosine of embeddings (score in [-1, 1]), from thinking/context/VectorSemanticTier. */
+enum class MatchKind { WORDS, SUBSTRING, SEMANTIC }
 
 /** [score]: higher is better. For [MatchKind.SUBSTRING] it is 0 (no ranking in the fallback). */
 data class SearchHitOutput(

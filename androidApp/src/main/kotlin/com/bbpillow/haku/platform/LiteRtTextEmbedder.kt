@@ -19,12 +19,15 @@ import kotlinx.coroutines.withContext
  * [cacheDir] is needed when [modelPath] is under /data/local/tmp.
  */
 class LiteRtTextEmbedder(
-  private val modelPath: String,
+  val modelPath: String,
   private val cacheDir: String? = null,
   private val gpu: Boolean = true,
 ) : TextEmbedder {
   private val lock = Mutex()
   @Volatile private var engine: EmbeddingEngine? = null
+
+  /** True while the engine is open (between the first [embed]/[load] and [close]). */
+  val isLoaded: Boolean get() = engine != null
 
   /** "GPU" or "CPU" once loaded. */
   @Volatile var backend: String? = null
