@@ -46,5 +46,9 @@ dependencies {
 }
 
 kotlin {
-  compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
+  compilerOptions {
+    jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    // litertlm 0.17.0-alpha1 classes carry Kotlin 2.4 metadata; Kotlin 2.2 reads it with this flag (spike, ชิ้น ค)
+    freeCompilerArgs.add("-Xskip-metadata-version-check")
+  }
 }

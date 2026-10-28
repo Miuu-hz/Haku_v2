@@ -5,6 +5,7 @@ import com.bbpillow.haku.capture.diary.DiaryStyle
 import com.bbpillow.haku.capture.diary.EndingParticle
 import com.bbpillow.haku.surface.onboarding.ActiveModel
 import com.bbpillow.haku.surface.onboarding.ModelChoice
+import com.bbpillow.haku.surface.onboarding.ModelKind
 import com.bbpillow.haku.surface.onboarding.OnboardingPresenter
 import com.bbpillow.haku.surface.onboarding.ProfileRepository
 import com.bbpillow.haku.surface.onboarding.ProfileStore
@@ -132,6 +133,8 @@ class ModelManagerPresenter(
       }
       val hasPartial = !isInstalled && (dl != null || partBytes > 0L)
       val status = when {
+        // ponytail: an embedding model has no "use this" choice; once on disk it is simply on (ACTIVE hides the button)
+        isInstalled && choice.kind == ModelKind.EMBEDDING -> ModelStatus.ACTIVE
         isInstalled && saved.model == ActiveModel.Catalog(choice) -> ModelStatus.ACTIVE
         isInstalled -> ModelStatus.DOWNLOADED
         hasPartial -> ModelStatus.DOWNLOADING
@@ -195,12 +198,13 @@ class ModelManagerPresenter(
     download: DownloadProgressInput? = null,
   ): ModelManagerUiState {
     val cur = profile.load()
-    profile.save(cur.copy(model = target))
+    if (isChat(target)) profile.save(cur.copy(model = target))
     return load(ramGb, installed, download)
   }
 
   /** If no installed model is currently active, activates [candidate] once it finishes downloading or importing. */
   fun activateIfNoneReady(candidate: ActiveModel, installed: List<InstalledModelRecord>) {
+    if (!isChat(candidate)) return
     val otherInstalled = installed.filterNot { matches(it, candidate, ModelChoice.entries.map { c -> c.fileName }.toSet()) }
     if (!isReady(profile.load().model, otherInstalled)) {
       val cur = profile.load()
@@ -223,7 +227,7 @@ class ModelManagerPresenter(
     val remaining = installedAfterDelete.filterNot { (it.bytes <= 0L && it.partBytes <= 0L) || matches(it, deleted, catalogFiles) }
     if (cur.model == deleted) {
       val nextCatalog = ModelChoice.entries.firstOrNull { c ->
-        remaining.any { !it.imported && it.fileName == c.fileName && it.bytes > 0L }
+        c.kind == ModelKind.CHAT && remaining.any { !it.imported && it.fileName == c.fileName && it.bytes > 0L }
       }?.let { ActiveModel.Catalog(it) }
       val nextImported = remaining.firstOrNull { it.bytes > 0L && (it.imported || it.fileName !in catalogFiles) }
         ?.let { ActiveModel.Imported(it.fileName) }
@@ -242,6 +246,9 @@ class ModelManagerPresenter(
       ActiveModel.None -> NO_MODEL_LABEL
     }
   }
+
+  /** Only chat models may become [ProfileRecord.model]; embedding models run beside it. */
+  private fun isChat(ref: ActiveModel): Boolean = (ref as? ActiveModel.Catalog)?.choice?.kind != ModelKind.EMBEDDING
 
   private fun isReady(active: ActiveModel, installed: List<InstalledModelRecord>): Boolean {
     val catalogFiles = ModelChoice.entries.map { it.fileName }.toSet()

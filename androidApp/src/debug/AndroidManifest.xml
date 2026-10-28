@@ -27,5 +27,9 @@
     <receiver
       android:name=".AskDebugReceiver"
       android:exported="true" />
+    <!-- ชิ้น ค EmbeddingGemma-2 timing + Thai similarity check, logcat tag HakuEmbed -->
+    <receiver
+      android:name=".EmbedDebugReceiver"
+      android:exported="true" />
   </application>
 </manifest>

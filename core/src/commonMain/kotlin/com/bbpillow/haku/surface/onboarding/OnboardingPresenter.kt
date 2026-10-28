@@ -26,6 +26,9 @@ enum class PermissionKind { LOCATION, ACTIVITY, CALENDAR, BACKGROUND_LOCATION }
 /** One explainer card (B3): why we ask, and what happens without it. Shown before the system dialog, every time. */
 data class PermissionItem(val kind: PermissionKind, val title: String, val reason: String, val ifDenied: String)
 
+/** What a catalog model is for: only [CHAT] models can be the active model (chat, summaries, agent). */
+enum class ModelKind { CHAT, EMBEDDING }
+
 /** Built-in on-device models (Google AI Edge Gallery 1_0_20 allowlist, pinned Hugging Face commits). */
 enum class ModelChoice(
   val title: String,
@@ -35,6 +38,7 @@ enum class ModelChoice(
   val bytes: Long,
   val minRamGb: Int,
   val note: String,
+  val kind: ModelKind = ModelKind.CHAT,
 ) {
   E2B(
     title = "Gemma 4 E2B",
@@ -63,6 +67,17 @@ enum class ModelChoice(
     bytes = 1_597_922_856L,
     minRamGb = 6,
     note = "เล็กกว่า · เครื่อง RAM น้อย · ภาษาไทยอ่อนกว่า Gemma",
+  ),
+  // ชิ้น ค: text embeddings for the semantic hook (Gallery smart_album model, apache-2.0, not gated). Never a chat model.
+  EMBEDDING_GEMMA_2(
+    title = "EmbeddingGemma 2",
+    fileName = "embeddinggemma-2-740m.litertlm",
+    repo = "litert-community/embeddinggemma-2-740m-litert-lm",
+    commit = "86b903a293f96d042bb92e1b7af333d94114458f",
+    bytes = 484_622_336L,
+    minRamGb = 4,
+    note = "ช่วยค้นบันทึกตามความหมาย · ไม่ใช่โมเดลแชต",
+    kind = ModelKind.EMBEDDING,
   );
 
   val sizeGb: Double get() = round(bytes / 100_000_000.0) / 10.0

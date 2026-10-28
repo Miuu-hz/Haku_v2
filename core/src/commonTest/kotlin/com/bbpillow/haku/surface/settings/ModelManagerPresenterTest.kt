@@ -30,7 +30,7 @@ class ModelManagerPresenterTest {
 
     val ui = presenter.load(ramGb = 8, installed = installed, download = downloading)
     assertEquals("Gemma 4 E2B", ui.activeModelLabel)
-    assertEquals(4, ui.models.size)
+    assertEquals(5, ui.models.size)
 
     val e2b = ui.models.first { it.choice == ModelChoice.E2B }
     assertEquals(ModelStatus.ACTIVE, e2b.status)
@@ -51,6 +51,29 @@ class ModelManagerPresenterTest {
     assertEquals(ModelStatus.DOWNLOADED, imp.status)
     assertEquals("1.5 GB", imp.sizeLabel)
     assertFalse(imp.ramWarning)
+  }
+
+  @Test fun embeddingModelDownloadsButNeverBecomesTheActiveChatModel() {
+    store.save(ProfileRecord(model = ActiveModel.Catalog(ModelChoice.E2B), onboarded = true))
+    val emb = ModelChoice.EMBEDDING_GEMMA_2
+    val installed = listOf(
+      InstalledModelRecord(ModelChoice.E2B.fileName, ModelChoice.E2B.bytes),
+      InstalledModelRecord(emb.fileName, emb.bytes),
+    )
+
+    val ui = presenter.setActive(ActiveModel.Catalog(emb), ramGb = 8, installed = installed)
+    assertEquals(ActiveModel.Catalog(ModelChoice.E2B), store.load().model)
+    assertEquals("Gemma 4 E2B", ui.activeModelLabel)
+    assertEquals(ModelStatus.ACTIVE, ui.models.first { it.choice == emb }.status, "on disk = on, no 'use this' button")
+    assertEquals(ModelStatus.NOT_DOWNLOADED, presenter.load(8, emptyList()).models.first { it.choice == emb }.status)
+
+    store.save(ProfileRecord(model = ActiveModel.None, onboarded = true))
+    presenter.activateIfNoneReady(ActiveModel.Catalog(emb), listOf(InstalledModelRecord(emb.fileName, emb.bytes)))
+    assertEquals(ActiveModel.None, store.load().model)
+
+    store.save(ProfileRecord(model = ActiveModel.Catalog(ModelChoice.E2B), onboarded = true))
+    presenter.deleteModel(ActiveModel.Catalog(ModelChoice.E2B), 8, listOf(InstalledModelRecord(emb.fileName, emb.bytes)))
+    assertEquals(ActiveModel.None, store.load().model, "deleting the chat model never falls back to the embedder")
   }
 
   @Test fun notDownloadedCatalogShowsRamWarningWhenDeviceRamBelowMin() {
