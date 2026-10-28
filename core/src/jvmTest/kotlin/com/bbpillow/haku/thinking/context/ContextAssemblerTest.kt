@@ -67,6 +67,26 @@ class ContextAssemblerTest {
     assertTrue(c.items.none { "2026-09-20" in it.text || "2026-09-10" in it.text })
   }
 
+  @Test fun `part of day keeps the whole day but its own hours survive the budget`() {
+    seedDiary()
+    val all = rig.ask("เมื่อวานตอนบ่ายไปไหนมา")
+    assertEquals(3, all.items.size, "the rest of the day is still loaded")
+    val lunch = all.items.single { "ร้านกาแฟ" in it.text } // 12:00 local
+    assertTrue(all.items.filter { it !== lunch }.all { it.value < lunch.value && "outside" in it.reason })
+    assertEquals(listOf(lunch.text), texts(rig.ask("เมื่อวานตอนบ่ายไปไหนมา", budget = lunch.tokens)))
+  }
+
+  @Test fun `inside a date range repeated lines rank below one-off lines and question words rank above`() {
+    rig.daily("08:00 ออกจากบ้าน", "2026-09-28T01:00:00.000Z")
+    rig.daily("08:00 ออกจากบ้าน", "2026-09-29T01:00:00.000Z")
+    rig.daily("15:00 มีนัด หมอ", "2026-09-29T08:00:00.000Z")
+    rig.daily("16:00 ไปซื้อของ", "2026-09-29T09:00:00.000Z")
+    val c = rig.ask("สัปดาห์นี้มีนัดอะไร")
+    val v = c.items.associate { it.text.substringAfter("] ") to it.value }
+    assertTrue(v.getValue("15:00 มีนัด หมอ") > v.getValue("16:00 ไปซื้อของ"), v.toString())
+    assertTrue(v.getValue("16:00 ไปซื้อของ") > c.items.filter { "ออกจากบ้าน" in it.text }.minOf { it.value }, v.toString())
+  }
+
   @Test fun `standing instructions are always included and first`() {
     seedDiary()
     rig.standing("ตอบสั้นๆ ภาษาไทยเสมอ")

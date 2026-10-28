@@ -3,7 +3,9 @@ package com.bbpillow.haku.thinking.context
 import com.bbpillow.haku.memory.MemoryFormat
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class TimeWordsTest {
   private val now = MemoryFormat.parseUtc("2026-09-30T03:00:00.000Z")!! // 10:00 in UTC+7
@@ -36,5 +38,44 @@ class TimeWordsTest {
     val late = MemoryFormat.parseUtc("2026-09-30T20:00:00.000Z")!!
     assertEquals("2026-09-30T17:00:00.000Z", iso(TimeWords.find("วันนี้", late, 420)!!.fromEpochMs))
     assertEquals("2026-09-30T00:00:00.000Z", iso(TimeWords.find("วันนี้", late, 0)!!.fromEpochMs))
+  }
+
+  // now is Wednesday 2026-09-30 (local)
+  private fun dayOf(q: String) = TimeWords.find(q, now, 420)!!.let { r ->
+    assertEquals(r.fromEpochMs + 86_400_000L, r.toEpochMs, "one day")
+    MemoryFormat.formatUtc(r.fromEpochMs + 420 * 60_000L).substring(0, 10)
+  }
+
+  @Test fun `a bare weekday is the most recent one, never the future`() {
+    assertEquals("2026-09-26", dayOf("วันเสาร์ไปวิ่งที่ไหน"))
+    assertEquals("2026-09-27", dayOf("วันอาทิตย์ไปไหน"))
+    assertEquals("2026-09-24", dayOf("วันพฤหัสบดีมีนัดอะไร"))
+    assertEquals("2026-09-29", dayOf("วันอังคารไปไหน"))
+  }
+
+  @Test fun `today's own weekday means today, with ที่แล้ว it means a week back`() {
+    assertEquals("2026-09-30", dayOf("วันพุธไปไหน"))
+    assertEquals("2026-09-23", dayOf("วันพุธที่แล้วไปไหน"))
+    assertEquals("2026-09-26", dayOf("เสาร์ที่แล้วไปไหน"))
+    assertEquals("2026-09-27", dayOf("วันอาทิตย์ที่แล้วไปไหน"))
+  }
+
+  @Test fun `อาทิตย์ without วัน is still a week`() {
+    val r = TimeWords.find("อาทิตย์ที่แล้วไปไหน", now, 420)!!
+    assertEquals("2026-09-16T17:00:00.000Z", iso(r.fromEpochMs))
+    assertEquals("2026-09-23T17:00:00.000Z", iso(r.toEpochMs))
+  }
+
+  @Test fun `part of day narrows the window of the day word, alone it means today`() {
+    val r = TimeWords.find("เมื่อวานช่วงเย็นอยู่ที่ไหน", now, 420)!!
+    assertEquals("2026-09-28T17:00:00.000Z", iso(r.fromEpochMs))
+    assertTrue(r.inWindow(MemoryFormat.parseUtc("2026-09-29T11:00:00.000Z")!!)) // 18:00 local
+    assertFalse(r.inWindow(MemoryFormat.parseUtc("2026-09-29T02:00:00.000Z")!!)) // 09:00 local
+    for (q in listOf("ตอนเช้าไปไหนมา", "เช้านี้ไปไหน", "ตอนบ่ายทำอะไร", "ตอนกลางคืนอยู่ไหน")) {
+      val t = TimeWords.find(q, now, 420)!!
+      assertEquals("2026-09-29T17:00:00.000Z", iso(t.fromEpochMs), q)
+      assertTrue(t.window != null, q)
+    }
+    assertNull(TimeWords.find("วันนี้", now, 420)!!.window)
   }
 }

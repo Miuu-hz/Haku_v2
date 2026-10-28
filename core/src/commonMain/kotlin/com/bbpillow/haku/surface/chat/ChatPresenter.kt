@@ -80,7 +80,7 @@ class ChatPresenter(
     val fallback = retrieval.fallback
     if (client == null) return fallback
     val prompt = if (retrieval.citations.isEmpty()) noCitationPrompt(retrieval.input) else prompt(retrieval)
-    val text = try {
+    val raw = try {
       withTimeoutOrNull(timeoutMillis) {
         client.generate(GenerateInput(prompt)).filterIsInstance<GenerateEvent.Finished>().first().output
       }?.takeIf { !it.metrics.cancelled }?.text?.trim()
@@ -89,13 +89,15 @@ class ChatPresenter(
     } catch (e: Exception) {
       return fallback.copy(rejectedReasons = listOf("model-error: ${e::class.simpleName}"))
     } ?: return fallback.copy(rejectedReasons = listOf("timeout"))
+    val text = cleanAnswer(raw, retrieval.input.question)
+    if (text.isBlank()) return fallback.copy(rejectedReasons = listOf("blank"))
     if (retrieval.citations.isEmpty()) {
-      return if (text.isBlank()) fallback.copy(rejectedReasons = listOf("blank"))
-      else fallback.copy(text = text.take(MAX_CHAT_CHARS), source = ChatAnswerSource.MODEL)
+      return fallback.copy(text = text.take(MAX_CHAT_CHARS), source = ChatAnswerSource.MODEL)
     }
     val facts = retrieval.context.items.map { it.text } +
       retrieval.citations.mapNotNull { it.day }.distinct().map(ThaiDateFormat::dayHeader) + retrieval.input.question
-    val check = SummaryChecker.check(SummaryCheckInput(text, facts, retrieval.input.style))
+    // ponytail: reuse SummaryChecker safety rules with minChars=1 so concise 1-sentence chat answers aren't rejected as too-short.
+    val check = SummaryChecker.check(SummaryCheckInput(text, facts, retrieval.input.style), minChars = 1, maxChars = MAX_CHAT_CHARS)
     return if (check.ok) fallback.copy(text = text, source = ChatAnswerSource.MODEL) else fallback.copy(rejectedReasons = check.reasons)
   }
 
@@ -125,12 +127,16 @@ class ChatPresenter(
   private fun prompt(r: ChatRetrievalOutput): String {
     val particle = r.input.style.particle.text
     return buildString {
-      appendLine("คุณคือ Haku ตอบคำถามเกี่ยวกับชีวิตของผู้ใช้จากบันทึกด้านล่างเท่านั้น")
-      appendLine("ห้ามเพิ่มเวลา ตัวเลข สถานที่ หรือคำพูดที่ไม่มีในบันทึก ถ้าบันทึกไม่พอให้บอกว่าไม่พบ")
-      append("ตอบภาษาไทยหนึ่งถึงสองประโยค")
-      if (particle.isNotEmpty()) append(" ลงท้ายด้วย \"$particle\"")
+      appendLine("คุณคือ Haku ตอบคำถามเกี่ยวกับชีวิตของผู้ใช้จากรายการข้อเท็จจริงด้านล่างเท่านั้น")
+      appendLine("กติกา:")
+      appendLine("- ตอบจากข้อเท็จจริงในรายการนี้เท่านั้น ห้ามเพิ่มเวลา ตัวเลข สถานที่ หรือคำพูดเอง")
+      appendLine("- ระบุชื่อสถานที่และเวลา (เวลาหน้าข้อความคือเวลาเริ่ม) ตามที่คำถามถามให้ครบ")
+      appendLine("- รายการข้อเท็จจริงคัดมาตามช่วงเวลาที่ถามแล้ว ถ้ามีข้อเท็จจริงที่ตอบคำถามได้ ห้ามตอบว่าไม่พบข้อมูล ให้ตอบตามข้อเท็จจริงนั้นทันที (ตอบว่าไม่พบข้อมูลโดยไม่ทวนคำถามเฉพาะเมื่อไม่มีข้อเท็จจริงใดเกี่ยวกับเรื่องที่ถามเลย)")
+      append("- ตอบภาษาไทยหนึ่งถึงสองประโยค ห้ามทวนคำถามซ้ำ")
+      if (particle.isNotEmpty()) append(" ลงท้ายด้วย \"$particle\" เพียงครั้งเดียว")
       appendLine()
-      appendLine("บันทึก:")
+      appendLine("ข้อเท็จจริง:")
+      // ponytail: promptText() is already cut to the token budget; a re-expanded list overflowed the engine on week questions
       appendLine(r.context.promptText())
       appendLine("คำถาม: ${r.input.question}")
       append("คำตอบ:")
@@ -157,5 +163,14 @@ class ChatPresenter(
     const val MAX_CHAT_CHARS = 600
     const val DEFAULT_BUDGET_TOKENS = 900
     const val DEFAULT_TIMEOUT_MS = 30_000L
+    private val duplicateParticle = Regex("""(ครับ|ค่ะ|คะ)(?:[\s.!…]*\1)+(?=[.!…]*$)""")
+
+    internal fun cleanAnswer(raw: String, question: String = ""): String {
+      val q = question.trim()
+      val body = if (q.isNotEmpty() && raw.startsWith(q)) {
+        raw.substring(q.length).trimStart(' ', '?', ':', '-', '—', '\n').ifEmpty { raw }
+      } else raw
+      return duplicateParticle.replace(body.trim(), "$1")
+    }
   }
 }

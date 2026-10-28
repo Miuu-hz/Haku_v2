@@ -23,12 +23,13 @@ object SummaryChecker {
     "สวนสาธารณะ", "ฟิตเนส", "โรงหนัง", "ธนาคาร", "ร้านสะดวกซื้อ", "สถานี", "วัด", "บริษัท", "ออฟฟิศ",
   )
 
-  fun check(input: SummaryCheckInput): SummaryCheckOutput {
+  /** [minChars]/[maxChars]: evening summaries use the defaults; chat answers may be one short sentence. */
+  fun check(input: SummaryCheckInput, minChars: Int = MIN_CHARS, maxChars: Int = MAX_CHARS): SummaryCheckOutput {
     val text = input.text.trim()
     val facts = input.factLines.joinToString("\n")
     val reasons = buildList {
-      if (text.length < MIN_CHARS) add("too-short")
-      if (text.length > MAX_CHARS) add("too-long")
+      if (text.length < minChars) add("too-short")
+      if (text.length > maxChars) add("too-long")
       if (hidden.containsMatchIn(text)) add("control-chars")
       if (thaiRatio(text) < MIN_THAI_RATIO) add("not-thai")
       addAll(invented(text, facts))

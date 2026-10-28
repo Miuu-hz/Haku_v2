@@ -111,17 +111,26 @@ class ContextAssembler(
         .flatMap { day -> memory.readDay(day).map { MemoryRef(MemoryLevel.DAILY, day, it.id) to it } }
         .filter { (_, r) -> r.atEpochMs >= range.fromEpochMs && r.atEpochMs < range.toEpochMs }
         .sortedBy { it.second.atEpochMs }
+      // a whole week of "ออกจากบ้าน / ถึงที่ทำงาน" must not crowd out the one-off lines (appointments, new places, notes)
+      // ponytail: "repeat" = same text once digits are gone (times, durations); use a line kind from the diary ledger if wording drifts
+      val seen = mutableSetOf<String>()
       inRange.forEachIndexed { i, (ref, r) ->
-        pool.get(ref, r, ContextSection.RECALL).add(RetrievalTier.STRUCTURAL, 100.0 - i * 0.001, "date word '${range.word}'")
+        val repeat = !seen.add(r.text.filterNot { it.isDigit() })
+        val outside = !range.inWindow(r.atEpochMs)
+        val v = STRUCTURAL_VALUE - i * 0.001 - (if (repeat) REPEAT_PENALTY else 0.0) - (if (outside) OUTSIDE_WINDOW_PENALTY else 0.0)
+        val why = "date word '${range.word}'" + (if (repeat) ", repeats an earlier line" else "") + (if (outside) ", outside the asked part of day" else "")
+        pool.get(ref, r, ContextSection.RECALL).add(RetrievalTier.STRUCTURAL, v, why)
       }
-      trace += "structural: ${inRange.size} records in range"
+      trace += "structural: ${inRange.size} records in range" + (range.window?.let { ", window $it" } ?: "")
     }
     // 2. word search
     val base = SearchQueryInput("", input.languageCode, limit = limits.maxWordHits, levels = setOf(MemoryLevel.DAILY), fromEpochMs = range?.fromEpochMs, toEpochMs = range?.toEpochMs)
     val hits = wordSearch(words, base, trace).filter { it.memory != null }
     val ordered = if (latest) hits.sortedByDescending { it.memory!!.atEpochMs } else hits
     ordered.forEachIndexed { i, h ->
-      val v = 50.0 + 10.0 * (1.0 - i.toDouble() / maxOf(1, ordered.size))
+      // inside a date range the question's own words lift a line above the rest of that range
+      val inRange = pool.items[h.memory!!.ref]?.takeIf { RetrievalTier.STRUCTURAL in it.tiers }?.let { it.value + WORD_IN_RANGE_BONUS }
+      val v = inRange ?: (50.0 + 10.0 * (1.0 - i.toDouble() / maxOf(1, ordered.size)))
       addHit(h, RetrievalTier.WORDS, v, if (latest) "word match, newest first" else "word match rank ${i + 1}", pool)
     }
     // 3. semantic tier: disabled unless a hook is supplied; a failure falls back to the word results
@@ -157,8 +166,11 @@ class ContextAssembler(
       .sortedByDescending { it.score }.take(base.limit)
   }
 
-  private fun contentWords(question: String, lang: String): List<String> =
-    pipeline.process(TextInput(question, lang)).tokens.map { it.text }.filter { it !in STOP && it !in TimeWords.all }.distinct()
+  /** Time phrases are cut out before segmenting: "วันนี้ตอนเช้า" must not search for "นี้" or "ตอน". */
+  private fun contentWords(question: String, lang: String): List<String> {
+    val rest = TimeWords.all.fold(question) { q, w -> q.replace(w, " ") }
+    return pipeline.process(TextInput(rest, lang)).tokens.map { it.text }.filter { it !in STOP }.distinct()
+  }
 
   // --- items and budget ---
   private fun toItem(c: Candidate, offsetMin: Int): ContextItem {
@@ -194,12 +206,16 @@ class ContextAssembler(
 
   private companion object {
     val LATEST_CUES = listOf("ล่าสุด", "สุดท้าย")
+    const val STRUCTURAL_VALUE = 100.0
+    const val REPEAT_PENALTY = 20.0
+    const val OUTSIDE_WINDOW_PENALTY = 30.0
+    const val WORD_IN_RANGE_BONUS = 10.0
 
     /** Question filler that never helps retrieval. Grow from real queries. */
     val STOP = setOf(
-      "ไป", "ไหน", "มา", "บ้าง", "เมื่อ", "ไร", "เมื่อไร", "เมื่อไหร่", "เมื่อใด", "คือ", "ครั้ง", "ล่าสุด", "สุดท้าย",
+      "ไป", "ไหน", "ที่ไหน", "มา", "บ้าง", "เมื่อ", "ไร", "เมื่อไร", "เมื่อไหร่", "เมื่อใด", "คือ", "ครั้ง", "ล่าสุด", "สุดท้าย",
       "ที่", "ได้", "ไหม", "หรือ", "อะไร", "ทำ", "ยัง", "แล้ว", "ของ", "ฉัน", "ผม", "เรา", "ให้", "ช่วย", "บอก", "หน่อย",
-      "ครับ", "ค่ะ", "คะ", "นะ", "เป็น", "มี", "จำ", "the", "a", "is", "what", "when",
+      "ครับ", "ค่ะ", "คะ", "นะ", "เป็น", "มี", "จำ", "และ", "กี่", "โมง", "ถึง", "the", "a", "is", "what", "when",
     )
   }
 }
