@@ -109,6 +109,8 @@ data class StatsSummaryOutput(
   val previous: PeriodStats?,
   val insights: List<StatsInsight>,
   val lines: List<String>,
+  /** The part of [lines] that compares with [previous] (empty without a comparison); the stats screen shows it apart. */
+  val comparisonLines: List<String> = emptyList(),
 )
 
 /** Either the summary, or which feature the plan lacks (the screen shows an upsell; nothing was deleted). */

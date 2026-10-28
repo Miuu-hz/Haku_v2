@@ -178,8 +178,11 @@ class ChatPresenter(
       val body = if (q.isNotEmpty() && raw.startsWith(q)) {
         raw.substring(q.length).trimStart(' ', '?', ':', '-', '—', '\n').ifEmpty { raw }
       } else raw
-      return duplicateParticle.replace(body.trim(), "$1")
+      return duplicateParticle.replace(body.replace(dateTag, "").trim(), "$1")
     }
+
+    /** The model sometimes echoes a source stamp such as "(24.10.2026 08:21)"; the citation already carries it. */
+    private val dateTag = Regex("""\s*\(\d{1,4}[./-]\d{1,2}[./-]\d{1,4}[^)]*\)""")
 
     private val finalParticle = Regex("""(ครับ|ค่ะ|คะ)([.!…]*)$""")
 

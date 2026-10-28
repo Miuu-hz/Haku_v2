@@ -15,6 +15,7 @@ import com.bbpillow.haku.capture.diary.DiaryTemplates
  *   วันจันทร์ออกไปข้างนอกบ่อยที่สุด เฉลี่ยวันละราว 2 ชั่วโมง (จาก 4 วันจันทร์ วันอื่นไม่เกินราว 1 ชั่วโมง)
  *   เดือนนี้อยู่นอกบ้านเฉลี่ยวันละราว 9 ชั่วโมง มากกว่าเดือนก่อน (วันละราว 7 ชั่วโมง)
  *   เดือนนี้ไป “ร้านข้าว” 8 ครั้ง เดือนก่อน 3 ครั้ง
+ *   (stats screen, no comparison claim) ข้อมูลยังไม่พอจะเทียบกับเดือนก่อน / ยังไม่ต่างจากเดือนก่อนชัดเจน
  */
 object StatsTemplates {
   const val NO_DATA = "ยังไม่มีข้อมูลพอจะสรุป"
@@ -49,6 +50,10 @@ object StatsTemplates {
     )
     return parts.joinToString(" ").ifEmpty { null }
   }
+
+  /** The comparison section when no claim passed: one side has under half its days recorded, or nothing changed enough. */
+  fun noComparison(kind: PeriodKind, current: PeriodStats, previous: PeriodStats) =
+    if (current.isReliable && previous.isReliable) "ยังไม่ต่างจาก${lastPeriod(kind)}ชัดเจน" else "ข้อมูลยังไม่พอจะเทียบกับ${lastPeriod(kind)}"
 
   fun insight(i: StatsInsight, kind: PeriodKind): String = when (i) {
     is StatsInsight.BusiestWeekday -> {

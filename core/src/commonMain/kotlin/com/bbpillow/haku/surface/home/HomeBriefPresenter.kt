@@ -12,12 +12,11 @@ import com.bbpillow.haku.capture.diary.DiaryComposer
 import com.bbpillow.haku.capture.diary.DiaryStyle
 import com.bbpillow.haku.capture.stats.PeriodKind
 import com.bbpillow.haku.capture.stats.StatsDataInput
-import com.bbpillow.haku.capture.stats.StatsPeriods
 import com.bbpillow.haku.capture.stats.StatsResult
 import com.bbpillow.haku.capture.stats.StatsSummarizer
-import com.bbpillow.haku.capture.stats.StatsSummaryInput
 import com.bbpillow.haku.language.ThaiDateFormat
 import com.bbpillow.haku.memory.MemoryFormat
+import com.bbpillow.haku.surface.stats.StatsPresenter
 import com.bbpillow.haku.thinking.summary.EveningSummaryRepository
 
 /** Part of the day the brief is shaped for (P3.1): morning looks back at yesterday, midday and evening at today. */
@@ -125,7 +124,7 @@ class HomeBriefPresenter(
       stats = stats,
       // a summary with no diary line left behind it (all deleted) is not shown
       storySummary = if (lines.isEmpty()) null else summaries.find(storyDay)?.text,
-      weekly = if (isDayOne) null else weekly(today, nowUtcMs, style),
+      weekly = if (isDayOne) null else weekly(nowUtcMs, style),
       isDayOne = isDayOne,
       appointments = appointments(today, nowUtcMs),
     )
@@ -179,16 +178,18 @@ class HomeBriefPresenter(
   }
 
   /**
-   * This week's lines, or null when the week has no recorded day (never a card of zeros).
-   * ponytail: four weeks of history before the week so "new place" means something; widen when month views land on Home.
+   * P2.8 stats screen (week/month/year), on the same stores; reached from the weekly card.
+   * ponytail: the year tab re-reads ~2 years of raw events and re-recognizes stays on each open; cache visits if it gets slow.
    */
-  private fun weekly(today: String, nowUtcMs: Long, style: DiaryStyle): WeeklyCard? {
-    val week = StatsPeriods.of(PeriodKind.WEEK, today, tzOffsetMinutes)
-    val captured = events.query(CaptureQueryInput(week.fromUtcMs - WEEKLY_HISTORY_DAYS * DAY_MS, nowUtcMs))
+  val stats = StatsPresenter(weekStats, tzOffsetMinutes) { from, to ->
+    val captured = events.query(CaptureQueryInput(from, to))
     val known = places.list()
-    val visits = PlaceRecognizer.recognize(PlaceRecognitionInput(PlaceRecognizer.pairDwells(captured), known, tzOffsetMinutes)).visits
-    val result = weekStats.summarize(StatsSummaryInput(PeriodKind.WEEK, today, nowUtcMs, style), StatsDataInput(tzOffsetMinutes, known, visits, captured))
-    val summary = (result as? StatsResult.Ready)?.summary ?: return null
+    StatsDataInput(tzOffsetMinutes, known, PlaceRecognizer.recognize(PlaceRecognitionInput(PlaceRecognizer.pairDwells(captured), known, tzOffsetMinutes)).visits, captured)
+  }
+
+  /** This week's lines, or null when the week has no recorded day (never a card of zeros). */
+  private fun weekly(nowUtcMs: Long, style: DiaryStyle): WeeklyCard? {
+    val summary = (stats.summarize(PeriodKind.WEEK, nowUtcMs, style) as? StatsResult.Ready)?.summary ?: return null
     if (summary.current.coveredDays == 0) return null
     return WeeklyCard(summary.lines, comparisonLocked = summary.previous == null)
   }
@@ -212,7 +213,6 @@ class HomeBriefPresenter(
     const val STORY_LINES = 3
     const val APPOINTMENT_ROWS = 4
     private const val UNTITLED_APPOINTMENT = "นัดไม่มีชื่อ"
-    private const val WEEKLY_HISTORY_DAYS = 28
     private const val MIN_MS = 60_000L
     private const val HOUR_MS = 3_600_000L
     private const val DAY_MS = 86_400_000L

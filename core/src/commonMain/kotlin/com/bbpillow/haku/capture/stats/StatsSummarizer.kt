@@ -13,7 +13,7 @@ data class StatsDataInput(
 )
 
 /** P2.8 entry point. Asks [Entitlements] once per feature; a locked view returns [StatsResult.Locked], never partial data. */
-class StatsSummarizer(private val entitlements: Entitlements) {
+class StatsSummarizer(val entitlements: Entitlements) {
   fun summarize(input: StatsSummaryInput, data: StatsDataInput): StatsResult {
     if (!entitlements.allows(input.kind.feature)) return StatsResult.Locked(input.kind.feature)
     val period = StatsPeriods.of(input.kind, input.day, data.tzOffsetMinutes)
@@ -22,7 +22,10 @@ class StatsSummarizer(private val entitlements: Entitlements) {
     val previous = if (canCompare) statsOf(StatsPeriods.previous(period, data.tzOffsetMinutes), data) else null
     val insights = StatsCalculator.insights(current) + previous?.let { StatsCalculator.compare(current, it) }.orEmpty()
     val holdsNow = input.nowUtcMs in period.fromUtcMs until period.toUtcMs
-    return StatsResult.Ready(StatsSummaryOutput(current, previous, insights, lines(input, current, insights, holdsNow)))
+    val lines = lines(input, current, insights, holdsNow)
+    val comparing = if (!holdsNow) emptyList() else insights.filter { it !is StatsInsight.BusiestWeekday }
+      .map { input.style.particle.appendTo(StatsTemplates.insight(it, input.kind)) }.filter { it in lines }
+    return StatsResult.Ready(StatsSummaryOutput(current, previous, insights, lines, comparing))
   }
 
   private fun statsOf(period: StatsPeriod, data: StatsDataInput) =

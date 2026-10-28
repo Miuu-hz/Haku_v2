@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.bbpillow.haku.capture.stats.PeriodKind
 import com.bbpillow.haku.platform.BiometricLock
 import com.bbpillow.haku.platform.LiteRtLocalModel
 import com.bbpillow.haku.platform.capture.CaptureController
@@ -59,6 +60,8 @@ import com.bbpillow.haku.surface.settings.ModelManagerUiState
 import com.bbpillow.haku.surface.settings.ModelStatus
 import com.bbpillow.haku.surface.settings.SettingsScreen
 import com.bbpillow.haku.surface.settings.SettingsUiState
+import com.bbpillow.haku.surface.stats.StatsScreen
+import com.bbpillow.haku.surface.stats.StatsUiState
 import com.bbpillow.haku.surface.timeline.TimelineScreen
 import com.bbpillow.haku.surface.timeline.TimelineUiState
 import com.bbpillow.haku.thinking.LocalModelClient
@@ -103,6 +106,7 @@ fun MainShell(
   var nodeOpen by rememberSaveable { mutableStateOf(false) }
   var settingsOpen by rememberSaveable { mutableStateOf(false) }
   var modelsOpen by rememberSaveable { mutableStateOf(false) }
+  var statsOpen by rememberSaveable { mutableStateOf(false) }
   // the conversation lives as long as the shell, so switching tabs keeps it
   var chatTurns by remember { mutableStateOf(listOf<ChatTurn>()) }
   val shellScope = rememberCoroutineScope() // an answer still lands if the user switches tabs while it is being written
@@ -123,6 +127,7 @@ fun MainShell(
   BackHandler(enabled = !plusOpen && modelsOpen) { modelsOpen = false }
   BackHandler(enabled = !plusOpen && !modelsOpen && settingsOpen) { settingsOpen = false }
   BackHandler(enabled = !plusOpen && !modelsOpen && !settingsOpen && nodeOpen && tab == NavItems.lastIndex) { nodeOpen = false }
+  BackHandler(enabled = !plusOpen && !modelsOpen && !settingsOpen && statsOpen && tab == TAB_HOME) { statsOpen = false }
   Box(Modifier.fillMaxSize()) {
     if (plusOpen) {
       PlusTab(graph, activity) { plusOpen = false }
@@ -138,13 +143,14 @@ fun MainShell(
     }
     val openDay = { d: String -> day = d; tab = TAB_TIMELINE }
     when (tab) {
-      TAB_HOME -> HomeTab(graph, CaptureController.isEnabled(activity), openDay, { plusOpen = true })
+      TAB_HOME -> if (statsOpen) StatsTab(graph, { plusOpen = true }) { statsOpen = false }
+      else HomeTab(graph, CaptureController.isEnabled(activity), openDay, { plusOpen = true }) { statsOpen = true }
       TAB_TIMELINE -> TimelineTab(graph, day) { day = it }
       TAB_CHAT -> ChatTab(graph, shellScope, chatTurns, { chatTurns = it }, openDay, { modelsOpen = true })
       else -> if (nodeOpen) HomeNodeScreen(onBack = { nodeOpen = false }, contentPadding = TabPadding)
       else MemoryTab(graph, { plusOpen = true }, { nodeOpen = true }, { settingsOpen = true })
     }
-    FloatingNav(NavItems, tab, { tab = it; nodeOpen = false }, Modifier.align(Alignment.BottomCenter).padding(horizontal = 20.dp, vertical = NavMargin))
+    FloatingNav(NavItems, tab, { tab = it; nodeOpen = false; statsOpen = false }, Modifier.align(Alignment.BottomCenter).padding(horizontal = 20.dp, vertical = NavMargin))
   }
 }
 
@@ -388,7 +394,7 @@ private fun ModelManagerTab(
 }
 
 @Composable
-private fun HomeTab(graph: AppGraph, isCapturing: Boolean, onOpenDay: (String) -> Unit, onOpenPlus: () -> Unit) {
+private fun HomeTab(graph: AppGraph, isCapturing: Boolean, onOpenDay: (String) -> Unit, onOpenPlus: () -> Unit, onOpenStats: () -> Unit) {
   var state by remember { mutableStateOf<HomeBriefUiState?>(null) }
   // reload when the plan changes (file read at start, a purchase, a restore)
   val entitlements by graph.billing.entitlements.collectAsState()
@@ -411,7 +417,21 @@ private fun HomeTab(graph: AppGraph, isCapturing: Boolean, onOpenDay: (String) -
     onDismissLearning = { state = s.copy(learning = null) },
     contentPadding = TabPadding,
     onOpenPlus = onOpenPlus,
+    onOpenStats = onOpenStats,
   )
+}
+
+@Composable
+private fun StatsTab(graph: AppGraph, onOpenPlus: () -> Unit, onBack: () -> Unit) {
+  var kind by rememberSaveable { mutableStateOf(PeriodKind.WEEK) }
+  var state by remember { mutableStateOf<StatsUiState?>(null) }
+  val entitlements by graph.billing.entitlements.collectAsState()
+  LaunchedEffect(kind, entitlements.plan) {
+    val now = System.currentTimeMillis()
+    state = graph.safeIo { home.stats.load(kind, now, profile.load().style) }
+  }
+  val s = state ?: return
+  StatsScreen(s, onSelect = { kind = it }, onOpenPlus = onOpenPlus, onBack = onBack, contentPadding = TabPadding)
 }
 
 @Composable

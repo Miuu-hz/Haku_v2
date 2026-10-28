@@ -103,4 +103,8 @@ class ChatPresenterTest {
     assertEquals("ไปร้านกาแฟ", ChatPresenter.withParticle("ไปร้านกาแฟ", "ค่ะ"))
     assertEquals("ไปร้านกาแฟครับ", ChatPresenter.withParticle("ไปร้านกาแฟครับ", ""))
   }
+
+  @Test fun echoedSourceStampIsRemoved() {
+    assertEquals("ไปวิ่งที่สวนลุมพินี และวิ่งได้สามรอบ ค่ะ", ChatPresenter.cleanAnswer("ไปวิ่งที่สวนลุมพินี และวิ่งได้สามรอบ (24.10.2026 08:21) ค่ะ"))
+  }
 }
