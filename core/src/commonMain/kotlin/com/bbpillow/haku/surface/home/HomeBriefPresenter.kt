@@ -2,6 +2,8 @@ package com.bbpillow.haku.surface.home
 
 import com.bbpillow.haku.capture.CaptureEventRepository
 import com.bbpillow.haku.capture.CaptureQueryInput
+import com.bbpillow.haku.capture.CaptureSource
+import com.bbpillow.haku.capture.CaptureTypes
 import com.bbpillow.haku.capture.PlaceCategory
 import com.bbpillow.haku.capture.PlaceRecognitionInput
 import com.bbpillow.haku.capture.PlaceRecognizer
@@ -38,6 +40,12 @@ data class HomeStats(
  */
 data class WeeklyCard(val lines: List<String>, val comparisonLocked: Boolean)
 
+/** One appointment row: local `HH:MM` or `HH:MM–HH:MM`. [isPast] = already ended; [isNext] = the first one not ended. */
+data class AppointmentRow(val title: String, val timeText: String, val isPast: Boolean, val isNext: Boolean)
+
+/** "วันนี้มีนัด" card: at most [HomeBriefPresenter.APPOINTMENT_ROWS] rows; [moreCount] = today's appointments not shown. */
+data class TodayAppointments(val rows: List<AppointmentRow>, val moreCount: Int)
+
 /** A4 learning card. Nothing produces it yet (P5.x); the slot stays empty until then. */
 data class LearningCard(val title: String, val summary: String, val topic: String, val source: String)
 
@@ -60,6 +68,8 @@ data class HomeBriefUiState(
   val weekly: WeeklyCard? = null,
   val learning: LearningCard? = null,
   val isDayOne: Boolean = false,
+  /** Null when today has no appointment (the card is hidden, never a zero). */
+  val appointments: TodayAppointments? = null,
 )
 
 /**
@@ -117,8 +127,31 @@ class HomeBriefPresenter(
       storySummary = if (lines.isEmpty()) null else summaries.find(storyDay)?.text,
       weekly = if (isDayOne) null else weekly(today, nowUtcMs, style),
       isDayOne = isDayOne,
+      appointments = appointments(today, nowUtcMs),
     )
   }
+
+  /**
+   * Calendar rows starting on the local [today] (deleted ones are gone from the store), in start order. When there are
+   * more than [APPOINTMENT_ROWS], past ones drop first so the next appointment stays on screen.
+   * ponytail: an appointment that started yesterday and runs into today is not listed; add an overlap query if users ask.
+   */
+  private fun appointments(today: String, nowUtcMs: Long): TodayAppointments? {
+    val start = dayStartUtc(today)
+    val all = events.query(CaptureQueryInput(start, start + DAY_MS, setOf(CaptureTypes.CALENDAR)))
+      .filter { it.source is CaptureSource.CalendarEntry }
+    if (all.isEmpty()) return null
+    val nextIdx = all.indexOfFirst { (it.endUtcMs ?: it.timeUtcMs) > nowUtcMs }.takeIf { it >= 0 } ?: all.size
+    val from = minOf(nextIdx, all.size - APPOINTMENT_ROWS).coerceAtLeast(0)
+    val rows = all.drop(from).take(APPOINTMENT_ROWS).mapIndexed { i, e ->
+      val title = (e.source as CaptureSource.CalendarEntry).title.trim().ifEmpty { UNTITLED_APPOINTMENT }
+      val time = hhmm(e.timeUtcMs) + (e.endUtcMs?.let { "–" + hhmm(it) } ?: "")
+      AppointmentRow(title, time, isPast = from + i < nextIdx, isNext = from + i == nextIdx)
+    }
+    return TodayAppointments(rows, all.size - rows.size)
+  }
+
+  private fun hhmm(utcMs: Long) = MemoryFormat.formatUtc(utcMs + tzOffsetMinutes * MIN_MS).substring(11, 16)
 
   /**
    * Stays in [from, to): number of places, and time away from the confirmed home within the span the stays cover.
@@ -177,6 +210,8 @@ class HomeBriefPresenter(
     const val MIDDAY_START_HOUR = 11
     const val EVENING_START_HOUR = 17
     const val STORY_LINES = 3
+    const val APPOINTMENT_ROWS = 4
+    private const val UNTITLED_APPOINTMENT = "นัดไม่มีชื่อ"
     private const val WEEKLY_HISTORY_DAYS = 28
     private const val MIN_MS = 60_000L
     private const val HOUR_MS = 3_600_000L

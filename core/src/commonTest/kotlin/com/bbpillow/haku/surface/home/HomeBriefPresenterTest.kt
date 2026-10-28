@@ -1,5 +1,7 @@
 package com.bbpillow.haku.surface.home
 
+import com.bbpillow.haku.capture.CaptureEvent
+import com.bbpillow.haku.capture.CaptureSource
 import com.bbpillow.haku.capture.PlaceCategory
 import com.bbpillow.haku.capture.PlaceRecognitionInput
 import com.bbpillow.haku.capture.PlaceRecognizer
@@ -172,5 +174,71 @@ class HomeBriefPresenterTest {
 
   @Test fun noWeeklyCardWithoutData() {
     assertNull(presenter(emptyList(), FakeEvents(emptyList())).load(at(1, 20)).weekly)
+  }
+
+  private fun appt(id: String, start: Long, end: Long?, title: String = id) =
+    CaptureEvent(id, start, CaptureSource.CalendarEntry(title), endUtcMs = end)
+
+  private fun withAppointments(vararg appts: CaptureEvent) = FakeEvents(SyntheticWeek.events() + appts)
+
+  @Test fun appointmentsAreInStartOrderWithTheNextOneMarked() {
+    val events = withAppointments(
+      appt("dentist", at(1, 14), at(1, 15), "  ทำฟัน "),
+      appt("standup", at(1, 9), at(1, 10)),
+      appt("dinner", at(1, 18), null, ""),
+    )
+    val today = assertNotNull(presenter(events = events, compose = false).load(at(1, 12)).appointments)
+    assertEquals(listOf("standup", "ทำฟัน", "นัดไม่มีชื่อ"), today.rows.map { it.title })
+    assertEquals(listOf("09:00–10:00", "14:00–15:00", "18:00"), today.rows.map { it.timeText })
+    assertEquals(listOf(true, false, false), today.rows.map { it.isPast })
+    assertEquals(listOf(false, true, false), today.rows.map { it.isNext })
+    assertEquals(0, today.moreCount)
+  }
+
+  @Test fun anOngoingAppointmentIsTheNextOne() {
+    val events = withAppointments(appt("a", at(1, 9), at(1, 10)), appt("b", at(1, 14), at(1, 15)))
+    val rows = assertNotNull(presenter(events = events, compose = false).load(at(1, 14, 30)).appointments).rows
+    assertEquals(listOf(true, false), rows.map { it.isPast })
+    assertEquals(listOf(false, true), rows.map { it.isNext })
+  }
+
+  @Test fun eveningShowsTodaysPastAppointmentsWithNoNext() {
+    val events = withAppointments(appt("a", at(1, 9), at(1, 10)), appt("b", at(1, 14), null))
+    val rows = assertNotNull(presenter(events = events, compose = false).load(at(1, 20)).appointments).rows
+    assertTrue(rows.all { it.isPast })
+    assertTrue(rows.none { it.isNext })
+  }
+
+  @Test fun moreThanFourDropsPastOnesFirstAndCountsTheRest() {
+    val events = withAppointments(*(8..13).map { h -> appt("h$h", at(1, h), at(1, h, 30)) }.toTypedArray())
+    val today = assertNotNull(presenter(events = events, compose = false).load(at(1, 9, 45)).appointments)
+    assertEquals(listOf("h10", "h11", "h12", "h13"), today.rows.map { it.title })
+    assertTrue(today.rows.first().isNext)
+    assertEquals(2, today.moreCount)
+  }
+
+  @Test fun noAppointmentsHidesTheCard() {
+    assertNull(presenter().load(at(1, 12)).appointments)
+  }
+
+  @Test fun deletedAppointmentsDoNotShow() {
+    val events = withAppointments(appt("a", at(1, 9), at(1, 10)), appt("b", at(1, 14), at(1, 15)))
+    events.delete("a")
+    assertEquals(listOf("b"), assertNotNull(presenter(events = events, compose = false).load(at(1, 8)).appointments).rows.map { it.title })
+    events.delete("b")
+    assertNull(presenter(events = events, compose = false).load(at(1, 8)).appointments)
+  }
+
+  @Test fun todayIsTheLocalDayNotTheUtcDay() {
+    // tz +7: local 00:00 today is 17:00 UTC the day before
+    val events = withAppointments(
+      appt("yesterdayLate", at(0, 23, 59), null),
+      appt("midnight", at(1, 0), at(1, 0, 30)),
+      appt("lastMinute", at(1, 23, 59), null),
+      appt("tomorrow", at(2, 0), null),
+    )
+    val rows = assertNotNull(presenter(events = events, compose = false).load(at(1, 12)).appointments).rows
+    assertEquals(listOf("midnight", "lastMinute"), rows.map { it.title })
+    assertEquals(listOf("00:00–00:30", "23:59"), rows.map { it.timeText })
   }
 }

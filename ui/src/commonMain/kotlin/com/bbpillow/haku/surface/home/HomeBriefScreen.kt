@@ -63,6 +63,7 @@ fun HomeBriefScreen(
     }
     item { ScreenTitle(state.headline, eyebrow = state.greeting) }
     item { StoryCard(state, onOpenDay) }
+    state.appointments?.let { today -> item { AppointmentsCard(today) } }
     state.stats?.let { stats -> item { StatsRow(stats) } }
     state.weekly?.let { card -> item { WeeklyBoard(card, onOpenPlus) } }
     state.learning?.let { card -> item { LearningBoard(card, onReadLearning, onDismissLearning) } }
@@ -92,6 +93,28 @@ private fun StoryCard(state: HomeBriefUiState, onOpenDay: (String) -> Unit) {
         if (state.storyLineCount > state.storyLines.size) StatChip("ดูทั้งหมด")
       }
     }
+  }
+}
+
+/** Today's calendar: past rows muted, the next one in violet with a chip, the rest as "อีก N นัด". */
+@Composable
+private fun AppointmentsCard(today: TodayAppointments) {
+  SurfaceCard(Modifier.fillMaxWidth()) {
+    Text("วันนี้มีนัด", style = MaterialTheme.typography.titleSmall)
+    Spacer(Modifier.height(6.dp))
+    today.rows.forEach { row ->
+      val color = when {
+        row.isNext -> HakuColors.Violet
+        row.isPast -> HakuColors.Muted
+        else -> HakuColors.Ink
+      }
+      Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(row.timeText, style = MaterialTheme.typography.bodySmall, color = color)
+        Text(row.title, style = if (row.isNext) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium, color = color, modifier = Modifier.weight(1f))
+        if (row.isNext) StatChip("ถัดไป")
+      }
+    }
+    if (today.moreCount > 0) StatChip("อีก ${today.moreCount} นัด", Modifier.padding(top = 8.dp))
   }
 }
 
