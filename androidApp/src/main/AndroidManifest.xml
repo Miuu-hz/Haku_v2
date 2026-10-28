@@ -10,6 +10,8 @@
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   <!-- P3.6: only the one-time model download (Hugging Face). No user data is sent; see docs/permissions.md -->
   <uses-permission android:name="android.permission.INTERNET" />
+  <!-- P5.2 morning/evening brief, asked only when the user turns one on in Settings; see docs/permissions.md -->
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
   <application
     android:name=".HakuApplication"

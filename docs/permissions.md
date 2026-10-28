@@ -16,6 +16,16 @@
 
 สัญญาณชาร์จและปลดล็อกไม่ต้องขอสิทธิ์ (ไม่เก็บว่าใช้แอปไหน) · สิทธิ์ของผู้ใช้ตาม ม.30–33 (ขอดู ลบ) ใช้กลไก `delete` ของ `CaptureEventRepository` ที่จำ id ไว้ไม่ให้เขียนกลับ
 
+## การแจ้งเตือนสรุปเช้า/เย็น (P5.1 · P5.2)
+
+| สิทธิ์ | ใช้ทำอะไร | ถ้าไม่ให้ | PDPA |
+|---|---|---|---|
+| `POST_NOTIFICATIONS` (Android 13+) | แจ้งสรุปเช้า (เมื่อวาน + นัดวันนี้) และสรุปเย็น (วันนี้ + ชวนเล่าเพิ่ม) ช่อง "สรุปประจำวัน" | สวิตช์กลับเป็นปิด ไม่มีแจ้งเตือน ส่วนอื่นใช้ได้ตามเดิม | ขอเฉพาะตอนผู้ใช้เปิดสวิตช์ในหน้าตั้งค่า ทั้งสองตัวเริ่มปิด (ม.19 ไม่ติ๊กไว้ก่อน) · ข้อความสร้างในเครื่องจากไดอารีและสรุปเย็นที่มีอยู่ ไม่เรียกโมเดลใหม่ ไม่ส่งออก (ไม่เข้า ม.28) · หน้าจอล็อกเห็นแค่ "Haku มีสรุปให้คุณ" (`VISIBILITY_PRIVATE`) เพราะไดอารีอาจมีข้อมูลอ่อนไหว ม.26 |
+
+ประกาศที่หน้าตั้งค่า: "แจ้งเตือนวันละไม่เกินหนึ่งครั้งต่อแบบ ไม่มีอะไรจะเล่าก็ไม่แจ้ง หน้าจอล็อกไม่แสดงเนื้อหา สร้างในเครื่องนี้ทั้งหมด"
+· ไม่มีบรรทัดไดอารีของวันนั้น (และเช้าไม่มีนัด) = ไม่แจ้ง ไม่แต่งตัวเลข · ช้ากว่าเวลาที่ตั้งเกิน 2 ชม. (เครื่องปิดอยู่) = ข้ามวันนั้น
+· ตั้งเวลาด้วย WorkManager งานครั้งเดียวต่อวันที่ตั้งงานถัดไปเอง รอดจากปิดแอป/รีสตาร์ต · log ใน debug มีแค่ชนิดและผล ไม่มีข้อความ
+
 ## ความเสี่ยงรีวิว Google Play: ตำแหน่งเบื้องหลัง
 
 Google Play ตรวจ `ACCESS_BACKGROUND_LOCATION` เข้มที่สุด ต้องกรอก Permissions Declaration Form + วิดีโอสั้นแสดงการเปิดเผยข้อมูลในแอป
@@ -62,4 +72,7 @@ adb shell am broadcast -n $PKG/.CaptureDebugReceiver -a com.bbpillow.haku.debug.
 adb shell am broadcast -n $PKG/.CaptureDebugReceiver -a com.bbpillow.haku.debug.DIARY --es day 2026-10-01
 adb shell am broadcast -n $PKG/.CaptureDebugReceiver -a com.bbpillow.haku.debug.STOP    # หยุด
 adb logcat -s HakuCapture
+adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS
+adb shell am broadcast -n $PKG/.BriefDebugReceiver -a com.bbpillow.haku.debug.BRIEF --es kind morning   # หรือ evening: แจ้งเลย (ข้ามสวิตช์/เวลา/วันละครั้ง)
+adb logcat -s HakuBrief
 ```

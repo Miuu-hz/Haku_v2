@@ -6,30 +6,42 @@
     <!-- Component kit showcase, launch with adb shell am start -n com.bbpillow.haku/.ShowcaseActivity -->
     <activity
       android:name=".ShowcaseActivity"
-      android:exported="true" />
+      android:exported="true"
+      android:permission="android.permission.DUMP" />
     <!-- P0.4 piece A spike runner, see docs/FOR-YOU.md -->
     <activity
       android:name=".SpikeActivity"
-      android:exported="true" />
+      android:exported="true"
+      android:permission="android.permission.DUMP" />
     <!-- P1.2 agent chat check (one Thai prompt + getCurrentTime tool), logcat tag HakuAgent -->
     <activity
       android:name=".AgentSpikeActivity"
-      android:exported="true" />
+      android:exported="true"
+      android:permission="android.permission.DUMP" />
     <!-- P2.7 evening summary check (diary lines -> real model -> checker), logcat tag HakuSummary -->
     <activity
       android:name=".SummarySpikeActivity"
-      android:exported="true" />
+      android:exported="true"
+      android:permission="android.permission.DUMP" />
     <!-- P2.2/P2.5 capture switch + dump until onboarding exists, see docs/permissions.md -->
     <receiver
       android:name=".CaptureDebugReceiver"
-      android:exported="true" />
+      android:exported="true"
+      android:permission="android.permission.DUMP" />
     <!-- Stress-test Chat pipeline over adb, logcat tag HakuAsk, see scripts/stress/README.md -->
     <receiver
       android:name=".AskDebugReceiver"
-      android:exported="true" />
+      android:exported="true"
+      android:permission="android.permission.DUMP" />
     <!-- ชิ้น ค EmbeddingGemma-2 timing + Thai similarity check, logcat tag HakuEmbed -->
     <receiver
       android:name=".EmbedDebugReceiver"
-      android:exported="true" />
+      android:exported="true"
+      android:permission="android.permission.DUMP" />
+    <!-- P5.2 post the daily brief now, see docs/permissions.md, logcat tag HakuBrief -->
+    <receiver
+      android:name=".BriefDebugReceiver"
+      android:exported="true"
+      android:permission="android.permission.DUMP" />
   </application>
 </manifest>

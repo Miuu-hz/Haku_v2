@@ -34,13 +34,12 @@ import com.bbpillow.haku.surface.theme.HakuColors
 import com.bbpillow.haku.surface.theme.HakuRadius
 import com.bbpillow.haku.surface.theme.HakuTone
 
-private val Dots = listOf(HakuColors.Coral, HakuColors.Violet, HakuTone.Amber.deep, HakuColors.Green)
+internal val TimelineDots = listOf(HakuColors.Coral, HakuColors.Violet, HakuTone.Amber.deep, HakuColors.Green)
 
 /**
- * Screen 2 of haku-mockup.html (asset C1-C3): date strip, BE header, the day's diary lines. Tap a line to edit or
+ * Screen 2 of haku-mockup.html (asset C1-C3): date strip, BE header, mini map of the day's stops, the day's diary lines. Tap a line to edit or
  * delete it. State-hoisted: the caller owns [state] (from TimelinePresenter) and applies the callbacks.
  */
-// ponytail: no mini-map yet (P3.2 lists one); daily records carry no coordinates, add it with the place join.
 @Composable
 fun TimelineScreen(
   state: TimelineUiState,
@@ -56,6 +55,7 @@ fun TimelineScreen(
   LazyColumn(modifier.fillMaxWidth(), contentPadding = contentPadding, verticalArrangement = Arrangement.spacedBy(8.dp)) {
     item { ScreenTitle("ไทม์ไลน์", eyebrow = state.header) }
     item { DateStrip(state, onSelectDay) }
+    state.map?.let { item { TimelineMiniMap(it, Modifier.padding(top = 4.dp)) } }
     if (state.lines.isNotEmpty()) {
       item {
         Text(
@@ -74,7 +74,8 @@ fun TimelineScreen(
       }
     }
     itemsIndexed(state.lines, key = { _, l -> "${l.memoryDay}/${l.recordId}" }) { i, line ->
-      TimelineRow(line.time, line.text, Dots[i % Dots.size], line.provenance.timelineBadge(), onClick = { editing = line })
+      val dot = line.mapNumber?.let(::mapDot) ?: TimelineDots[i % TimelineDots.size]
+      TimelineRow(line.time, line.text, dot, line.provenance.timelineBadge(), onClick = { editing = line }, marker = line.mapNumber)
     }
   }
 

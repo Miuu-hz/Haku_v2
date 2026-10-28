@@ -70,15 +70,25 @@ fun TimelineRow(
   provenance: Provenance?,
   onClick: () -> Unit,
   modifier: Modifier = Modifier,
+  marker: Int? = null,
 ) {
   val parts = DiaryLineParts.of(text)
   Column(modifier.fillMaxWidth()) {
     parts.travel?.let {
-      Text(it, style = MaterialTheme.typography.labelSmall, color = HakuColors.Muted, modifier = Modifier.padding(start = 60.dp, bottom = 4.dp))
+      Text(it, style = MaterialTheme.typography.labelSmall, color = HakuColors.Muted, modifier = Modifier.padding(start = 68.dp, bottom = 4.dp))
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       Text(time, style = MaterialTheme.typography.labelSmall, color = HakuColors.Muted, modifier = Modifier.width(42.dp).padding(top = 13.dp))
-      Box(Modifier.padding(top = 16.dp).size(10.dp).background(dot, CircleShape))
+      // [marker] = the stop's number on the timeline mini map; the slot is always 18dp so rows line up either way
+      Box(Modifier.padding(top = 12.dp).size(18.dp), contentAlignment = Alignment.Center) {
+        if (marker == null) {
+          Box(Modifier.size(10.dp).background(dot, CircleShape))
+        } else {
+          Box(Modifier.size(18.dp).background(dot, CircleShape), contentAlignment = Alignment.Center) {
+            Text("$marker", style = MaterialTheme.typography.labelSmall, color = HakuColors.Surface)
+          }
+        }
+      }
       SurfaceCard(
         Modifier.weight(1f).clip(HakuRadius.Card).clickable(role = Role.Button, onClickLabel = "แก้ไขหรือลบ", onClick = onClick),
         padding = PaddingValues(horizontal = 16.dp, vertical = 11.dp),

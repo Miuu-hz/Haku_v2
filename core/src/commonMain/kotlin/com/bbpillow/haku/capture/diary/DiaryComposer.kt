@@ -76,6 +76,10 @@ class DiaryComposer(
       }
   }
 
+  /** The stays and places the diary sees for the local day (timeline mini map, P3.2). Read-only; deleted events are gone. */
+  fun placesOfDay(day: String, tzOffsetMinutes: Int): PlaceRecognitionOutput =
+    renderDay(day, tzOffsetMinutes, DiaryStyle()).recognized
+
   /** The local day's records from the daily log, oldest first. */
   fun readDay(day: String, tzOffsetMinutes: Int): List<MemoryRecord> {
     val (start, end) = window(day, tzOffsetMinutes)

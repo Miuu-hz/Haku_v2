@@ -67,6 +67,11 @@ data class SettingsUiState(
   val stylePreview: String,
   val lockEnabled: Boolean,
   val message: String? = null,
+  /** P5.2 "สรุปประจำวัน": off by default; times as local "HH:MM". */
+  val morningBriefOn: Boolean = false,
+  val morningBriefTime: String = DailyBrief.formatMinute(DailyBrief.MORNING_DEFAULT_MINUTE),
+  val eveningBriefOn: Boolean = false,
+  val eveningBriefTime: String = DailyBrief.formatMinute(DailyBrief.EVENING_DEFAULT_MINUTE),
 )
 
 /**
@@ -85,7 +90,25 @@ class ModelManagerPresenter(
       stylePreview = OnboardingPresenter.preview(saved.style),
       lockEnabled = saved.lockEnabled,
       message = message,
+      morningBriefOn = saved.morningBriefOn,
+      morningBriefTime = DailyBrief.formatMinute(saved.morningBriefMinute),
+      eveningBriefOn = saved.eveningBriefOn,
+      eveningBriefTime = DailyBrief.formatMinute(saved.eveningBriefMinute),
     )
+  }
+
+  /** Call with true only after the OS granted POST_NOTIFICATIONS; the scheduler reads the saved profile. */
+  fun setBrief(kind: BriefKind, on: Boolean, installed: List<InstalledModelRecord>): SettingsUiState {
+    val cur = profile.load()
+    profile.save(if (kind == BriefKind.MORNING) cur.copy(morningBriefOn = on) else cur.copy(eveningBriefOn = on))
+    return loadSettings(installed)
+  }
+
+  fun setBriefTime(kind: BriefKind, minuteOfDay: Int, installed: List<InstalledModelRecord>): SettingsUiState {
+    val m = minuteOfDay.coerceIn(0, 24 * 60 - 1)
+    val cur = profile.load()
+    profile.save(if (kind == BriefKind.MORNING) cur.copy(morningBriefMinute = m) else cur.copy(eveningBriefMinute = m))
+    return loadSettings(installed)
   }
 
   fun setParticle(particle: EndingParticle, installed: List<InstalledModelRecord>): SettingsUiState {

@@ -40,7 +40,7 @@ import com.bbpillow.haku.surface.theme.HakuTone
 
 /**
  * Settings screen ("ตั้งค่า") opened from the gear icon on the Memory tab.
- * Three sections only: (a) AI ในเครื่อง, (b) คำลงท้าย, (c) ล็อกแอป. State-hoisted.
+ * Sections: (a) AI ในเครื่อง, (b) คำลงท้าย, (c) สรุปประจำวัน (P5.2, both off by default), (d) ล็อกแอป. State-hoisted.
  */
 @Composable
 fun SettingsScreen(
@@ -52,6 +52,8 @@ fun SettingsScreen(
   onNickname: (String) -> Unit,
   onToggleLock: (Boolean) -> Unit,
   modifier: Modifier = Modifier,
+  onToggleBrief: (BriefKind, Boolean) -> Unit = { _, _ -> },
+  onPickBriefTime: (BriefKind) -> Unit = {},
   contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
 ) {
   Column(
@@ -126,6 +128,21 @@ fun SettingsScreen(
       Text(state.stylePreview, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Ink)
     }
 
+    SectionLabel("สรุปประจำวัน", Modifier.padding(top = 4.dp))
+    SurfaceCard(Modifier.fillMaxWidth()) {
+      Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        BriefRow("สรุปเช้า", "เมื่อวานเป็นยังไง และนัดของวันนี้", state.morningBriefOn, state.morningBriefTime,
+          { onToggleBrief(BriefKind.MORNING, it) }, { onPickBriefTime(BriefKind.MORNING) })
+        BriefRow("สรุปเย็น", "วันนี้เป็นยังไง ชวนเล่าเพิ่มถ้าอยาก", state.eveningBriefOn, state.eveningBriefTime,
+          { onToggleBrief(BriefKind.EVENING, it) }, { onPickBriefTime(BriefKind.EVENING) })
+        Text(
+          "แจ้งเตือนวันละไม่เกินหนึ่งครั้งต่อแบบ ไม่มีอะไรจะเล่าก็ไม่แจ้ง หน้าจอล็อกไม่แสดงเนื้อหา สร้างในเครื่องนี้ทั้งหมด",
+          style = MaterialTheme.typography.bodySmall,
+          color = HakuColors.Muted,
+        )
+      }
+    }
+
     SectionLabel("ล็อกแอป", Modifier.padding(top = 4.dp))
     SurfaceCard(Modifier.fillMaxWidth()) {
       Row(
@@ -154,6 +171,42 @@ fun SettingsScreen(
         modifier = Modifier.padding(horizontal = 4.dp),
       )
     }
+  }
+}
+
+@Composable
+private fun BriefRow(
+  title: String,
+  detail: String,
+  on: Boolean,
+  time: String,
+  onToggle: (Boolean) -> Unit,
+  onPickTime: () -> Unit,
+) {
+  Row(
+    Modifier.fillMaxWidth(),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    Column(Modifier.weight(1f)) {
+      Text(title, style = MaterialTheme.typography.titleSmall, color = HakuColors.Ink)
+      Text(detail, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
+    }
+    Text(
+      time,
+      style = MaterialTheme.typography.labelLarge,
+      color = HakuColors.Ink,
+      modifier = Modifier
+        .clip(HakuRadius.Pill)
+        .background(HakuColors.Bg)
+        .clickable(role = Role.Button, onClickLabel = "เปลี่ยนเวลา$title", onClick = onPickTime)
+        .padding(horizontal = 12.dp, vertical = 8.dp),
+    )
+    Switch(
+      checked = on,
+      onCheckedChange = onToggle,
+      colors = SwitchDefaults.colors(checkedTrackColor = HakuColors.Ink, checkedThumbColor = HakuColors.Surface),
+    )
   }
 }
 

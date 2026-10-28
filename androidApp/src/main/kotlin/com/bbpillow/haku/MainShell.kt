@@ -46,6 +46,7 @@ import com.bbpillow.haku.surface.home.HomeBriefUiState
 import com.bbpillow.haku.surface.memory.TransparencyScreen
 import com.bbpillow.haku.surface.memory.TransparencyUiState
 import com.bbpillow.haku.surface.node.HomeNodeScreen
+import com.bbpillow.haku.surface.onboarding.ModelKind
 import com.bbpillow.haku.surface.onboarding.ActiveModel
 import com.bbpillow.haku.surface.onboarding.ModelChoice
 import com.bbpillow.haku.surface.onboarding.OnboardingPresenter
@@ -193,14 +194,25 @@ private fun SettingsTab(
     state = state?.copy(activeModelLabel = loaded.activeModelLabel) ?: loaded
   }
 
-  fun update(block: ModelManagerPresenter.(List<InstalledModelRecord>) -> SettingsUiState) {
+  fun update(then: (ProfileRecord) -> Unit = {}, block: ModelManagerPresenter.(List<InstalledModelRecord>) -> SettingsUiState) {
     scope.launch {
       val installed = withContext(Dispatchers.IO) { graph.installedModels() }
       graph.safeIo { modelManager.block(installed) to profile.load() }?.let { (ui, rec) ->
         state = ui
         onProfileChanged(rec)
+        then(rec)
       }
     }
+  }
+
+  // P5.2: a brief is saved on only after the OS grants POST_NOTIFICATIONS; denied = it stays off
+  val syncBriefs: (ProfileRecord) -> Unit = { com.bbpillow.haku.platform.notify.BriefWorker.sync(activity, it) }
+  var askingBrief by remember { mutableStateOf<com.bbpillow.haku.surface.settings.BriefKind?>(null) }
+  val notifyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    val kind = askingBrief ?: return@rememberLauncherForActivityResult
+    askingBrief = null
+    if (granted) update(syncBriefs) { setBrief(kind, true, it) }
+    else Toast.makeText(activity, "ต้องอนุญาตการแจ้งเตือนก่อน เปิดได้ในการตั้งค่าเครื่อง", Toast.LENGTH_LONG).show()
   }
 
   val s = state ?: return
@@ -230,6 +242,22 @@ private fun SettingsTab(
       } else {
         update { setLock(false, it) }
       }
+    },
+    onToggleBrief = { kind, on ->
+      val needsAsk = on && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+        activity.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+      if (needsAsk) {
+        askingBrief = kind
+        notifyPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+      } else {
+        update(syncBriefs) { setBrief(kind, on, it) }
+      }
+    },
+    onPickBriefTime = { kind ->
+      val current = com.bbpillow.haku.surface.settings.DailyBrief.parseMinute(
+        if (kind == com.bbpillow.haku.surface.settings.BriefKind.MORNING) s.morningBriefTime else s.eveningBriefTime,
+      ) ?: 0
+      android.app.TimePickerDialog(activity, { _, h, m -> update(syncBriefs) { setBriefTime(kind, h * 60 + m, it) } }, current / 60, current % 60, true).show()
     },
     contentPadding = TabPadding,
   )
@@ -373,6 +401,8 @@ private fun ModelManagerTab(
       scope.launch {
         val choice = card.choice
         if (choice != null) graph.downloader.delete(choice) else graph.importer.delete(card.fileName)
+        // the vectors are derived from the user's diary by this model: they go with it (PDPA review stage 3, finding 3)
+        if (choice?.kind == ModelKind.EMBEDDING) graph.safeIo { vectors.clear() }
         val ram = graph.ramGb()
         val installed = withContext(Dispatchers.IO) { graph.installedModels() }
         val currentDl = graph.downloader.state.value

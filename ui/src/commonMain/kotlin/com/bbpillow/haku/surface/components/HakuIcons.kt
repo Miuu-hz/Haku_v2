@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
  */
 object HakuIcons {
   val Home = icon("Home", "M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4v-5h-6v5H5a1 1 0 0 1-1-1z")
+  val Work = icon("Work", rect(4f, 8f, 16f, 11f, 2f), "M9 8V6.5A1.5 1.5 0 0 1 10.5 5h3A1.5 1.5 0 0 1 15 6.5V8", "M4 13h16")
   val Route = icon("Route", circle(6f, 18f, 2f), circle(18f, 6f, 2f), "M8 18h7a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h7")
   val Chat = icon("Chat", "M5 17.5V7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 3z")
   val Grid = icon(

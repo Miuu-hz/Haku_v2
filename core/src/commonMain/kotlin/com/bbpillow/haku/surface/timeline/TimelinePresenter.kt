@@ -19,6 +19,8 @@ data class TimelineLine(
   val time: String,
   val text: String,
   val provenance: Provenance,
+  /** The stop's number on the day's mini map, null when the row is not a stay (or there is no map). */
+  val mapNumber: Int? = null,
 )
 
 /** Everything the Timeline screen draws. [header] is Buddhist Era, display only. */
@@ -28,6 +30,8 @@ data class TimelineUiState(
   val header: String,
   val dates: List<TimelineDate>,
   val lines: List<TimelineLine>,
+  /** Null hides the mini map (fewer than two places). */
+  val map: TimelineMapState? = null,
 )
 
 /**
@@ -42,17 +46,22 @@ class TimelinePresenter(
   private val summaries: EveningSummaryRepository,
   private val tzOffsetMinutes: Int,
 ) {
-  fun load(day: String, today: String): TimelineUiState = TimelineUiState(
-    day = day,
-    today = today,
-    header = ThaiDateFormat.dayHeader(day),
-    dates = (STRIP_DAYS - 1 downTo 0).map { plusDays(today, -it) }
-      .map { TimelineDate(it, ThaiDateFormat.shortWeekday(it), it.takeLast(2).toInt()) },
-    lines = diary.readDay(day, tzOffsetMinutes).map { r ->
-      val time = MemoryFormat.formatUtc(r.atEpochMs + tzOffsetMinutes * MIN_MS).substring(11, 16)
-      TimelineLine(MemoryFormat.dayOf(r.atEpochMs), r.id, r.atEpochMs, time, r.text.removePrefix("$time "), r.provenance)
-    },
-  )
+  fun load(day: String, today: String): TimelineUiState {
+    val records = diary.readDay(day, tzOffsetMinutes)
+    val map = TimelineMap.build(records.map { it.atEpochMs }, diary.placesOfDay(day, tzOffsetMinutes))
+    return TimelineUiState(
+      day = day,
+      today = today,
+      header = ThaiDateFormat.dayHeader(day),
+      dates = (STRIP_DAYS - 1 downTo 0).map { plusDays(today, -it) }
+        .map { TimelineDate(it, ThaiDateFormat.shortWeekday(it), it.takeLast(2).toInt()) },
+      lines = records.map { r ->
+        val time = MemoryFormat.formatUtc(r.atEpochMs + tzOffsetMinutes * MIN_MS).substring(11, 16)
+        TimelineLine(MemoryFormat.dayOf(r.atEpochMs), r.id, r.atEpochMs, time, r.text.removePrefix("$time "), r.provenance, map?.second?.get(r.atEpochMs))
+      },
+      map = map?.first,
+    )
+  }
 
   // ponytail: last delete only, per presenter instance; a multi-level undo stack when the UI needs one
   private var lastDeleted: Pair<TimelineLine, String?>? = null

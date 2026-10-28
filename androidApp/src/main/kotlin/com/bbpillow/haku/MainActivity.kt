@@ -29,6 +29,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.bbpillow.haku.platform.BiometricLock
 import com.bbpillow.haku.platform.NightlyWorker
+import com.bbpillow.haku.platform.notify.BriefWorker
+import androidx.work.ExistingWorkPolicy
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.surface.components.CapsuleButton
 import com.bbpillow.haku.surface.components.ScreenBackdrop
@@ -103,6 +105,7 @@ private fun AppRoot(graph: AppGraph, activity: FragmentActivity) {
         (profile.model as? ActiveModel.Catalog)?.let { graph.downloader.resumeIfPartial(it.choice) }
         if (AppStart.shouldStartCaptureOnMain(grantedKinds(activity), CaptureController.isEnabled(activity))) CaptureController.start(activity)
         NightlyWorker.schedule(activity) // onboarded from here on; KEEP = no-op after the first time
+        BriefWorker.sync(activity, profile, ExistingWorkPolicy.KEEP) // P5.2: pending briefs stay; a lost chain is re-made
         graph.billing.refresh() // P9.4 restore on start; offline = keep the saved plan within its 7-day grace
       }
       MainShell(graph, activity) { updated ->

@@ -3,6 +3,7 @@ package com.bbpillow.haku.surface.onboarding
 import com.bbpillow.haku.capture.diary.AddressForm
 import com.bbpillow.haku.capture.diary.DiaryStyle
 import com.bbpillow.haku.capture.diary.EndingParticle
+import com.bbpillow.haku.surface.settings.DailyBrief
 import okio.FileSystem
 import okio.Path
 
@@ -46,6 +47,11 @@ data class ProfileRecord(
   val model: ActiveModel = ActiveModel.Catalog(ModelChoice.E2B),
   val lockEnabled: Boolean = false,
   val onboarded: Boolean = false,
+  /** P5.2 opt-in daily notifications: off until the user turns them on (PDPA s.19, no pre-ticked consent). */
+  val morningBriefOn: Boolean = false,
+  val morningBriefMinute: Int = DailyBrief.MORNING_DEFAULT_MINUTE,
+  val eveningBriefOn: Boolean = false,
+  val eveningBriefMinute: Int = DailyBrief.EVENING_DEFAULT_MINUTE,
 )
 
 interface ProfileRepository {
@@ -72,6 +78,11 @@ class ProfileStore(private val fs: FileSystem, private val file: Path) : Profile
       model = ActiveModel.parse(kv["model"]),
       lockEnabled = kv["lock"] == "true",
       onboarded = kv["onboarded"] == "true",
+      // files written before P5.2 have none of these keys: briefs stay off at their default times
+      morningBriefOn = kv["brief_morning"] == "true",
+      morningBriefMinute = DailyBrief.parseMinute(kv["brief_morning_at"]) ?: DailyBrief.MORNING_DEFAULT_MINUTE,
+      eveningBriefOn = kv["brief_evening"] == "true",
+      eveningBriefMinute = DailyBrief.parseMinute(kv["brief_evening_at"]) ?: DailyBrief.EVENING_DEFAULT_MINUTE,
     )
   }
 
@@ -83,6 +94,10 @@ class ProfileStore(private val fs: FileSystem, private val file: Path) : Profile
       "model" to profile.model.encode(),
       "lock" to profile.lockEnabled.toString(),
       "onboarded" to profile.onboarded.toString(),
+      "brief_morning" to profile.morningBriefOn.toString(),
+      "brief_morning_at" to DailyBrief.formatMinute(profile.morningBriefMinute),
+      "brief_evening" to profile.eveningBriefOn.toString(),
+      "brief_evening_at" to DailyBrief.formatMinute(profile.eveningBriefMinute),
     ).joinToString("\n", postfix = "\n") { (k, v) -> "$k=$v" }
     file.parent?.let { fs.createDirectories(it) }
     val tmp = file.parent!! / "${file.name}.tmp"
