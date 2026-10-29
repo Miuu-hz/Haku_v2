@@ -68,6 +68,8 @@ fun ChatScreen(
   onAsk: (String) -> Unit,
   onOpenDay: (String) -> Unit,
   onOpenModels: () -> Unit = {},
+  onAddAppointment: (Int) -> Unit = {},
+  onDismissAppointment: (Int) -> Unit = {},
   modifier: Modifier = Modifier,
   contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
 ) {
@@ -106,7 +108,19 @@ fun ChatScreen(
               modifier = Modifier.widthIn(max = 300.dp).background(HakuColors.Ink, UserBubble).padding(horizontal = 16.dp, vertical = 11.dp),
             )
           }
-          AnswerCard(turn.answer, onOpenDay)
+          val appointment = turn.answer?.appointment
+          if (appointment != null) {
+            if (turn.answer?.text?.isNotBlank() == true) {
+              AnswerCard(turn.answer, onOpenDay)
+            }
+            AppointmentCard(
+              proposal = appointment,
+              onAdd = { onAddAppointment(i) },
+              onDismiss = { onDismissAppointment(i) },
+            )
+          } else {
+            AnswerCard(turn.answer, onOpenDay)
+          }
         }
       }
     }

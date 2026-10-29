@@ -45,6 +45,8 @@ data class ChatAnswerOutput(
   val rejectedReasons: List<String> = emptyList(),
   /** The refused model text, for on-device evals only. Never shown. */
   val rejectedText: String? = null,
+  /** Set when the question was an appointment to add (see AppointmentCommand); the UI shows a card. */
+  val appointment: AppointmentProposal? = null,
 )
 
 /** What [ChatPresenter.retrieve] found: the model context, its citations and the no-model answer. */

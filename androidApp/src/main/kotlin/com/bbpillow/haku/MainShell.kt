@@ -1,5 +1,6 @@
 package com.bbpillow.haku
 
+import android.Manifest
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -17,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -29,9 +31,14 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.bbpillow.haku.capture.stats.PeriodKind
+import com.bbpillow.haku.memory.MemoryFormat
 import com.bbpillow.haku.platform.BiometricLock
 import com.bbpillow.haku.platform.LiteRtLocalModel
 import com.bbpillow.haku.platform.capture.CaptureController
+import com.bbpillow.haku.platform.signals.CalendarWriter
+import com.bbpillow.haku.platform.widget.HakuWidget
+import com.bbpillow.haku.surface.chat.AppointmentProposal
+import com.bbpillow.haku.surface.chat.AppointmentStatus
 import com.bbpillow.haku.surface.chat.ChatAnswerOutput
 import com.bbpillow.haku.surface.chat.ChatAnswerSource
 import com.bbpillow.haku.surface.chat.ChatQuestionInput
@@ -48,9 +55,10 @@ import com.bbpillow.haku.surface.intent.IntentListUiState
 import com.bbpillow.haku.surface.memory.TransparencyScreen
 import com.bbpillow.haku.surface.memory.TransparencyUiState
 import com.bbpillow.haku.surface.node.HomeNodeScreen
-import com.bbpillow.haku.surface.onboarding.ModelKind
+import com.bbpillow.haku.surface.note.QuickNoteInput
 import com.bbpillow.haku.surface.onboarding.ActiveModel
 import com.bbpillow.haku.surface.onboarding.ModelChoice
+import com.bbpillow.haku.surface.onboarding.ModelKind
 import com.bbpillow.haku.surface.onboarding.OnboardingPresenter
 import com.bbpillow.haku.surface.onboarding.ProfileRecord
 import com.bbpillow.haku.surface.onboarding.ProfileStore
@@ -499,6 +507,7 @@ private fun ChatTab(
   onOpenDay: (String) -> Unit,
   onOpenModels: () -> Unit,
 ) {
+  val context = LocalContext.current
   var modelLabel by remember { mutableStateOf(ModelManagerPresenter.NO_MODEL_LABEL) }
   LaunchedEffect(Unit) { graph.warmEmbedder() }
   val dl by graph.downloader.state.collectAsState()
@@ -513,6 +522,57 @@ private fun ChatTab(
       modelManager.activeModelLabel(installed)
     } ?: ModelManagerPresenter.NO_MODEL_LABEL
   }
+
+  // the calendar insert finishes after recomposition; read the latest turns so a question asked meanwhile is kept
+  val latestTurns by rememberUpdatedState(turns)
+  fun updateAppointment(index: Int, transform: (AppointmentProposal) -> AppointmentProposal) {
+    val turn = latestTurns.getOrNull(index) ?: return
+    val answer = turn.answer ?: return
+    val appointment = answer.appointment ?: return
+    val updated = latestTurns.toMutableList()
+    updated[index] = turn.copy(answer = answer.copy(appointment = transform(appointment)))
+    onTurns(updated)
+  }
+
+  fun saveAppointment(index: Int) {
+    val turn = turns.getOrNull(index) ?: return
+    val appointment = turn.answer?.appointment ?: return
+    if (appointment.status == AppointmentStatus.SAVING || appointment.status == AppointmentStatus.ADDED) return
+    updateAppointment(index) { it.copy(status = AppointmentStatus.SAVING) }
+    scope.launch {
+      val id = withContext(Dispatchers.IO) {
+        runCatching {
+          CalendarWriter.insert(context, appointment.title, appointment.startUtcMs, appointment.endUtcMs)
+        }.getOrNull()
+      }
+      if (id != null) {
+        updateAppointment(index) { it.copy(status = AppointmentStatus.ADDED) }
+        val noteText = "นัด ${appointment.title} ${appointment.dayLabel} ${appointment.timeLabel}"
+        val saved = graph.safeIo {
+          quickNote.save(QuickNoteInput(noteText, System.currentTimeMillis()))
+        } != null
+        if (saved) {
+          HakuWidget.refresh(context)
+        }
+      } else {
+        updateAppointment(index) { it.copy(status = AppointmentStatus.FAILED) }
+      }
+    }
+  }
+
+  var pendingAppointmentIndex by remember { mutableStateOf<Int?>(null) }
+  val calendarPermissionLauncher = rememberLauncherForActivityResult(
+    ActivityResultContracts.RequestMultiplePermissions(),
+  ) {
+    val index = pendingAppointmentIndex ?: return@rememberLauncherForActivityResult
+    pendingAppointmentIndex = null
+    if (CalendarWriter.canWrite(context)) {
+      saveAppointment(index)
+    } else {
+      updateAppointment(index) { it.copy(status = AppointmentStatus.NEEDS_PERMISSION) }
+    }
+  }
+
   ChatScreen(
     turns,
     engineLabel = modelLabel,
@@ -526,12 +586,43 @@ private fun ChatTab(
     },
     onOpenDay = onOpenDay,
     onOpenModels = onOpenModels,
+    onAddAppointment = { index ->
+      val turn = turns.getOrNull(index) ?: return@ChatScreen
+      val appointment = turn.answer?.appointment ?: return@ChatScreen
+      if (appointment.status == AppointmentStatus.SAVING || appointment.status == AppointmentStatus.ADDED) return@ChatScreen
+      if (!CalendarWriter.canWrite(context)) {
+        pendingAppointmentIndex = index
+        calendarPermissionLauncher.launch(arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR))
+      } else {
+        saveAppointment(index)
+      }
+    },
+    onDismissAppointment = { index ->
+      updateAppointment(index) { it.copy(status = AppointmentStatus.DISMISSED) }
+    },
     contentPadding = TabPadding,
   )
 }
 
 /** Retrieval on the DB thread, then the downloaded model if there is one (loaded for this question, released after). */
 private suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutput? {
+  val tz = graph.tzOffsetMinutes
+  val appointmentAnswer = graph.safeIo { appointmentCommand.tryPropose(question, System.currentTimeMillis(), tz) }
+  val proposal = appointmentAnswer?.appointment
+  if (proposal != null) {
+    val conflicts = withContext(Dispatchers.IO) {
+      runCatching { CalendarWriter.conflicts(graph.app, proposal.startUtcMs, proposal.endUtcMs) }.getOrDefault(emptyList())
+    }
+    val first = conflicts.firstOrNull()
+    val updatedProposal = if (first != null) {
+      val startHhmm = MemoryFormat.formatUtc(first.beginUtcMs + graph.tzOffsetMinutes * 60_000L).substring(11, 16)
+      val endHhmm = MemoryFormat.formatUtc(first.endUtcMs + graph.tzOffsetMinutes * 60_000L).substring(11, 16)
+      proposal.copy(conflict = "ชนกับ “${first.title.orEmpty()}” $startHhmm–$endHhmm")
+    } else {
+      proposal
+    }
+    return appointmentAnswer.copy(appointment = updatedProposal)
+  }
   graph.safeIo { intentCommand.tryHandle(question, System.currentTimeMillis()) }?.let { return it } // P5.3 "ถ้า … ให้เตือน …"
   val semantic = graph.questionSemantic(question) // words-only while the embedder is cold or absent
   val (presenter, retrieval) = graph.safeIo { chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style), semantic) } ?: return null

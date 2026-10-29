@@ -33,6 +33,7 @@ import com.bbpillow.haku.platform.ModelImporter
 import com.bbpillow.haku.platform.billing.PlayBilling
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.platform.notify.IntentNotifier
+import com.bbpillow.haku.surface.chat.AppointmentCommand
 import com.bbpillow.haku.surface.chat.IntentCommand
 import com.bbpillow.haku.surface.intent.IntentListPresenter
 import com.bbpillow.haku.thinking.intent.IntentFireOutput
@@ -78,7 +79,7 @@ import okio.Path.Companion.toPath
  * on the capture thread. Built in [HakuApplication.onCreate]; nothing opens until the first [io] call.
  * ponytail: tz offset fixed per process (Thailand has no DST); pass it per call if travel across zones matters.
  */
-class AppGraph(private val app: Application) {
+class AppGraph(val app: Application) {
   private val tz = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60_000
 
   /** Outlives activities (fold/unfold, backgrounding) so the model download keeps going. */
@@ -118,6 +119,7 @@ class AppGraph(private val app: Application) {
     /** P5.3 standing intentions (INTENTIONS.md): chat adds them, capture and typed notes fire them. */
     val intents = IntentService(memory, places, pipeline)
     val intentCommand = IntentCommand(intents)
+    val appointmentCommand = AppointmentCommand()
     val intentList = IntentListPresenter(intents, tz, System::currentTimeMillis)
     /** A line the user types (timeline edit, quick note) is a new note: it can set an intention off. */
     private val notesWatched = object : MemoryRepository by memory {
@@ -241,7 +243,8 @@ class AppGraph(private val app: Application) {
     try {
       io { vectorIndexer() }.run(e, cap, CaptureController.dispatcher)
     } finally {
-      e.close()
+      // chat keeps the shared engine open (questionSemantic); closing it here could free it under an in-flight embed
+      if (!SEMANTIC_CHAT) e.close()
     }
   }
 

@@ -7,6 +7,7 @@
   <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
   <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
   <uses-permission android:name="android.permission.READ_CALENDAR" />
+  <uses-permission android:name="android.permission.WRITE_CALENDAR" />
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   <!-- P3.6: only the one-time model download (Hugging Face). No user data is sent; see docs/permissions.md -->
   <uses-permission android:name="android.permission.INTERNET" />
