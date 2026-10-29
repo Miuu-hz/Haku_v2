@@ -50,5 +50,10 @@
       android:name=".BriefDebugReceiver"
       android:exported="true"
       android:permission="android.permission.DUMP" />
+    <!-- Chat appointment -> calendar stress over adb, logcat tag HakuAppt -->
+    <receiver
+      android:name=".AppointmentDebugReceiver"
+      android:exported="true"
+      android:permission="android.permission.DUMP" />
   </application>
 </manifest>

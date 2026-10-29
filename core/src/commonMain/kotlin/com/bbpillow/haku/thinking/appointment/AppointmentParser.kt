@@ -9,6 +9,7 @@ object AppointmentParser {
   private const val DAY_MS = 86_400_000L
 
   private val CUES = listOf("มีนัด", "นัด", "ประชุม", "เจอ", "ไปหา", "คอล", "สัมภาษณ์")
+  private val PAST = listOf("เมื่อวาน", "เมื่อเช้า", "เมื่อกี้", "เมื่อคืน", "ที่แล้ว")
   private val QUESTIONS = listOf("ไหม", "มั้ย", "อะไร", "เมื่อไหร่", "เมื่อไร", "กี่โมง", "ที่ไหน", "บ้าง", "หรือเปล่า", "?")
 
   private val THAI_NUMS = mapOf(
@@ -34,6 +35,7 @@ object AppointmentParser {
     val norm = thaiDigits(text)
     if (norm.trim().startsWith("ถ้า") || "ทุกครั้งที่" in norm || "ให้เตือน" in norm) return null
     if (QUESTIONS.any { it in norm }) return null
+    if (PAST.any { it in norm }) return null // "เมื่อวานไปประชุมมา 10 โมง" is a diary line, not a plan
     if (CUES.none { it in norm }) return null
 
     val (time, timeRange) = findTime(norm) ?: return null
@@ -77,13 +79,13 @@ object AppointmentParser {
     parseDtee(text) ?: parseMong(text) ?: parseDigital(text)
 
   private fun parseNoon(text: String): Pair<Pair<Int, Int>, IntRange>? {
-    val m = Regex("""(?:เวลา|ตอน|ช่วง)?\s*(เที่ยงคืน|เที่ยง(?:วัน)?)(?:\s*(ครึ่ง|ตรง|(\d{1,2})\s*นาที|(\d{1,2})))?""").find(text) ?: return null
+    val m = Regex("""(?:เวลา|ตอน|ช่วง)?\s*(เที่ยงคืน|เที่ยง(?:วัน)?)(?:\s*(ครึ่ง|ตรง|(\d{1,2})\s*นาที|(\d{1,2})(?!\d|\s*/|\s*(?:[ก-ฮ]{1,2}\.|มกรา|กุมภา|มีนา|เมษา|พฤษภา|มิถุนา|กรกฎา|สิงหา|กันยา|ตุลา|พฤศจิกา|ธันวา))))?""").find(text) ?: return null
     val hour = if (m.groupValues[1] == "เที่ยงคืน") 0 else 12
     return (hour to parseMinute(m.groupValues[2], m.groupValues[3], m.groupValues[4])) to m.range
   }
 
   private fun parseBai(text: String): Pair<Pair<Int, Int>, IntRange>? {
-    val m = Regex("""(?:เวลา|ตอน|ช่วง)?\s*บ่าย\s*(?:([1-4]|หนึ่ง|สอง|สาม|สี่)\s*)?(?:โมง)?(?:\s*(ครึ่ง|ตรง|(\d{1,2})\s*นาที|(\d{1,2})))?""").find(text) ?: return null
+    val m = Regex("""(?:เวลา|ตอน|ช่วง)?\s*บ่าย\s*(?:([1-4]|หนึ่ง|สอง|สาม|สี่)\s*)?(?:โมง)?(?:\s*(ครึ่ง|ตรง|(\d{1,2})\s*นาที|(\d{1,2})(?!\d|\s*/|\s*(?:[ก-ฮ]{1,2}\.|มกรา|กุมภา|มีนา|เมษา|พฤษภา|มิถุนา|กรกฎา|สิงหา|กันยา|ตุลา|พฤศจิกา|ธันวา))))?""").find(text) ?: return null
     val numStr = m.groupValues[1].takeIf { it.isNotEmpty() }
     val hasMong = "โมง" in m.value
     val minStr = m.groupValues[2].takeIf { it.isNotEmpty() }
@@ -93,25 +95,25 @@ object AppointmentParser {
   }
 
   private fun parseEvening(text: String): Pair<Pair<Int, Int>, IntRange>? {
-    val m = Regex("""(?:เวลา|ตอน|ช่วง)?\s*([3-6]|สาม|สี่|ห้า|หก)\s*โมงเย็น(?:\s*(ครึ่ง|ตรง|(\d{1,2})\s*นาที|(\d{1,2})))?""").find(text) ?: return null
+    val m = Regex("""(?:เวลา|ตอน|ช่วง)?\s*([3-6]|สาม|สี่|ห้า|หก)\s*โมงเย็น(?:\s*(ครึ่ง|ตรง|(\d{1,2})\s*นาที|(\d{1,2})(?!\d|\s*/|\s*(?:[ก-ฮ]{1,2}\.|มกรา|กุมภา|มีนา|เมษา|พฤษภา|มิถุนา|กรกฎา|สิงหา|กันยา|ตุลา|พฤศจิกา|ธันวา))))?""").find(text) ?: return null
     val n = THAI_NUMS[m.groupValues[1]] ?: m.groupValues[1].toInt()
     return (12 + n to parseMinute(m.groupValues[2], m.groupValues[3], m.groupValues[4])) to m.range
   }
 
   private fun parseThum(text: String): Pair<Pair<Int, Int>, IntRange>? {
-    val m = Regex("""(?:เวลา|ตอน|ช่วง)?\s*([1-5]|หนึ่ง|นึง|สอง|สาม|สี่|ห้า)?\s*ทุ่ม(?:\s*(ครึ่ง|ตรง|(\d{1,2})\s*นาที|(\d{1,2})))?""").find(text) ?: return null
+    val m = Regex("""(?:เวลา|ตอน|ช่วง)?\s*([1-5]|หนึ่ง|นึง|สอง|สาม|สี่|ห้า)?\s*ทุ่ม(?:\s*(ครึ่ง|ตรง|(\d{1,2})\s*นาที|(\d{1,2})(?!\d|\s*/|\s*(?:[ก-ฮ]{1,2}\.|มกรา|กุมภา|มีนา|เมษา|พฤษภา|มิถุนา|กรกฎา|สิงหา|กันยา|ตุลา|พฤศจิกา|ธันวา))))?""").find(text) ?: return null
     val n = m.groupValues[1].takeIf { it.isNotEmpty() }?.let { THAI_NUMS[it] ?: it.toIntOrNull() } ?: 1
     return (18 + n to parseMinute(m.groupValues[2], m.groupValues[3], m.groupValues[4])) to m.range
   }
 
   private fun parseDtee(text: String): Pair<Pair<Int, Int>, IntRange>? {
-    val m = Regex("""(?:เวลา|ตอน|ช่วง)?\s*ตี\s*([1-5]|หนึ่ง|สอง|สาม|สี่|ห้า)(?:\s*(ครึ่ง|ตรง|(\d{1,2})\s*นาที|(\d{1,2})))?""").find(text) ?: return null
+    val m = Regex("""(?:เวลา|ตอน|ช่วง)?\s*ตี\s*([1-5]|หนึ่ง|สอง|สาม|สี่|ห้า)(?:\s*(ครึ่ง|ตรง|(\d{1,2})\s*นาที|(\d{1,2})(?!\d|\s*/|\s*(?:[ก-ฮ]{1,2}\.|มกรา|กุมภา|มีนา|เมษา|พฤษภา|มิถุนา|กรกฎา|สิงหา|กันยา|ตุลา|พฤศจิกา|ธันวา))))?""").find(text) ?: return null
     val n = THAI_NUMS[m.groupValues[1]] ?: m.groupValues[1].toInt()
     return (n to parseMinute(m.groupValues[2], m.groupValues[3], m.groupValues[4])) to m.range
   }
 
   private fun parseMong(text: String): Pair<Pair<Int, Int>, IntRange>? {
-    val m = Regex("""(?:เวลา|ตอน|ช่วง)?\s*(\d{1,2}|สิบเอ็ด|สิบสอง|สิบ|เก้า|แปด|เจ็ด|หก)\s*โมง(?:\s*เช้า)?(?:\s*(ครึ่ง|ตรง|(\d{1,2})\s*นาที|(\d{1,2})))?""").find(text) ?: return null
+    val m = Regex("""(?:เวลา|ตอน|ช่วง)?\s*(\d{1,2}|สิบเอ็ด|สิบสอง|สิบ|เก้า|แปด|เจ็ด|หก)\s*โมง(?:\s*เช้า)?(?:\s*(ครึ่ง|ตรง|(\d{1,2})\s*นาที|(\d{1,2})(?!\d|\s*/|\s*(?:[ก-ฮ]{1,2}\.|มกรา|กุมภา|มีนา|เมษา|พฤษภา|มิถุนา|กรกฎา|สิงหา|กันยา|ตุลา|พฤศจิกา|ธันวา))))?""").find(text) ?: return null
     val n = THAI_NUMS[m.groupValues[1]] ?: m.groupValues[1].toInt()
     if (n !in 6..12) return null
     return (n to parseMinute(m.groupValues[2], m.groupValues[3], m.groupValues[4])) to m.range
