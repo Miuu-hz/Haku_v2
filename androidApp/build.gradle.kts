@@ -35,6 +35,7 @@ dependencies {
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.litertlm.android)
   implementation(libs.androidx.sqlite.bundled)
+  implementation(libs.sqlcipher.android) // D11: haku.db at rest
   implementation(libs.play.services.location)
   implementation(libs.okio)
   implementation(libs.androidx.biometric)

@@ -9,7 +9,8 @@ litertlm = "0.18.1"
 androidxTestRunner = "1.6.2"
 androidxTestExtJunit = "1.2.1"
 okio = "3.16.0"
-androidxSqlite = "2.6.1"
+androidxSqlite = "2.7.0"
+sqlcipher = "4.20.0"
 playServicesLocation = "21.3.0"
 biometric = "1.1.0"
 # biometric 1.1.0 pulls fragment 1.2.5, whose FragmentActivity rejects the Activity Result API request codes
@@ -28,6 +29,7 @@ okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
 okio-fakefilesystem = { module = "com.squareup.okio:okio-fakefilesystem", version.ref = "okio" }
 androidx-sqlite = { module = "androidx.sqlite:sqlite", version.ref = "androidxSqlite" }
 androidx-sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "androidxSqlite" }
+sqlcipher-android = { module = "net.zetetic:sqlcipher-android", version.ref = "sqlcipher" }
 play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
 androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "biometric" }
 androidx-fragment = { module = "androidx.fragment:fragment", version.ref = "fragment" }

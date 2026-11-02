@@ -31,6 +31,7 @@ import com.bbpillow.haku.memory.index.IndexedMemoryRepository
 import com.bbpillow.haku.memory.index.SearchIndexStore
 import com.bbpillow.haku.memory.index.VectorStore
 import com.bbpillow.haku.network.ConnectionStore
+import com.bbpillow.haku.platform.DataKeys
 import com.bbpillow.haku.platform.IcuWordSegmenter
 import com.bbpillow.haku.platform.LiteRtTextEmbedder
 import com.bbpillow.haku.platform.ModelDownloader
@@ -75,7 +76,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import okio.FileSystem
 import okio.Path.Companion.toPath
 
 /**
@@ -92,7 +92,7 @@ class AppGraph(val app: Application) {
 
   /** P9.4 Haku Plus. Built on first use (not in worker processes that never ask); the file goes through the capture thread. */
   val billing by lazy {
-    PlayBilling(app, EntitlementStore(FileSystem.SYSTEM, app.filesDir.resolve("entitlement.txt").path.toPath()), CaptureController.dispatcher, scope)
+    PlayBilling(app, EntitlementStore(DataKeys.files, app.filesDir.resolve("entitlement.txt").path.toPath()), CaptureController.dispatcher, scope)
   }
 
   /** What the stats gate asks; follows [PlayBilling.entitlements], so a purchase or an expired grace shows on the next load. */
@@ -106,14 +106,16 @@ class AppGraph(val app: Application) {
   /** The stores and presenters. Touch only inside [io]: their constructors create tables. */
   inner class Data {
     private val db = CaptureController.connection(app)
-    val profile = ProfileStore(FileSystem.SYSTEM, app.filesDir.resolve("profile.txt").path.toPath())
+    /** D11: seal any pre-D11 plaintext files once, before the stores below read them. */
+    private val legacySealed = DataKeys.sealLegacyFiles(app)
+    val profile = ProfileStore(DataKeys.files, app.filesDir.resolve("profile.txt").path.toPath())
     val events = CaptureEventStore(db)
     val places = PlaceStore(db)
     private val pipeline = TextPipeline(IcuWordSegmenter())
     private val index = SearchIndexStore(db, pipeline)
     /** ชิ้น ค embeddings: same no-backup DB as the FTS index, deleted with each line and by forget-everything. */
     val vectors = VectorStore(db)
-    val memory = IndexedMemoryRepository(MemoryStore(FileSystem.SYSTEM, app.filesDir.resolve("memory").path.toPath()), index, vectors)
+    val memory = IndexedMemoryRepository(MemoryStore(DataKeys.files, app.filesDir.resolve("memory").path.toPath()), index, vectors)
     val ledger = DiaryLedgerStore(db)
     /** E3: connections the app opened, 30 days. ponytail: Play Billing is IPC to the Play Store app, which connects for us, so not logged. */
     val connections = ConnectionStore(db)
@@ -121,7 +123,7 @@ class AppGraph(val app: Application) {
     val audit = AuditStore(db)
     val diary = DiaryComposer(events, places, memory, ledger)
     /** P2.7 evening summaries, one file per local day (written by NightlyWorker, read by Home). */
-    val summaries = EveningSummaryStore(FileSystem.SYSTEM, app.filesDir.resolve("summaries").path.toPath())
+    val summaries = EveningSummaryStore(DataKeys.files, app.filesDir.resolve("summaries").path.toPath())
     val home = HomeBriefPresenter(diary, events, places, tz, summaries, StatsSummarizer(entitlements))
     /** P5.3 standing intentions (INTENTIONS.md): chat adds them, capture and typed notes fire them. */
     val intents = IntentService(memory, places, pipeline)

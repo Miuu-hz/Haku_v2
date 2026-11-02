@@ -13,13 +13,13 @@ import android.util.Log
 import androidx.sqlite.SQLiteConnection
 import com.bbpillow.haku.BuildConfig
 import com.bbpillow.haku.HakuApplication
-import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.bbpillow.haku.capture.CaptureEvent
 import com.bbpillow.haku.capture.CaptureEventStore
 import com.bbpillow.haku.capture.CaptureRecorder
 import com.bbpillow.haku.capture.DwellDetectOutput
 import com.bbpillow.haku.capture.DwellDetector
 import com.bbpillow.haku.capture.EventPlace
+import com.bbpillow.haku.platform.DataKeys
 import com.bbpillow.haku.platform.signals.CalendarReader
 import com.bbpillow.haku.platform.signals.DeviceSignalReceiver
 import com.bbpillow.haku.platform.widget.HakuWidget
@@ -34,7 +34,6 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.gms.tasks.Tasks
-import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineDispatcher
@@ -123,10 +122,10 @@ object CaptureController {
 
   /**
    * The app's capture database. Opened once (synchronized, so a racing first call cannot open a second connection);
-   * every use of it must still run on [dispatcher]. ponytail: plain SQLite for now; D11 encryption wiring comes with onboarding.
+   * every use of it must still run on [dispatcher]. D11: SQLCipher, key from [DataKeys].
    */
   @Synchronized fun connection(context: Context): SQLiteConnection = connection
-    ?: BundledSQLiteDriver().open(File(context.noBackupFilesDir, "haku.db").path).also { connection = it }
+    ?: DataKeys.openDatabase(context).also { connection = it }
 
   @Synchronized fun recorder(context: Context): CaptureRecorder =
     recorder ?: CaptureRecorder(CaptureEventStore(connection(context))) { fresh ->
