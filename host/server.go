@@ -320,17 +320,14 @@ func (s *Server) serveTransport(ctx context.Context, conn *websocket.Conn, devic
 			return
 		}
 
-		st, err := s.loadState()
-		if err != nil {
-			return
-		}
-		dev, ok := findDeviceByKey(st.Devices, deviceKey)
+		req, err := decodeFrame(plain)
+		dev, ok := s.loadDevice(deviceKey)
 		if !ok {
-			// Device was revoked while connected.
+			_ = sendEncrypted(errFrame(req.ID, ErrCodeNotAllowed, "device not allowed"))
+			_ = conn.Close(websocket.StatusNormalClosure, "")
 			return
 		}
 
-		req, err := decodeFrame(plain)
 		var resp Frame
 		if err != nil {
 			resp = errFrame("", ErrCodeBadRequest, "malformed frame json")
@@ -341,6 +338,15 @@ func (s *Server) serveTransport(ctx context.Context, conn *websocket.Conn, devic
 			return
 		}
 	}
+}
+
+// ponytail: re-read state from store/disk on every request; requests are rare so skip caching or file watchers.
+func (s *Server) loadDevice(pubKey []byte) (Device, bool) {
+	st, err := s.loadState()
+	if err != nil {
+		return Device{}, false
+	}
+	return findDeviceByKey(st.Devices, pubKey)
 }
 
 func (s *Server) loadState() (HostState, error) {
