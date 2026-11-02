@@ -36,7 +36,7 @@ class CurrentTimeTool : ToolDefinition {
   override var executionContext: ToolExecutionContext? = null
 
   @Tool(description = "Returns the current local date and time on the phone.")
-  fun getCurrentTime(): Map<String, String> = runTool("getCurrentTime", emptyMap()) {
+  fun getCurrentTime(): String = runTool("getCurrentTime", emptyMap()) {
     mapOf("time" to ZonedDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
   }
 }
