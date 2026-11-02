@@ -26,7 +26,7 @@ class EncryptedDbTest {
   private val ctx = InstrumentationRegistry.getInstrumentation().targetContext
 
   private fun fresh(name: String) = File(ctx.noBackupFilesDir, name).also { f ->
-    listOf("", "-wal", "-shm", "-journal", ".enc").forEach { File(f.path + it).delete() }
+    listOf("", "-wal", "-shm", "-journal", ".enc", ".plain").forEach { File(f.path + it).delete() }
   }
 
   @Test fun convertsPlaintextAndKeepsRows() {
@@ -47,6 +47,18 @@ class EncryptedDbTest {
     assertFalse(f.readBytes().decodeToString().contains("ไปหาหมอฟัน"))
     // reopen with the stored key
     DataKeys.openDatabase(ctx, f).use { db -> db.prepare("SELECT count(*) FROM t").use { it.step(); assertEquals(1L, it.getLong(0)) } }
+  }
+
+  @Test fun finishesASwapInterruptedByACrash() {
+    val f = fresh("d11-crash.db")
+    BundledSQLiteDriver().open(f.path).use { db -> db.execSQL("CREATE TABLE t(x TEXT)"); db.execSQL("INSERT INTO t VALUES ('a')") }
+    DataKeys.openDatabase(ctx, f).close()
+    // state right after "plaintext moved aside", before ".enc moved in"
+    val plain = File(f.path + ".plain").apply { writeText("SQLite format 3") }
+    check(f.renameTo(File(f.path + ".enc")))
+    DataKeys.openDatabase(ctx, f).use { db -> db.prepare("SELECT x FROM t").use { assertTrue(it.step()); assertEquals("a", it.getText(0)) } }
+    assertFalse(plain.exists())
+    assertFalse(File(f.path + ".enc").exists())
   }
 
   @Test fun searchIndexWorksOnSqlcipher() {

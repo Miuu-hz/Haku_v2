@@ -35,16 +35,24 @@ class SealedFileSystem(delegate: FileSystem, private val cipher: FileCipher) : F
     return SealOnClose(file, Buffer().apply { if (exists) write(open(delegate.read(file) { readByteArray() })) })
   }
 
-  /** Re-seals every plaintext file under [dir] (one-time sweep after upgrading to D11). Returns how many it sealed. */
-  fun sealAll(dir: Path): Int {
+  /**
+   * Re-seals every plaintext file under [dir] (one-time sweep after upgrading to D11) via temp file + atomic move,
+   * so a crash never leaves a half-sealed file. A file that fails goes into [failed] and stays plaintext.
+   * Returns how many it sealed.
+   */
+  fun sealAll(dir: Path, failed: MutableList<Path> = mutableListOf()): Int {
     if (!delegate.exists(dir)) return 0
     val files = if (delegate.metadata(dir).isDirectory) delegate.listRecursively(dir).toList() else listOf(dir)
     return files.count { f ->
-      if (!delegate.metadata(f).isRegularFile) return@count false
-      val raw = delegate.read(f) { readByteArray() }
-      if (isSealed(raw)) return@count false
-      write(f) { write(raw) }
-      true
+      runCatching {
+        if (!delegate.metadata(f).isRegularFile) return@count false
+        val raw = delegate.read(f) { readByteArray() }
+        if (isSealed(raw)) return@count false
+        val tmp = f.parent!! / "${f.name}.sealtmp"
+        write(tmp) { write(raw) }
+        delegate.atomicMove(tmp, f)
+        true
+      }.getOrElse { failed += f; false }
     }
   }
 
