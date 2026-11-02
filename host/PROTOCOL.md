@@ -21,9 +21,9 @@ Security lives in our own Noise layer, never in the pipe. Plan: `F:\Haku Project
 - Host creates a one-time pairing: `otp` (16 random bytes, base64url), expires in 5 minutes, single use.
 - Terminal shows a QR of JSON `{"v":1,"hostKey":"<base64 X25519 public>","url":"<wss://…/ws or empty>","topic":"<ntfy topic>","otp":"<otp>","exp":<unix s>}`.
 - Phone connects, sends a `pair` handshake. Host accepts message 1 if otp matches and is unexpired, replies message 2 with
-  payload `{"type":"pairing","sas":"<6 digits>"}`.
+  payload `{"type":"pairing"}` (no SAS inside: message 2's payload is mixed into the handshake hash).
 - SAS = `bigEndianUint32(BLAKE2s-256(handshakeHash)[0:4]) % 1_000_000`, zero-padded to 6 digits; both sides compute it from
-  their own handshake hash and show it. The user confirms on the PC terminal (y/N); only then the phone key is stored as a device
+  their own final handshake hash and show it. Host sends message 2 first, then asks on the PC terminal (y/N); only then the phone key is stored as a device
   (with default permissions: nothing allowed) and the otp burns. Phone then reconnects with `hello`.
 - `topic` = 16 random bytes base64url, per pairing; `announceKey` = BLAKE2s-256(handshakeHash || "haku-announce"), stored on both sides.
 
