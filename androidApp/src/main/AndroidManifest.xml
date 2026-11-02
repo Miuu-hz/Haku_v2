@@ -77,6 +77,38 @@
       android:name=".platform.notify.NoteReplyReceiver"
       android:exported="false" />
 
+    <!-- P5.8 appointments from chat notifications. Notification access is granted by the user in system settings (starts OFF);
+         exported=true is required by Android so the system can bind, the BIND permission keeps every other app out.
+         Reads only allowlisted chat apps, stores nothing: docs/permissions.md -->
+    <service
+      android:name=".platform.capture.HakuNotificationListener"
+      android:exported="true"
+      android:label="Haku"
+      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+      <intent-filter>
+        <action android:name="android.service.notification.NotificationListenerService" />
+      </intent-filter>
+    </service>
+    <!-- P5.8 [เพิ่ม] / [ไม่ใช่] on the offer notification, via our own PendingIntent only -->
+    <receiver
+      android:name=".platform.notify.AppointmentOfferReceiver"
+      android:exported="false" />
+    <!-- P5.8 "Haku: เพิ่มนัด" in the text-selection menu. No UI of its own (translucent, finishes at once, not in recents). -->
+    <activity
+      android:name=".platform.capture.ProcessTextActivity"
+      android:excludeFromRecents="true"
+      android:exported="true"
+      android:label="Haku: เพิ่มนัด"
+      android:noHistory="true"
+      android:taskAffinity=""
+      android:theme="@android:style/Theme.Translucent.NoTitleBar">
+      <intent-filter>
+        <action android:name="android.intent.action.PROCESS_TEXT" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <data android:mimeType="text/plain" />
+      </intent-filter>
+    </activity>
+
     <!-- Play services wake-ups (activity transitions + open-stay geofence), via our own PendingIntent only. -->
     <receiver
       android:name=".platform.capture.LocationWakeReceiver"
