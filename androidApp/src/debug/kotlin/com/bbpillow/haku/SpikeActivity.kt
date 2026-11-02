@@ -32,12 +32,13 @@ private val PROMPTS = listOf(
 )
 
 // ponytail: spike-only runner (P0.4 ก), launched via adb, not part of the product UI.
-// adb shell am start -n com.bbpillow.haku/.SpikeActivity --es model /data/local/tmp/haku/gemma-4-E2B-it.litertlm --es backend gpu
+// adb shell am start -n com.bbpillow.haku/.SpikeActivity --es model /data/local/tmp/haku/gemma-4-E2B-it.litertlm --es backend gpu [--ez mtp true]
 class SpikeActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     val explicitPath = intent.getStringExtra("model")
     val backend = if (intent.getStringExtra("backend").equals("cpu", ignoreCase = true)) ModelBackend.Cpu else ModelBackend.Gpu
+    val mtp = intent.getBooleanExtra("mtp", false)
     setContent {
       val lines = remember { mutableStateListOf<String>() }
       fun say(s: String) { Log.i(TAG, s); lines += s }
@@ -47,9 +48,9 @@ class SpikeActivity : ComponentActivity() {
         val modelPath = explicitPath ?: (application as HakuApplication).graph.modelConfig()?.modelPath
           ?: "/data/local/tmp/haku/gemma-4-E2B-it.litertlm"
         try {
-          say("model=$modelPath backend=$backend device=${android.os.Build.MODEL}")
+          say("model=$modelPath backend=$backend mtp=$mtp device=${android.os.Build.MODEL}")
           val cache = if (modelPath.startsWith("/data/local/tmp")) getExternalFilesDir(null)?.absolutePath else null
-          val load = client.load(ModelConfig(modelPath, backend, cacheDir = cache))
+          val load = client.load(ModelConfig(modelPath, backend, cacheDir = cache, speculativeDecoding = mtp))
           say("LOAD ms=${load.loadMillis} pssMB=${pssMb()}")
           PROMPTS.forEachIndexed { i, prompt ->
             say("PROMPT ${i + 1}: $prompt")

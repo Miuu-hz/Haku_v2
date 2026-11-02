@@ -1,11 +1,11 @@
 [versions]
 # ponytail: toolchain pinned to Google AI Edge Gallery 1.0.19 (Kotlin, AGP); bump together with Gallery.
-kotlin = "2.2.21"
+kotlin = "2.4.20"
 agp = "8.13.0"
 composeMultiplatform = "1.9.3"
 coroutines = "1.10.2"
 activityCompose = "1.10.1"
-litertlm = "0.17.0-alpha1"
+litertlm = "0.18.1"
 androidxTestRunner = "1.6.2"
 androidxTestExtJunit = "1.2.1"
 okio = "3.16.0"
