@@ -435,3 +435,143 @@ func TestServer_SessionReplayAndStopOverNoise(t *testing.T) {
 		t.Fatalf("session.stop failed: %+v", stopResp)
 	}
 }
+
+func TestServer_PermissionRevokeTakesEffectOnNextRequest(t *testing.T) {
+	store := newMemStateStore(t)
+	phoneKP, _ := noiseCipherSuite.GenerateKeypair(rand.Reader)
+	workDir := t.TempDir()
+
+	st, _ := store.Load()
+	st.Devices = append(st.Devices, Device{
+		Name:      "Phone",
+		PublicKey: bytes.Clone(phoneKP.Public),
+		Permissions: DevicePermissions{
+			CLIs:       []string{"claude"},
+			Dirs:       []string{workDir},
+			CanApprove: true,
+		},
+	})
+	if err := store.Save(st); err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := &fakeCLIAdapter{
+		name: "claude",
+		runFn: func(ctx context.Context, cwd, prompt string, emit func(CLIEvent)) error {
+			code := 0
+			emit(CLIEvent{Result: "ok", ExitCode: &code})
+			return nil
+		},
+	}
+	mgr := NewSessionManager(nil, adapter)
+	srv := NewServer(store, mgr, nil)
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, _ := dialCountingWS(ctx, t, ts.URL)
+	defer conn.CloseNow()
+
+	hs := newInitiatorHandshake(t, phoneKP, st.PublicKey)
+	helloRaw, _ := json.Marshal(handshakePayload{Type: "hello", DeviceName: "Phone"})
+	m1, _, _, err := hs.WriteMessage(nil, helloRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Write(ctx, websocket.MessageBinary, m1); err != nil {
+		t.Fatal(err)
+	}
+	_, m2, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, sendCS, recvCS, err := hs.ReadMessage(nil, m2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	callRPC := func(req Frame) Frame {
+		plain, _ := encodeFrame(req)
+		ct, _ := sendCS.Encrypt(nil, nil, plain)
+		if err := conn.Write(ctx, websocket.MessageBinary, ct); err != nil {
+			t.Fatal(err)
+		}
+		for {
+			_, rct, err := conn.Read(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rplain, err := recvCS.Decrypt(nil, nil, rct)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f, err := decodeFrame(rplain)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if f.T == "res" && f.ID == req.ID {
+				return f
+			}
+		}
+	}
+
+	// 1. Granted dir: session.start succeeds.
+	okResp := callRPC(Frame{
+		T:      "req",
+		ID:     "req-1",
+		Method: "session.start",
+		Params: map[string]any{"cli": "claude", "cwd": workDir, "prompt": "run"},
+	})
+	if okResp.OK == nil || !*okResp.OK {
+		t.Fatalf("expected initial session.start OK, got %+v", okResp)
+	}
+
+	// 2. Revoke dir and CanApprove permissions via the StateStore API while connected.
+	st, _ = store.Load()
+	st.Devices[0].Permissions.Dirs = []string{}
+	st.Devices[0].Permissions.CanApprove = false
+	if err := store.Save(st); err != nil {
+		t.Fatal(err)
+	}
+
+	deniedDir := callRPC(Frame{
+		T:      "req",
+		ID:     "req-2",
+		Method: "session.start",
+		Params: map[string]any{"cli": "claude", "cwd": workDir, "prompt": "run"},
+	})
+	if deniedDir.OK == nil || *deniedDir.OK || deniedDir.Error == nil || deniedDir.Error.Code != ErrCodeNotAllowed {
+		t.Fatalf("expected not_allowed after dir revoke, got %+v", deniedDir)
+	}
+
+	deniedApprove := callRPC(Frame{
+		T:      "req",
+		ID:     "req-3",
+		Method: "approval.respond",
+		Params: map[string]any{"approvalId": "a1", "decision": "allow_once"},
+	})
+	if deniedApprove.OK == nil || *deniedApprove.OK || deniedApprove.Error == nil || deniedApprove.Error.Code != ErrCodeNotAllowed {
+		t.Fatalf("expected not_allowed after CanApprove revoke, got %+v", deniedApprove)
+	}
+
+	// 3. Unpair/remove device completely via the StateStore API: next request returns not_allowed and closes connection.
+	st, _ = store.Load()
+	st.Devices = []Device{}
+	if err := store.Save(st); err != nil {
+		t.Fatal(err)
+	}
+
+	unpairedResp := callRPC(Frame{
+		T:      "req",
+		ID:     "req-4",
+		Method: "host.info",
+	})
+	if unpairedResp.OK == nil || *unpairedResp.OK || unpairedResp.Error == nil || unpairedResp.Error.Code != ErrCodeNotAllowed {
+		t.Fatalf("expected not_allowed after device revoke, got %+v", unpairedResp)
+	}
+	if _, _, err := conn.Read(ctx); err == nil {
+		t.Fatalf("expected connection to be closed after unpaired response")
+	}
+}
