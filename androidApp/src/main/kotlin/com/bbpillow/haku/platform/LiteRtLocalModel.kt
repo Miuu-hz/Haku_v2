@@ -12,8 +12,11 @@ import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
+import com.google.ai.edge.litertlm.ModelInfo
 import com.google.ai.edge.litertlm.SamplerConfig
 import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
@@ -96,14 +99,14 @@ class LiteRtLocalModel : LocalModel {
  * Opening happens under the lock, so concurrent first loads wait for one engine instead of each opening their own.
  */
 internal object SharedEngines {
-  private data class Key(val path: String, val backend: ModelBackend, val maxTokens: Int)
+  private data class Key(val path: String, val backend: ModelBackend, val maxTokens: Int, val speculative: Boolean)
   private class Entry(val key: Key, val engine: Engine, var refs: Int)
 
   private val lock = Mutex()
   private val open = mutableListOf<Entry>()
 
   suspend fun acquire(config: ModelConfig): Engine = lock.withLock {
-    val key = Key(config.modelPath, config.backend, config.maxTokens)
+    val key = Key(config.modelPath, config.backend, config.maxTokens, config.speculativeDecoding)
     open.firstOrNull { it.key == key }?.let { it.refs++; return@withLock it.engine }
     // NonCancellable: a cancelled caller must not drop an engine that finished initializing
     val e = withContext(NonCancellable) { openEngine(config) }
@@ -127,14 +130,30 @@ internal object SharedEngines {
  * A GPU that LiteRT can't drive (no OpenCL, broken delegate) falls back to CPU: slower, but the chat still answers.
  */
 private suspend fun openEngine(config: ModelConfig): Engine = try {
-  openEngineOn(config)
+  openWithMtpFallback(config)
 } catch (e: Exception) {
   if (config.backend != ModelBackend.Gpu) throw e
   Log.w(TAG, "GPU engine failed, retrying on CPU", e)
-  openEngineOn(config.copy(backend = ModelBackend.Cpu))
+  openWithMtpFallback(config.copy(backend = ModelBackend.Cpu))
 }
 
-private suspend fun openEngineOn(config: ModelConfig): Engine = withContext(Dispatchers.Default) {
+/** MTP only when asked for and the file carries a drafter; if the engine will not start with it, start without. */
+private suspend fun openWithMtpFallback(config: ModelConfig): Engine {
+  val mtp = config.speculativeDecoding && withContext(Dispatchers.IO) { hasDrafter(config.modelPath) }
+  if (!mtp) return openEngineOn(config, speculative = false)
+  return try {
+    openEngineOn(config, speculative = true)
+  } catch (e: Exception) {
+    Log.w(TAG, "engine failed with speculative decoding, retrying without", e)
+    openEngineOn(config, speculative = false)
+  }
+}
+
+private fun hasDrafter(modelPath: String): Boolean =
+  runCatching { ModelInfo.from(modelPath).use { (it as? ModelInfo.Llm)?.hasSpeculativeDecodingSupport() == true } }.getOrDefault(false)
+
+@OptIn(ExperimentalApi::class)
+private suspend fun openEngineOn(config: ModelConfig, speculative: Boolean): Engine = withContext(Dispatchers.Default) {
   val e = Engine(
     EngineConfig(
       modelPath = config.modelPath,
@@ -144,7 +163,15 @@ private suspend fun openEngineOn(config: ModelConfig): Engine = withContext(Disp
     )
   )
   try {
-    e.initialize()
+    // ponytail: a process-wide flag read during initialize() (as Gallery does); SharedEngines' lock keeps LLM opens serial,
+    // the embedder never sets it. Per-engine config if LiteRT-LM ever offers one.
+    ExperimentalFlags.enableSpeculativeDecoding = speculative
+    try {
+      e.initialize()
+    } finally {
+      ExperimentalFlags.enableSpeculativeDecoding = false
+    }
+    if (speculative) Log.i(TAG, "speculative decoding on")
     e
   } catch (t: Throwable) {
     runCatching { e.close() }

@@ -13,6 +13,11 @@ data class ModelConfig(
   val temperature: Double = 1.0,
   /** Needed when modelPath is under /data/local/tmp (the runtime cannot write next to it). */
   val cacheDir: String? = null,
+  /**
+   * Speculative decoding (MTP drafter inside the .litertlm, Gemma 4 files from 2026-05-05 on). Used only when the file has a
+   * drafter; a failed start retries without it. Off by default until measured on Z Fold5.
+   */
+  val speculativeDecoding: Boolean = false,
 )
 
 data class GenerateInput(val prompt: String)
