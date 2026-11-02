@@ -51,7 +51,7 @@ class SummarySpikeActivity : Activity() {
         Log.i(TAG, "day=$day lines=${lines.size} particle=$particle model=$modelPath backend=$backend")
         lines.forEach { Log.i(TAG, "FACT $it") }
         val cache = if (modelPath.startsWith("/data/local/tmp")) getExternalFilesDir(null)?.absolutePath else null
-        val summarizer = EveningSummarizer(client, EveningSummaryStore(FileSystem.SYSTEM, filesDir.resolve("summaries").path.toPath()))
+        val summarizer = EveningSummarizer(client, EveningSummaryStore(com.bbpillow.haku.platform.DataKeys.files, filesDir.resolve("summaries").path.toPath()))
         val out = runBlocking {
           if (lines.isNotEmpty()) Log.i(TAG, "loaded in ${client.load(ModelConfig(modelPath, backend, cacheDir = cache)).loadMillis} ms")
           summarizer.summarize(EveningSummaryInput(day, lines, style, regenerate = regenerate))
