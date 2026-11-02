@@ -42,7 +42,10 @@ data class GenerateMetrics(
   val timeToFirstTokenMillis: Long?,
   val totalMillis: Long,
   val chunkCount: Int,
-  /** Chunks per second after the first chunk (decode speed); null with fewer than 2 chunks. */
+  /**
+   * Chunks per second after the first chunk; null with fewer than 2 chunks. Equals tokens/s only without speculative
+   * decoding: with MTP one chunk carries several accepted tokens, so compare speeds by output length over decode time.
+   */
   val tokensPerSecond: Double?,
   val cancelled: Boolean,
 )
