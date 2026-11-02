@@ -12,14 +12,14 @@ import kotlinx.coroutines.sync.withLock
  * P4.1 single action gate. Every caller submits an [ActionRequestInput]; only this gate invokes [ActionHandler.run].
  *
  * [PermissionLevel.CONFIRM] and [PermissionLevel.BIOMETRIC] never run on [submit]—they wait as a [ActionStatus.PENDING]
- * proposal until the user triggers [confirm]. Every submit and status change is recorded in [audit] under [mutex].
+ * proposal until the user triggers [confirm]. Every submit and status change is recorded through [onAudit] under [mutex].
  */
 class DefaultActionGate(
   handlers: List<ActionHandler>,
-  private val audit: AuditRepository,
+  /** Each audit line; the app hands it to [AuditRepository.append] on the DB thread. */
+  private val onAudit: (AuditRecord) -> Unit,
   private val clock: () -> Long,
   private val newId: () -> String,
-  private val onAudit: (AuditRecord) -> Unit = audit::append,
 ) : ActionGate {
   private val handlersByAction = handlers.associateBy { it.action }
   private val _proposals = MutableStateFlow<List<ActionProposalRecord>>(emptyList())

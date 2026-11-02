@@ -1,5 +1,10 @@
 package com.bbpillow.haku
 
+import com.bbpillow.haku.action.AuditStore
+import com.bbpillow.haku.action.DefaultActionGate
+import com.bbpillow.haku.platform.signals.CalendarActionHandler
+import java.util.UUID
+import kotlinx.coroutines.launch
 import android.app.ActivityManager
 import android.app.Application
 import com.bbpillow.haku.capture.CaptureEventStore
@@ -112,6 +117,8 @@ class AppGraph(val app: Application) {
     val ledger = DiaryLedgerStore(db)
     /** E3: connections the app opened, 30 days. ponytail: Play Billing is IPC to the Play Store app, which connects for us, so not logged. */
     val connections = ConnectionStore(db)
+    /** P4.1 who asked for which action and what happened (90 days), shown on the audit screen. */
+    val audit = AuditStore(db)
     val diary = DiaryComposer(events, places, memory, ledger)
     /** P2.7 evening summaries, one file per local day (written by NightlyWorker, read by Home). */
     val summaries = EveningSummaryStore(FileSystem.SYSTEM, app.filesDir.resolve("summaries").path.toPath())
@@ -131,7 +138,7 @@ class AppGraph(val app: Application) {
     /** P3.5 widget / lock-screen / notification-reply notes (write-only). */
     val quickNote = QuickNote(notesWatched, tz) // notesWatched: P5.3 a quick note can fire an intention
     val transparency = TransparencyPresenter(
-      memory, ForgetEverything(events, places, ledger, summaries, memory, profile, connections), connections, tz, System::currentTimeMillis,
+      memory, ForgetEverything(events, places, ledger, summaries, memory, profile, connections, audit), connections, tz, System::currentTimeMillis,
     )
     val onboarding = OnboardingPresenter(profile, places)
     val modelManager = ModelManagerPresenter(profile)
@@ -173,6 +180,16 @@ class AppGraph(val app: Application) {
   }
 
   private val data by lazy { Data() }
+
+  /** P4.1 the one road for actions (chat card, chat notifications, model tools). Audit lines go to the DB thread. */
+  val actionGate by lazy {
+    DefaultActionGate(
+      handlers = listOf(CalendarActionHandler(app)),
+      onAudit = { record -> scope.launch { io { audit.append(record) } } },
+      clock = System::currentTimeMillis,
+      newId = { UUID.randomUUID().toString() },
+    )
+  }
 
   /** Runs [block] on the DB thread, one at a time with capture. */
   suspend fun <T> io(block: Data.() -> T): T = withContext(CaptureController.dispatcher) { data.block() }

@@ -1,5 +1,6 @@
 package com.bbpillow.haku.surface.memory
 
+import com.bbpillow.haku.action.AuditRepository
 import com.bbpillow.haku.capture.CaptureEventRepository
 import com.bbpillow.haku.capture.PlaceRepository
 import com.bbpillow.haku.capture.diary.DiaryLedgerRepository
@@ -24,6 +25,8 @@ class ForgetEverything(
   private val memory: MemoryRepository,
   private val profile: ProfileRepository,
   private val connections: ConnectionRepository,
+  /** P4.1 action audit log; null only in tests that predate it. */
+  private val audit: AuditRepository? = null,
 ) {
   /** Returns how many capture events were erased. */
   fun run(): Int {
@@ -33,6 +36,7 @@ class ForgetEverything(
     summaries.clear()
     memory.deleteAll()
     connections.clear()
+    audit?.clear()
     val p = profile.load()
     if (p.style.nickname.isNotEmpty()) profile.save(p.copy(style = p.style.copy(nickname = "")))
     return erased

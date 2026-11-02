@@ -1,5 +1,8 @@
 package com.bbpillow.haku
 
+import com.bbpillow.haku.action.ActionDecision
+import com.bbpillow.haku.action.ActionStatus
+import com.bbpillow.haku.action.CalendarAddArgs
 import android.Manifest
 import android.util.Log
 import android.widget.Toast
@@ -540,12 +543,11 @@ private fun ChatTab(
     if (appointment.status == AppointmentStatus.SAVING || appointment.status == AppointmentStatus.ADDED) return
     updateAppointment(index) { it.copy(status = AppointmentStatus.SAVING) }
     scope.launch {
-      val id = withContext(Dispatchers.IO) {
-        runCatching {
-          CalendarWriter.insert(context, appointment.title, appointment.startUtcMs, appointment.endUtcMs)
-        }.getOrNull()
-      }
-      if (id != null) {
+      // P4.1: through the gate like every other action; the tap on add is the user's confirm.
+      val gate = graph.actionGate
+      val done = (gate.submit(CalendarAddArgs.fromProposal(appointment)) as? ActionDecision.AwaitingUser)
+        ?.let { gate.confirm(it.proposal.id) }?.status == ActionStatus.DONE
+      if (done) {
         updateAppointment(index) { it.copy(status = AppointmentStatus.ADDED) }
         val noteText = "นัด ${appointment.title} ${appointment.dayLabel} ${appointment.timeLabel}"
         val saved = graph.safeIo {

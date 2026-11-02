@@ -63,7 +63,8 @@ class ForgetTest {
   private val diary = DiaryComposer(events, places, memory, ledger)
   private val connections = ConnectionStore(db)
   private val at = 1_790_121_600_000L
-  private val forgetAll = ForgetEverything(events, places, ledger, summaries, memory, profile, connections)
+  private val audit = com.bbpillow.haku.action.AuditStore(db)
+  private val forgetAll = ForgetEverything(events, places, ledger, summaries, memory, profile, connections, audit)
   private val presenter = TransparencyPresenter(memory, forgetAll, connections, tz) { at }
 
   @AfterTest fun close() = db.close()
@@ -88,6 +89,7 @@ class ForgetTest {
     events.append(CaptureEvent("cal-1", at, CaptureSource.CalendarEntry("dentist")))
     places.addNew(listOf(PlaceRecord("p1", 13.75, 100.5)))
     connections.add(ConnectionRecord.of(at, "https://huggingface.co/m.litertlm", ConnectionPurpose.MODEL_DOWNLOAD, 10, null, "สำเร็จ"))
+    audit.append(com.bbpillow.haku.action.AuditRecord("p1", "calendar.add", com.bbpillow.haku.action.ActionOrigin.CHAT_RULE, com.bbpillow.haku.action.PermissionLevel.CONFIRM, com.bbpillow.haku.action.ActionStatus.DONE, "dentist", at))
     diary.compose(DiaryComposeInput("2026-09-08", tz))
     summaries.save(EveningSummaryRecord("2026-09-08", "coffee day", SummarySource.MODEL))
     memory.writeCoreFact(CoreFactInput(CoreCategories.YOU, "likes coffee", Provenance.USER_TYPED, at))
@@ -102,6 +104,7 @@ class ForgetTest {
     assertEquals(0, events.count())
     assertTrue(places.list().isEmpty())
     assertTrue(connections.since(0).isEmpty())
+    assertTrue(audit.recent(10).isEmpty())
     assertTrue(presenter.load().connections.isEmpty())
     assertTrue(memory.listDays().isEmpty())
     assertTrue(memory.listCategories().all { it.factCount == 0 })

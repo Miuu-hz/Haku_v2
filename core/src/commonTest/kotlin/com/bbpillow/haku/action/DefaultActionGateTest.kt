@@ -51,7 +51,7 @@ class DefaultActionGateTest {
   private val audit = FakeAuditRepository()
 
   private fun gate(vararg handlers: ActionHandler) =
-    DefaultActionGate(handlers.toList(), audit, clock = { now }, newId = { "p-${nextId++}" })
+    DefaultActionGate(handlers.toList(), audit::append, clock = { now }, newId = { "p-${nextId++}" })
 
   private fun req(
     action: String = CalendarAddArgs.ACTION,
