@@ -714,7 +714,11 @@ private fun ChatTab(
 
   val proposals by graph.actionGate.proposals.collectAsState()
   var mentionSkills by remember { mutableStateOf(BuiltInSkills.ALL) }
-  LaunchedEffect(Unit) { mentionSkills = availableSkills(graph) } // re-read each time the chat tab opens
+  var mentionServiceNames by remember { mutableStateOf(emptyMap<String, String>()) }
+  LaunchedEffect(Unit) { // re-read each time the chat tab opens
+    mentionSkills = availableSkills(graph)
+    mentionServiceNames = graph.safeIo { mcpServers.all().associate { it.host to it.name } } ?: emptyMap()
+  }
   ChatScreen(
     turns,
     engineLabel = modelLabel,
@@ -757,6 +761,7 @@ private fun ChatTab(
     },
     onDismissAction = { id -> graph.actionGate.dismiss(id) },
     mentionSkills = mentionSkills,
+    mentionServiceNames = mentionServiceNames,
     contentPadding = TabPadding,
   )
 }
