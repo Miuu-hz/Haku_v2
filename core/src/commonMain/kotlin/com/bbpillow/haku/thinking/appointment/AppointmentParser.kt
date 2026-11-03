@@ -2,13 +2,13 @@ package com.bbpillow.haku.thinking.appointment
 
 import com.bbpillow.haku.memory.MemoryFormat
 
-data class AppointmentDraft(val title: String, val startUtcMs: Long, val endUtcMs: Long)
+data class AppointmentDraft(val title: String, val startUtcMs: Long, val endUtcMs: Long, val allDay: Boolean = false)
 
 object AppointmentParser {
   private const val HOUR_MS = 3_600_000L
   private const val DAY_MS = 86_400_000L
 
-  private val CUES = listOf("มีนัด", "นัด", "ประชุม", "เจอ", "ไปหา", "คอล", "สัมภาษณ์")
+  private val CUES = listOf("มีนัด", "นัด", "ประชุม", "เจอ", "ไปหา", "คอล", "สัมภาษณ์", "ส่งแบบฟอร์ม", "สัมมนา", "อบรม") // no bare "งาน": "ทำงานทั้งวัน" is not an appointment
   private val PAST = listOf("เมื่อวาน", "เมื่อเช้า", "เมื่อกี้", "เมื่อคืน", "ที่แล้ว")
   private val QUESTIONS = listOf("ไหม", "มั้ย", "อะไร", "เมื่อไหร่", "เมื่อไร", "กี่โมง", "ที่ไหน", "บ้าง", "หรือเปล่า", "?")
 
@@ -31,15 +31,14 @@ object AppointmentParser {
     "พฤศจิกายน" to 11, "พ.ย." to 11, "ธันวาคม" to 12, "ธ.ค." to 12,
   )
 
+  private data class DateMatch(val startEpochDay: Long, val endEpochDay: Long, val range: IntRange?)
+
   fun parse(text: String, nowUtcMs: Long, tzOffsetMinutes: Int): AppointmentDraft? {
     val norm = thaiDigits(text)
     if (norm.trim().startsWith("ถ้า") || "ทุกครั้งที่" in norm || "ให้เตือน" in norm) return null
     if (QUESTIONS.any { it in norm }) return null
     if (PAST.any { it in norm }) return null // "เมื่อวานไปประชุมมา 10 โมง" is a diary line, not a plan
     if (CUES.none { it in norm }) return null
-
-    val (time, timeRange) = findTime(norm) ?: return null
-    val (hour, minute) = time
 
     val offsetMs = tzOffsetMinutes * 60_000L
     val nowLocalMs = nowUtcMs + offsetMs
@@ -53,14 +52,33 @@ object AppointmentParser {
     val curHour = iso.substring(11, 13).toInt()
     val curMinute = iso.substring(14, 16).toInt()
 
+    val timeHit = findTime(norm)
+    if (timeHit == null) {
+      val allDayRange = Regex("""(?:ทั้งวัน|ตลอดวัน)""").find(norm)?.range
+      val date = if (allDayRange != null) {
+        findDate(norm, nowLocalDay, todayWd, curYear, curMonth, curDay, isTimeAhead = true).takeIf { it.range != null }
+      } else {
+        parseThaiMonthDate(norm, curYear, curMonth, curDay, isTimeAhead = true)
+          ?: parseSlashDate(norm, curYear, curMonth, curDay, isTimeAhead = true)
+          ?: parseBareDayDate(norm, curYear, curMonth, curDay, isTimeAhead = true)
+      } ?: return null
+      val startUtcMs = date.startEpochDay * DAY_MS - offsetMs
+      val endUtcMs = (date.endEpochDay + 1L) * DAY_MS - offsetMs
+      val title = cleanTitle(text, allDayRange, date.range)
+      return AppointmentDraft(title, startUtcMs, endUtcMs, allDay = true)
+    }
+
+    val (time, timeRange) = timeHit
+    val (hour, minute) = time
     val isTimeAhead = (hour * 60 + minute) > (curHour * 60 + curMinute)
-    val (targetEpochDay, dateRange) = findDate(norm, nowLocalDay, todayWd, curYear, curMonth, curDay, isTimeAhead)
+    val date = findDate(norm, nowLocalDay, todayWd, curYear, curMonth, curDay, isTimeAhead)
 
-    val startLocalMs = targetEpochDay * DAY_MS + hour * HOUR_MS + minute * 60_000L
+    val startLocalMs = date.startEpochDay * DAY_MS + hour * HOUR_MS + minute * 60_000L
+    val endLocalMs = date.endEpochDay * DAY_MS + hour * HOUR_MS + minute * 60_000L + HOUR_MS // ponytail: brief specifies end = start + 1 hour
     val startUtcMs = startLocalMs - offsetMs
-    val endUtcMs = startUtcMs + HOUR_MS // ponytail: brief specifies end = start + 1 hour
+    val endUtcMs = endLocalMs - offsetMs
 
-    val title = cleanTitle(text, timeRange, dateRange)
+    val title = cleanTitle(text, timeRange, date.range)
     return AppointmentDraft(title, startUtcMs, endUtcMs)
   }
 
@@ -128,14 +146,14 @@ object AppointmentParser {
 
   private fun findDate(
     text: String, nowLocalDay: Long, todayWd: Int, curYear: Int, curMonth: Int, curDay: Int, isTimeAhead: Boolean,
-  ): Pair<Long, IntRange?> {
-    parseRelativeDate(text, nowLocalDay)?.let { return it.first to it.second }
-    parseWeekdayDate(text, nowLocalDay, todayWd, isTimeAhead)?.let { return it.first to it.second }
-    parseThaiMonthDate(text, curYear, curMonth, curDay, isTimeAhead)?.let { return it.first to it.second }
-    parseSlashDate(text, curYear, curMonth, curDay, isTimeAhead)?.let { return it.first to it.second }
-    parseBareDayDate(text, curYear, curMonth, curDay, isTimeAhead)?.let { return it.first to it.second }
+  ): DateMatch {
+    parseRelativeDate(text, nowLocalDay)?.let { return DateMatch(it.first, it.first, it.second) }
+    parseWeekdayDate(text, nowLocalDay, todayWd, isTimeAhead)?.let { return DateMatch(it.first, it.first, it.second) }
+    parseThaiMonthDate(text, curYear, curMonth, curDay, isTimeAhead)?.let { return it }
+    parseSlashDate(text, curYear, curMonth, curDay, isTimeAhead)?.let { return it }
+    parseBareDayDate(text, curYear, curMonth, curDay, isTimeAhead)?.let { return it }
     val targetDay = if (isTimeAhead) nowLocalDay else nowLocalDay + 1L
-    return targetDay to null
+    return DateMatch(targetDay, targetDay, null)
   }
 
   private fun parseRelativeDate(text: String, nowLocalDay: Long): Pair<Long, IntRange>? {
@@ -166,52 +184,56 @@ object AppointmentParser {
 
   private fun parseThaiMonthDate(
     text: String, curYear: Int, curMonth: Int, curDay: Int, isTimeAhead: Boolean,
-  ): Pair<Long, IntRange>? {
-    val m = Regex("""(?:ในวันที่|ในวัน|วันที่|วัน)?\s*(\d{1,2})\s*(ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.|มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)(?:\s*(?:พ\.ศ\.|ค\.ศ\.)?\s*(\d{4}))?""").find(text) ?: return null
-    val d = m.groupValues[1].toInt()
-    val mo = MONTHS[m.groupValues[2]] ?: return null
-    val yrStr = m.groupValues[3]
+  ): DateMatch? {
+    val m = Regex("""(?:ในวันที่|ในวัน|วันที่|วัน)?\s*(\d{1,2})(?:\s*(?:[-–—]|ถึง)\s*(\d{1,2}))?\s*(ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.|มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)(?:\s*(?:พ\.ศ\.|ค\.ศ\.)?\s*(\d{4}))?""").find(text) ?: return null
+    val d1 = m.groupValues[1].toInt()
+    val d2 = m.groupValues[2].takeIf { it.isNotEmpty() }?.toInt() ?: d1
+    if (d1 !in 1..31 || d2 !in d1..31) return null
+    val mo = MONTHS[m.groupValues[3]] ?: return null
+    val yrStr = m.groupValues[4]
     val yr = if (yrStr.isNotEmpty()) {
       val y = yrStr.toInt()
       if (y > 2400) y - 543 else y
     } else {
-      val passed = mo < curMonth || (mo == curMonth && (d < curDay || (d == curDay && !isTimeAhead)))
+      val passed = mo < curMonth || (mo == curMonth && (d1 < curDay || (d1 == curDay && !isTimeAhead)))
       if (passed) curYear + 1 else curYear
     }
-    return dateToEpochDay(yr, mo, d) to m.range
+    return DateMatch(dateToEpochDay(yr, mo, d1), dateToEpochDay(yr, mo, d2), m.range)
   }
 
   private fun parseSlashDate(
     text: String, curYear: Int, curMonth: Int, curDay: Int, isTimeAhead: Boolean,
-  ): Pair<Long, IntRange>? {
-    val m = Regex("""(?:ในวันที่|ในวัน|วันที่|วัน)?\s*(\d{1,2})/(\d{1,2})(?:/(\d{4}))?""").find(text) ?: return null
-    val d = m.groupValues[1].toInt()
-    val mo = m.groupValues[2].toInt()
-    if (mo !in 1..12 || d !in 1..31) return null
-    val yrStr = m.groupValues[3]
+  ): DateMatch? {
+    val m = Regex("""(?:ในวันที่|ในวัน|วันที่|วัน)?\s*(\d{1,2})(?:\s*[-–—]\s*(\d{1,2}))?/(\d{1,2})(?:/(\d{4}))?""").find(text) ?: return null
+    val d1 = m.groupValues[1].toInt()
+    val d2 = m.groupValues[2].takeIf { it.isNotEmpty() }?.toInt() ?: d1
+    val mo = m.groupValues[3].toInt()
+    if (mo !in 1..12 || d1 !in 1..31 || d2 !in d1..31) return null
+    val yrStr = m.groupValues[4]
     val yr = if (yrStr.isNotEmpty()) {
       val y = yrStr.toInt()
       if (y > 2400) y - 543 else y
     } else {
-      val passed = mo < curMonth || (mo == curMonth && (d < curDay || (d == curDay && !isTimeAhead)))
+      val passed = mo < curMonth || (mo == curMonth && (d1 < curDay || (d1 == curDay && !isTimeAhead)))
       if (passed) curYear + 1 else curYear
     }
-    return dateToEpochDay(yr, mo, d) to m.range
+    return DateMatch(dateToEpochDay(yr, mo, d1), dateToEpochDay(yr, mo, d2), m.range)
   }
 
   private fun parseBareDayDate(
     text: String, curYear: Int, curMonth: Int, curDay: Int, isTimeAhead: Boolean,
-  ): Pair<Long, IntRange>? {
-    val m = Regex("""(?:ในวันที่|วันที่)\s*(\d{1,2})\b""").find(text) ?: return null
-    val d = m.groupValues[1].toInt()
-    if (d !in 1..31) return null
-    val passed = d < curDay || (d == curDay && !isTimeAhead)
+  ): DateMatch? {
+    val m = Regex("""(?:ในวันที่|วันที่)\s*(\d{1,2})(?:\s*(?:[-–—]|ถึง)\s*(\d{1,2}))?\b""").find(text) ?: return null
+    val d1 = m.groupValues[1].toInt()
+    val d2 = m.groupValues[2].takeIf { it.isNotEmpty() }?.toInt() ?: d1
+    if (d1 !in 1..31 || d2 !in d1..31) return null
+    val passed = d1 < curDay || (d1 == curDay && !isTimeAhead)
     val (yr, mo) = if (passed) {
       if (curMonth == 12) (curYear + 1) to 1 else curYear to (curMonth + 1)
     } else {
       curYear to curMonth
     }
-    return dateToEpochDay(yr, mo, d) to m.range
+    return DateMatch(dateToEpochDay(yr, mo, d1), dateToEpochDay(yr, mo, d2), m.range)
   }
 
   private fun dateToEpochDay(y: Int, m: Int, d: Int): Long {
@@ -219,9 +241,11 @@ object AppointmentParser {
     return MemoryFormat.parseUtc(iso)!!.floorDiv(DAY_MS)
   }
 
-  private fun cleanTitle(text: String, timeRange: IntRange, dateRange: IntRange?): String {
+  private fun cleanTitle(text: String, timeRange: IntRange?, dateRange: IntRange?): String {
     val chars = text.toCharArray()
-    for (i in timeRange) chars[i] = ' '
+    if (timeRange != null) {
+      for (i in timeRange) chars[i] = ' '
+    }
     if (dateRange != null) {
       for (i in dateRange) chars[i] = ' '
     }
