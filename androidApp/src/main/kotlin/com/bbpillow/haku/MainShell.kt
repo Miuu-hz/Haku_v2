@@ -43,7 +43,9 @@ import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.bbpillow.haku.capture.diary.EndingParticle
 import com.bbpillow.haku.capture.stats.PeriodKind
+import com.bbpillow.haku.thinking.summary.SummaryPromptBuilder
 import com.bbpillow.haku.memory.MemoryFormat
 import com.bbpillow.haku.platform.BiometricLock
 import com.bbpillow.haku.platform.LiteRtLocalModel
@@ -634,7 +636,16 @@ private fun ChatTab(
 ) {
   val context = LocalContext.current
   var modelLabel by remember { mutableStateOf(ModelManagerPresenter.NO_MODEL_LABEL) }
-  LaunchedEffect(Unit) { graph.warmEmbedder() }
+  // 5ข: models load while the user types, and go when the tab or the app is left (or 60 s pass with no question)
+  val lifecycle = LocalLifecycleOwner.current.lifecycle
+  DisposableEffect(lifecycle) {
+    val observer = LifecycleEventObserver { _, e ->
+      if (e == Lifecycle.Event.ON_START) graph.warmth.open()
+      if (e == Lifecycle.Event.ON_STOP) graph.warmth.stop()
+    }
+    lifecycle.addObserver(observer) // replays ON_START when the app is already in front
+    onDispose { lifecycle.removeObserver(observer); graph.warmth.stop() }
+  }
   val dl by graph.downloader.state.collectAsState()
   val imp by graph.importer.state.collectAsState()
   LaunchedEffect(dl?.done, imp?.done) {
@@ -735,9 +746,14 @@ private fun ChatTab(
   )
 }
 
-/** Retrieval on the DB thread, then the downloaded model if there is one (loaded for this question, released after). */
-/** internal: the debug AskDebugReceiver ASK_FULL action drives this exact path over adb. */
-internal suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutput? {
+/**
+ * Retrieval on the DB thread, then the downloaded model if there is one. The engine comes from [AppGraph.warmth] when the
+ * chat tab warmed it (the per-question load/unload below then only moves a reference); otherwise this question warms it.
+ * internal: the debug AskDebugReceiver ASK_FULL action drives this exact path over adb.
+ */
+internal suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutput? = graph.warmth.use { askOnce(graph, question) }
+
+private suspend fun askOnce(graph: AppGraph, question: String): ChatAnswerOutput? {
   val tz = graph.tzOffsetMinutes
   // Week 2: "/skill …" or "@service …" names what to use; a mention only skips the picker, the gate card still asks
   val skills = availableSkills(graph)
@@ -802,7 +818,10 @@ private suspend fun runSkill(graph: AppGraph, question: String, text: String, sk
   var proposal: ActionProposalRecord? = null
   val tools = skills.map { s -> SkillTool(s, graph.actionGate, graph.tzOffsetMinutes) { proposal = it } }
   val session = LiteRtAgentSession(emptyList(), tools)
-  val system = "ตอบภาษาไทยสั้นๆ ใช้ tool ที่ให้ไว้เท่านั้น" + skills.joinToString("") { "\n${it.title}: ${it.instructions}" }
+  // the user's ending (onboarding) as in chat; without it the model falls back to a generic ผม/ดิฉัน … ครับ/ค่ะ
+  val particle = graph.safeIo { profile.load().style.particle } ?: EndingParticle.NONE
+  val system = "คุณคือ Haku ตอบภาษาไทยสั้นๆ ใช้ tool ที่ให้ไว้เท่านั้น\n" + SummaryPromptBuilder.particleRule(particle) +
+    skills.joinToString("") { "\n${it.title}: ${it.instructions}" }
   return try {
     session.start(AgentConfig(config, system))
     val out = session.execute(AgentInput(text))

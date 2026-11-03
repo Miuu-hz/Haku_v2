@@ -37,6 +37,7 @@ import org.json.JSONObject
  * question to logcat tag `HakuAsk`:
  * `adb shell am broadcast -n com.bbpillow.haku/.AskDebugReceiver -a com.bbpillow.haku.debug.ASK --es q "<question>" [--es id "<tag>"] [--ez warm true]`
  * `adb shell am broadcast -n com.bbpillow.haku/.AskDebugReceiver -a com.bbpillow.haku.debug.ASK_UNLOAD`
+ * `-a com.bbpillow.haku.debug.WARM` warms the chat's models as opening the chat tab does (AppGraph.warmth, 60 s idle).
  */
 class AskDebugReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
@@ -80,6 +81,7 @@ class AskDebugReceiver : BroadcastReceiver() {
           }
         }
       }
+      ACTION_WARM -> app.graph.warmth.open()
       else -> Unit
     }
   }
@@ -215,6 +217,7 @@ class AskDebugReceiver : BroadcastReceiver() {
     const val ACTION_ASK = "com.bbpillow.haku.debug.ASK"
     const val ACTION_UNLOAD = "com.bbpillow.haku.debug.ASK_UNLOAD"
     const val ACTION_ASK_FULL = "com.bbpillow.haku.debug.ASK_FULL"
+    const val ACTION_WARM = "com.bbpillow.haku.debug.WARM"
     const val MIB = 1024.0 * 1024.0
 
     val mutex = Mutex()

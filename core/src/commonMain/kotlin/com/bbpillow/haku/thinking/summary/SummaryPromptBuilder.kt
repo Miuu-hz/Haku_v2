@@ -43,7 +43,8 @@ object SummaryPromptBuilder {
     append(particleRule(input.style.particle)).append('\n')
   }
 
-  private fun particleRule(p: EndingParticle) = when (p) {
+  /** The ending rule line for a model prompt; chat skill turns reuse it so they end the way the user chose. */
+  fun particleRule(p: EndingParticle) = when (p) {
     EndingParticle.NONE -> "- ไม่ใช้คำลงท้าย ครับ ค่ะ คะ"
     else -> "- ประโยคสุดท้ายลงท้ายด้วย “${p.text}” และไม่ใช้คำลงท้ายอื่น"
   }

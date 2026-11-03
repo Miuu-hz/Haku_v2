@@ -26,4 +26,10 @@ class HakuApplication : Application() {
     // No-op until capture was explicitly started once (end of onboarding, CaptureController.start).
     CaptureController.resumeIfEnabled(this)
   }
+
+  /** 5ข: UI hidden or worse frees the chat's models (the chat tab warms them again when shown). */
+  override fun onTrimMemory(level: Int) {
+    super.onTrimMemory(level)
+    if (level >= TRIM_MEMORY_UI_HIDDEN) graph.warmth.stop()
+  }
 }
