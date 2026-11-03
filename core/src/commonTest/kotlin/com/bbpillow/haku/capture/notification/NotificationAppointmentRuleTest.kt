@@ -52,7 +52,7 @@ class NotificationAppointmentRuleTest {
 
   @Test fun `instagram and discord messages give an offer`() {
     assertNotNull(rule.offer(chat("x\nพรุ่งนี้ 10 โมง เจอกันที่ร้าน", app = "com.instagram.android"), tz))
-    assertNotNull(rule.offer(chat("x\nพรุ่งนี้ 10 โมง เจอกันที่ร้าน", app = "com.discord"), tz))
+    assertNotNull(rule.offer(chat("x\nพรุ่งนี้ 11 โมง เจอกันที่ร้าน", app = "com.discord"), tz)) // another time: one appointment = one offer across apps
   }
 
   @Test fun `unlisted package gives null`() {
