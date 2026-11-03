@@ -258,7 +258,9 @@ class AppGraph(val app: Application) {
   /** One embedder for chat and indexing (engine opens on first use); null without a model file. */
   private suspend fun embedder(): LiteRtTextEmbedder? = embedLock.withLock {
     val path = embeddingModelPath() ?: return@withLock null
-    embedder?.takeIf { it.modelPath == path } ?: LiteRtTextEmbedder(path, cacheDir = app.cacheDir.path).also {
+    // own cache dir, as Gallery OnDeviceEmbedder.getIsolatedContext: sharing the LLM's would collide on the compiled GPU program/weight cache
+    val cache = File(app.cacheDir, "embed").apply { mkdirs() }.path
+    embedder?.takeIf { it.modelPath == path } ?: LiteRtTextEmbedder(path, cacheDir = cache).also {
       embedder?.close()
       embedder = it
     }
