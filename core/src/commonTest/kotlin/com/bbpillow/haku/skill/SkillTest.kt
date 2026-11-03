@@ -50,9 +50,12 @@ class SkillTest {
     assertEquals("add-appointment", m.skill.name)
     assertEquals("พรุ่งนี้ 10 โมง ทำฟัน", m.rest)
     assertIs<Mention.Service>(MentionParser.parse("@weather.example เชียงใหม่", all))
-    assertNull(MentionParser.parse("/weather-today x", all)) // an MCP tool is only reachable through @server
+    assertEquals(Mention.NotFound('/', "weather-today", "x"), MentionParser.parse("/weather-today x", all)) // an MCP tool is only reachable through @server
     assertNull(MentionParser.parse("ไม่มี mention", all))
-    assertNull(MentionParser.parse("/นัด x", listOf(appt.copy(enabled = false))))
+    assertEquals(Mention.NotFound('/', "นัด", "x"), MentionParser.parse("/นัด x", listOf(appt.copy(enabled = false))))
+    assertEquals(Mention.NotFound('@', "nosuch", "เชียงใหม่"), MentionParser.parse("@nosuch เชียงใหม่", all))
+    assertNull(MentionParser.parse("/ x", all))
+    assertNull(MentionParser.parse("@", all))
   }
 
   @Test fun suggestionsWhileTyping() {

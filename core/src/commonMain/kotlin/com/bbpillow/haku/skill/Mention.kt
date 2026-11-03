@@ -23,12 +23,13 @@ object MentionParser {
     val t = text.trimStart()
     if (t.length < 2 || t[0] !in TRIGGERS) return null
     val word = t.substring(1).substringBefore(' ').trim()
+    if (word.isEmpty()) return null
     val rest = t.substring(1).substringAfter(' ', "").trim()
     val enabled = skills.filter { it.enabled }
     return when (t[0]) {
       SKILL -> enabled.filter { it.server == null }.firstOrNull { matches(it, word, exact = true) }?.let { Mention.Skill(it, rest) }
       else -> enabled.filter { it.server.equals(word, ignoreCase = true) }.takeIf { it.isNotEmpty() }?.let { Mention.Service(it.first().server!!, it, rest) }
-    }
+    } ?: Mention.NotFound(t[0], word, rest)
   }
 
   /**
