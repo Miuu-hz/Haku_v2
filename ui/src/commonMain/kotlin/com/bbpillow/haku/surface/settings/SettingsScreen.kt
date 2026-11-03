@@ -41,7 +41,7 @@ import com.bbpillow.haku.surface.theme.HakuTone
 /**
  * Settings screen ("ตั้งค่า") opened from the gear icon on the Memory tab.
  * Sections: (a) AI ในเครื่อง, (b) คำลงท้าย, (c) สรุปประจำวัน (P5.2, both off by default), (d) ล็อกแอป,
- * (e) ความเป็นส่วนตัว (P5.8 notification access, P4.1 audit, PDPA notice). State-hoisted.
+ * (e) ความสามารถเสริม, (f) ความเป็นส่วนตัว (P5.8 notification access, P4.1 audit, PDPA notice). State-hoisted.
  */
 @Composable
 fun SettingsScreen(
@@ -55,6 +55,7 @@ fun SettingsScreen(
   modifier: Modifier = Modifier,
   onToggleBrief: (BriefKind, Boolean) -> Unit = { _, _ -> },
   onPickBriefTime: (BriefKind) -> Unit = {},
+  onOpenExtensions: () -> Unit = {},
   notificationAccessOn: Boolean = false,
   onOpenNotificationAccess: () -> Unit = {},
   onOpenAudit: () -> Unit = {},
@@ -149,6 +150,9 @@ fun SettingsScreen(
         )
       }
     }
+
+    SectionLabel("ความสามารถเสริม", Modifier.padding(top = 4.dp))
+    NavRow(HakuIcons.Spark, HakuTone.Violet, "ความสามารถเสริม", "ทักษะในเครื่องและบริการภายนอก (MCP)", onOpenExtensions)
 
     SectionLabel("ความเป็นส่วนตัว", Modifier.padding(top = 4.dp))
     // P5.8: the reason is on screen before the system page opens (Play prominent disclosure, PDPA s.23)

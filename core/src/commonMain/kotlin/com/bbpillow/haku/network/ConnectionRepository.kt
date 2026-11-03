@@ -3,6 +3,8 @@ package com.bbpillow.haku.network
 /** Why Haku opened a connection. [thai] is what the Transparency screen shows; [carriesPersonalData] feeds the egress counter. */
 enum class ConnectionPurpose(val thai: String, val carriesPersonalData: Boolean) {
   MODEL_DOWNLOAD("ดาวน์โหลดโมเดล AI ลงเครื่อง", carriesPersonalData = false),
+  MCP_DESCRIBE("ตรวจดูเครื่องมือบริการภายนอก (MCP)", carriesPersonalData = false),
+  MCP("เรียกบริการภายนอก (MCP)", carriesPersonalData = true),
 }
 
 /**

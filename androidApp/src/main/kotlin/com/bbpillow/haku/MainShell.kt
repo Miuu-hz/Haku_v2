@@ -40,6 +40,8 @@ import com.bbpillow.haku.platform.LiteRtLocalModel
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.platform.signals.CalendarWriter
 import com.bbpillow.haku.platform.widget.HakuWidget
+import com.bbpillow.haku.skill.BuiltInSkills
+import com.bbpillow.haku.skill.McpServerRecord
 import com.bbpillow.haku.surface.chat.AppointmentProposal
 import com.bbpillow.haku.surface.chat.AppointmentStatus
 import com.bbpillow.haku.surface.chat.ChatAnswerOutput
@@ -67,6 +69,7 @@ import com.bbpillow.haku.surface.onboarding.ProfileRecord
 import com.bbpillow.haku.surface.onboarding.ProfileStore
 import com.bbpillow.haku.surface.plus.PlusScreen
 import com.bbpillow.haku.surface.settings.DownloadProgressInput
+import com.bbpillow.haku.surface.settings.ExtensionsScreen
 import com.bbpillow.haku.surface.settings.InstalledModelRecord
 import com.bbpillow.haku.surface.settings.ModelManagerPresenter
 import com.bbpillow.haku.surface.settings.ModelManagerScreen
@@ -241,6 +244,7 @@ private fun SettingsTab(
   var page by remember { mutableStateOf(SettingsPage.MAIN) }
   BackHandler(enabled = page != SettingsPage.MAIN) { page = SettingsPage.MAIN }
   when (page) {
+    SettingsPage.EXTENSIONS -> return ExtensionsTab(graph) { page = SettingsPage.MAIN }
     SettingsPage.AUDIT -> return AuditTab(graph) { page = SettingsPage.MAIN }
     SettingsPage.PRIVACY -> return PrivacyNoticeScreen(onBack = { page = SettingsPage.MAIN }, contentPadding = TabPadding)
     SettingsPage.MAIN -> Unit
@@ -253,6 +257,7 @@ private fun SettingsTab(
     onOpenNotificationAccess = {
       activity.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
     },
+    onOpenExtensions = { page = SettingsPage.EXTENSIONS },
     onOpenAudit = { page = SettingsPage.AUDIT },
     onOpenPrivacyNotice = { page = SettingsPage.PRIVACY },
     onBack = onClose,
@@ -300,7 +305,71 @@ private fun SettingsTab(
   )
 }
 
-private enum class SettingsPage { MAIN, AUDIT, PRIVACY }
+private enum class SettingsPage { MAIN, EXTENSIONS, AUDIT, PRIVACY }
+
+@Composable
+private fun ExtensionsTab(graph: AppGraph, onBack: () -> Unit) {
+  val scope = rememberCoroutineScope()
+  var servers by remember { mutableStateOf<List<McpServerRecord>>(emptyList()) }
+  var adding by remember { mutableStateOf(false) }
+  var addError by remember { mutableStateOf<String?>(null) }
+  var addedServer by remember { mutableStateOf<McpServerRecord?>(null) }
+  // ponytail: built-ins always on for now, show switch disabled with "เปิดอยู่เสมอ"
+  val skills = BuiltInSkills.ALL
+  LaunchedEffect(Unit) { graph.safeIo { mcpServers.all() }?.let { servers = it } }
+  ExtensionsScreen(
+    skills = skills,
+    servers = servers,
+    adding = adding,
+    addError = addError,
+    addedServer = addedServer,
+    onBack = onBack,
+    onToggleTool = { url, tool, enabled ->
+      scope.launch {
+        graph.safeIo {
+          mcpServers.setToolEnabled(url, tool, enabled)
+          mcpServers.all()
+        }?.let { servers = it }
+      }
+    },
+    onRemoveServer = { url ->
+      scope.launch {
+        graph.safeIo {
+          mcpServers.remove(url)
+          mcpServers.all()
+        }?.let { servers = it }
+      }
+    },
+    onConnectServer = { url ->
+      adding = true
+      addError = null
+      addedServer = null
+      scope.launch {
+        try {
+          val described = withContext(Dispatchers.IO) {
+            graph.mcpClient.describe(url, System.currentTimeMillis())
+          }
+          graph.safeIo {
+            mcpServers.upsert(described)
+            mcpServers.all()
+          }?.let { servers = it }
+          addedServer = described
+        } catch (e: CancellationException) {
+          throw e
+        } catch (e: Exception) {
+          addError = e.message ?: "เชื่อมต่อบริการไม่สำเร็จ"
+        } finally {
+          adding = false
+        }
+      }
+    },
+    onDismissAdd = {
+      addError = null
+      addedServer = null
+    },
+    contentPadding = TabPadding,
+  )
+}
 
 /** P4.1 audit log + emergency stop. ponytail: the stop flag is in memory (gate), it resets on process death. */
 @Composable
