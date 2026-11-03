@@ -7,11 +7,13 @@ import com.bbpillow.haku.thinking.GenerateInput
 import com.bbpillow.haku.thinking.LocalModel
 import com.bbpillow.haku.thinking.LocalModelClient
 import com.bbpillow.haku.thinking.ModelConfig
+import com.bbpillow.haku.thinking.context.ContextAssembler
 import com.bbpillow.haku.thinking.context.NowStateInput
 import com.bbpillow.haku.thinking.context.RecallRig
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -129,5 +131,41 @@ class ChatPresenterTest {
     val off = withNow.answer(withNow.retrieve(ChatQuestionInput("ไปหาหมอฟันครั้งล่าสุดเมื่อไร", RecallRig.NOW, DiaryStyle(EndingParticle.KRAP))), null)
     assertEquals(EndingParticle.KRAP.appendTo(ChatPresenter.NOT_FOUND), off.text)
     assertTrue(off.citations.isEmpty())
+  }
+
+  @Test fun `echo of statement is rejected and falls back to acknowledgement`() = runTest {
+    val q = "ทำงานทั้งวันพรุ่งนี้ เหนื่อยมาก"
+    val echo = "มิ้นท์ ทำงานทั้งวันพรุ่งนี้ เหนื่อยมาก ค่ะ"
+    val out = chat.answer(ask(q, DiaryStyle(EndingParticle.KA, nickname = "มิ้นท์")), LocalModelClient(ReplyModel(echo)))
+    assertEquals(ChatAnswerSource.RETRIEVAL, out.source)
+    assertEquals(listOf("echo"), out.rejectedReasons)
+    assertEquals(echo, out.rejectedText)
+    assertEquals(EndingParticle.KA.appendTo(ChatPresenter.ACKNOWLEDGEMENT), out.text)
+  }
+
+  @Test fun `natural caring reply to a statement without echo is accepted`() = runTest {
+    val q = "ทำงานทั้งวันพรุ่งนี้ เหนื่อยมาก"
+    val reply = "สู้ๆ นะคะ พักผ่อนให้เพียงพอค่ะ"
+    val out = chat.answer(ask(q, DiaryStyle(EndingParticle.KA, nickname = "มิ้นท์")), LocalModelClient(ReplyModel(reply)))
+    assertEquals(ChatAnswerSource.MODEL, out.source, out.rejectedReasons.toString())
+    assertEquals(reply, out.text)
+    assertTrue(out.rejectedReasons.isEmpty())
+  }
+
+  @Test fun isEchoDetectsVerbatimRepetitionWithParticleOrNickname() {
+    val q = "ทำงานทั้งวันพรุ่งนี้ เหนื่อยมาก"
+    assertTrue(ChatPresenter.isEcho(q, "มิ้นท์ ทำงานทั้งวันพรุ่งนี้ เหนื่อยมาก ค่ะ"))
+    assertTrue(ChatPresenter.isEcho(q, "ทำงานทั้งวันพรุ่งนี้ เหนื่อยมาก ค่ะ"))
+    assertTrue(ChatPresenter.isEcho(q, "ทำงานทั้งวันพรุ่งนี้ เหนื่อยมาก"))
+    assertFalse(ChatPresenter.isEcho(q, "สู้ๆ นะคะ พักผ่อนให้เพียงพอค่ะ"))
+    assertFalse(ChatPresenter.isEcho("ครั้งล่าสุดที่ไปร้านกาแฟคือเมื่อไร", "ครั้งล่าสุดที่ไปร้านกาแฟคือวันอังคารที่ 29 กันยายน ตอน 12:00 ค่ะ"))
+  }
+
+  @Test fun `past-tense ไปไหนมาบ้าง with nowState does not cite now and uses recent fallback newest first`() = runTest {
+    seed()
+    val withNow = ChatPresenter(rig.memory, rig.index, rig.pipeline, RecallRig.OFFSET_MIN, nowState = { NowStateInput(placeName = "สถานที่หนึ่ง") })
+    val r = withNow.retrieve(ChatQuestionInput("ไปไหนมาบ้าง", RecallRig.NOW))
+    assertTrue(r.citations.none { it.label == ContextAssembler.NOW_LABEL })
+    assertEquals(listOf("12:00 ไปกินข้าวที่ร้านกาแฟ", "08:00 ออกจากบ้าน"), r.citations.map { it.text })
   }
 }
