@@ -851,8 +851,9 @@ private suspend fun runSkill(graph: AppGraph, question: String, text: String, sk
 /**
  * Task T: the confirmed `mcp.call` result → a short Thai answer for the bubble. The result is untrusted external text,
  * so this is a plain generate with no tools; no model, a failure or a blank reply give [McpResultSummary.FALLBACK].
+ * internal: the debug McpDebugReceiver MCP_CONFIRM drives it over adb.
  */
-private suspend fun summarizeMcpResult(graph: AppGraph, question: String, record: ActionProposalRecord): String {
+internal suspend fun summarizeMcpResult(graph: AppGraph, question: String, record: ActionProposalRecord): String {
   val particle = graph.safeIo { profile.load().style.particle } ?: EndingParticle.NONE
   val raw = record.message?.takeIf { it.isNotBlank() } ?: return McpResultSummary.FALLBACK
   val config = modelConfigOrNull(graph) ?: return McpResultSummary.FALLBACK

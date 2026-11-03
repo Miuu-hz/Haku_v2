@@ -51,6 +51,12 @@ class McpDebugReceiver : BroadcastReceiver() {
             val r = graph.confirmAction(id)
             Log.i(TAG, JSONObject().put("id", id).put("ms", System.currentTimeMillis() - t0).put("status", r?.status?.name)
               .put("action", r?.request?.action).put("message", r?.message).toString())
+            // the chat's own summary step (MainShell onConfirmAction); --es q = the question the bubble belonged to
+            if (r != null && r.request.action == com.bbpillow.haku.skill.SkillActions.MCP_ACTION && r.status == ActionStatus.DONE) {
+              val t1 = System.currentTimeMillis()
+              val text = summarizeMcpResult(graph, intent.getStringExtra("q").orEmpty(), r)
+              Log.i(TAG, JSONObject().put("summaryMs", System.currentTimeMillis() - t1).put("bubble", text).toString())
+            }
           }
         }
       } catch (t: Throwable) {
