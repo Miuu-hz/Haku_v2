@@ -17,7 +17,7 @@
 // Modified for Haku (2026): derived from Google AI Edge Gallery 1.0.19
 // customtasks/agentchat/McpManagerViewModel.kt and tools/RunMcpTool.kt.
 // Replaced Hilt/DataStore/Firebase with stateless McpClient over Ktor Android + StreamableHttpClientTransport,
-// enforced HTTPS (except 127.0.0.1 in debug) and 15 s timeout, mapped tools to SkillRecord (<= 3 string slots,
+// enforced HTTPS (except 127.0.0.1 in debug), 15 s describe / 60 s call timeout, mapped tools to SkillRecord (<= 3 string slots,
 // default disabled), capped tool output at 2000 chars, and logged every connection to E3 ConnectionRepository.
 
 package com.bbpillow.haku.platform.mcp
@@ -69,7 +69,8 @@ class KtorMcpClient(
     install(SSE)
     engine {
       connectTimeout = TIMEOUT_MS
-      socketTimeout = TIMEOUT_MS
+      // read timeout: an SSE tool answer can stay silent until the server finishes (DeepWiki ask ~16 s)
+      socketTimeout = CALL_TIMEOUT_MS
     }
   }
 
@@ -146,7 +147,7 @@ class KtorMcpClient(
     var bytesIn: Long? = null
     var result = FAILED
     return try {
-      withTimeout(TIMEOUT_MS.toLong()) {
+      withTimeout(CALL_TIMEOUT_MS.toLong()) {
         client.connect(StreamableHttpClientTransport(client = httpClient, url = cleanUrl))
         // the name map lives in RAM: after a restart, re-list once so "get_weather" is not called as "get-weather"
         val remoteName = rawToolNames[cleanUrl to tool]
@@ -168,7 +169,7 @@ class KtorMcpClient(
       }
     } catch (e: TimeoutCancellationException) {
       result = "$FAILED (หมดเวลา)"
-      throw IOException("เรียกใช้บริการหมดเวลา (เกิน 15 วินาที)", e)
+      throw IOException("เรียกใช้บริการหมดเวลา (เกิน 60 วินาที)", e)
     } catch (e: CancellationException) {
       result = "หยุดไว้"
       throw e
@@ -206,6 +207,8 @@ class KtorMcpClient(
     private const val OK = "สำเร็จ"
     private const val FAILED = "ไม่สำเร็จ"
     const val TIMEOUT_MS = 15_000
+    /** Tool calls: DeepWiki ask_wiki_question takes ~16 s end to end, past the 15 s describe budget. */
+    const val CALL_TIMEOUT_MS = 60_000
     const val MAX_RESULT_CHARS = 2_000
 
     private val STRING_ISH_TYPES = setOf("string", "number", "integer", "boolean")
