@@ -4,6 +4,7 @@ import com.bbpillow.haku.capture.diary.DiaryStyle
 import com.bbpillow.haku.capture.diary.EndingParticle
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SummaryCheckerTest {
@@ -53,6 +54,25 @@ class SummaryCheckerTest {
     assertTrue("unexpected-particle" in plainCheck(ok))
     assertEquals(emptyList(), plainCheck(ok.removeSuffix("ครับ") + "แล้ว"))
     assertEquals(emptyList(), check(ok.removeSuffix("ครับ") + "ค่ะ", DiaryStyle(EndingParticle.KA)))
+  }
+
+  @Test fun `ka particle accepts both kha and ka in appropriate contexts`() {
+    val kaStyle = DiaryStyle(EndingParticle.KA)
+    // statement with ค่ะ passes
+    assertEquals(emptyList(), check(ok.removeSuffix("ครับ") + "ค่ะ", kaStyle))
+    // softener with นะคะ passes
+    assertEquals(emptyList(), check(ok.removeSuffix("ครับ") + "นะคะ", kaStyle))
+    // question with คะ passes
+    val qPass = "เมื่อวานนี้ ออกจากบ้านตอน 08:30 แล้วถึงที่ทำงานตอน 09:10 ใช่ไหมคะ"
+    assertEquals(emptyList(), SummaryChecker.check(SummaryCheckInput(qPass, facts, kaStyle), minChars = 1).reasons)
+    // softener with นะค่ะ is rejected (wrong grammar)
+    assertTrue("missing-particle" in check(ok.removeSuffix("ครับ") + "นะค่ะ", kaStyle))
+    // statement ending with คะ alone is rejected (statement requires ค่ะ)
+    assertTrue("missing-particle" in check(ok.removeSuffix("ครับ") + "คะ", kaStyle))
+    // ending in ครับ under KA is not the user's particle (the facts carry ครับ, so it is not "stray")
+    assertTrue("missing-particle" in check(ok.removeSuffix("ครับ") + "ค่ะครับ", kaStyle))
+    // คะ is not stray for KA
+    assertFalse("wrong-particle" in check(ok.removeSuffix("ครับ") + "นะคะ", kaStyle))
   }
 
   @Test fun `length, script and hidden characters`() {

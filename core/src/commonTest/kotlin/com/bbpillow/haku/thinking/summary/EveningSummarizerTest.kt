@@ -117,6 +117,15 @@ class EveningSummarizerTest {
     assertFalse(out.text.contains("ค่ะ"))
   }
 
+  @Test fun `trailing ka or kha particle on a part is dropped`() = runTest {
+    val out = summarizer(ScriptedModel(mutableListOf("${morning}คะ", evening))).summarize(input(style = DiaryStyle(EndingParticle.KA)))
+    assertEquals(SummarySource.MODEL, out.source)
+    assertTrue(out.rejectedReasons.isEmpty())
+    assertTrue(out.text.endsWith("ค่ะ"))
+    assertEquals(1, Regex("ค่ะ").findAll(out.text).count())
+    assertFalse(out.text.contains("คะ"))
+  }
+
   @Test fun `three long parts stay under the whole-day cap`() = runTest {
     val day3 = listOf("08:30 ออกจากบ้านครับ", "13:00 ถึงที่ทำงานครับ", "19:00 มีนัด “ดินเนอร์กับแม่”ครับ")
     fun pad(s: String) = (s + " แล้วก็เล่าต่ออีกนิดหน่อย".repeat(20)).take(EveningSummarizer.partCap(3))

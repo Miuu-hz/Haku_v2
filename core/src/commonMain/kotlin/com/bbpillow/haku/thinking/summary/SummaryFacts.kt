@@ -28,7 +28,7 @@ object SummaryFacts {
   private val arrival = Regex("""^ถึง(.+?)((?: ใช้เวลา| อยู่).*)?$""")
 
   fun extract(lines: List<String>, particle: EndingParticle): List<SummaryFact> = lines.mapNotNull { raw ->
-    val line = raw.trim().removeSuffix(particle.text).trimEnd()
+    val line = particle.stripFrom(raw.trim()).trimEnd()
     if (line.isEmpty()) return@mapNotNull null
     val m = timed.find(line)
     val time = m?.let { "${it.groupValues[1].padStart(2, '0')}:${it.groupValues[2]}" }.orEmpty()

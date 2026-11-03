@@ -74,7 +74,7 @@ class EveningSummarizer(
 
   /** The prompt asks for no particle, but a trailing one is harmless to drop: the summary adds the user's once. */
   private fun dropEndParticle(s: String) =
-    EndingParticle.entries.filter { it != EndingParticle.NONE }.fold(s.trimEnd(' ', '.')) { acc, p -> acc.removeSuffix(p.text) }.trimEnd()
+    EndingParticle.entries.filter { it != EndingParticle.NONE }.fold(s.trimEnd(' ', '.')) { acc, p -> p.stripFrom(acc) }.trimEnd()
 
   private class Run(val output: GenerateOutput?, val failure: String?)
 

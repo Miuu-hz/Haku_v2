@@ -83,10 +83,17 @@ object SummaryChecker {
   }.filter { it.isNotBlank() }.toSet()
 
   private fun particle(text: String, facts: String, want: EndingParticle): List<String> {
-    val stray = allParticles.any { it != want.text && it in text && it !in facts }
+    val allowed = when (want) {
+      EndingParticle.NONE -> emptySet()
+      EndingParticle.KRAP -> setOf("ครับ")
+      EndingParticle.KA -> setOf("ค่ะ", "คะ")
+    }
+    val stray = allParticles.any { it !in allowed && it in text && it !in facts }
     if (want == EndingParticle.NONE) return if (stray) listOf("unexpected-particle") else emptyList()
+    val clean = text.trimEnd(' ', '.', '!', '\n', '…', '?', '？')
+    val expected = want.formFor(text)
     return buildList {
-      if (!text.trimEnd(' ', '.', '!', '\n', '…').endsWith(want.text)) add("missing-particle")
+      if (!clean.endsWith(expected)) add("missing-particle")
       if (stray) add("wrong-particle")
     }
   }
