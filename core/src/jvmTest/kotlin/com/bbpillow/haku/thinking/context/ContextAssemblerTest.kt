@@ -258,4 +258,39 @@ class ContextAssemblerTest {
     assertEquals(listOf(standing.text, now.text), texts(askNow("ตอนนี้อยู่ไหน เมื่อวานไปร้านกาแฟไหม", nowState, standing.tokens + now.tokens)))
     assertEquals(listOf(standing.text), texts(askNow("ตอนนี้อยู่ไหน เมื่อวานไปร้านกาแฟไหม", nowState, standing.tokens + now.tokens - 1)))
   }
+
+  // --- recent fallback for stop-word-only / dateless questions ---
+  @Test fun `stop-word-only question falls back to the last three local days newest first`() {
+    rig.daily("ไปวิ่งสวนลุมพินี", "2026-09-28T02:00:00.000Z")
+    rig.daily("ประชุมกับทีมที่ออฟฟิศ", "2026-09-29T02:00:00.000Z")
+    rig.daily("ไปร้านกาแฟ", "2026-09-30T01:00:00.000Z")
+
+    val c = rig.ask("ไปไหนมาบ้าง")
+
+    assertEquals(
+      listOf(
+        "- [2026-09-30 08:00] ไปร้านกาแฟ",
+        "- [2026-09-29 09:00] ประชุมกับทีมที่ออฟฟิศ",
+        "- [2026-09-28 09:00] ไปวิ่งสวนลุมพินี",
+      ),
+      texts(c),
+    )
+    assertTrue(c.items.all { it.tiers == listOf(RetrievalTier.STRUCTURAL) })
+  }
+
+  @Test fun `question with real words still uses the word tier only`() {
+    seedDiary()
+
+    val c = rig.ask("ไปร้านกาแฟมาบ้าง")
+
+    assertTrue(c.items.isNotEmpty())
+    assertTrue(c.items.all { it.tiers == listOf(RetrievalTier.WORDS) && "ร้านกาแฟ" in it.text })
+  }
+
+  @Test fun `stop-word-only question on an empty store returns nothing`() {
+    val c = rig.ask("ไปไหนมาบ้าง")
+
+    assertTrue(c.items.isEmpty())
+    assertTrue(c.dropped.isEmpty())
+  }
 }
