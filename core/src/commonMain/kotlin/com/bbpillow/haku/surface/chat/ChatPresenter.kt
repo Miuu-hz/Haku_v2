@@ -1,8 +1,7 @@
 package com.bbpillow.haku.surface.chat
 
-import com.bbpillow.haku.capture.diary.EndingParticle
-
 import com.bbpillow.haku.capture.diary.DiaryStyle
+import com.bbpillow.haku.capture.diary.EndingParticle
 import com.bbpillow.haku.language.Normalizer
 import com.bbpillow.haku.language.SynonymTable
 import com.bbpillow.haku.language.TextInput
@@ -89,14 +88,22 @@ class ChatPresenter(
     val citations = citations(context.items)
     val found = context.items.count { it.section in RECORD_SECTIONS } // all retrieved lines, not just the cited few
     val records = citations.filter { it.label != ContextAssembler.NOW_LABEL }
-    return ChatRetrievalOutput(input, context, citations, ChatAnswerOutput(question, retrievalText(records, found, input.style), citations, ChatAnswerSource.RETRIEVAL))
+    val fallback = if (isQuestion(question)) {
+      ChatAnswerOutput(question, retrievalText(records, found, input.style), citations, ChatAnswerSource.RETRIEVAL)
+    } else {
+      ChatAnswerOutput(question, withParticle(ACKNOWLEDGEMENT, input.style.particle.text), emptyList(), ChatAnswerSource.RETRIEVAL)
+    }
+    return ChatRetrievalOutput(input, context, citations, fallback)
   }
 
   /** [client] = an already loaded model, or null (no model file): then the retrieval answer is returned as is. */
   suspend fun answer(retrieval: ChatRetrievalOutput, client: LocalModelClient?): ChatAnswerOutput {
     val fallback = retrieval.fallback
     if (client == null) return fallback
-    val prompt = if (retrieval.citations.isEmpty()) noCitationPrompt(retrieval.input) else prompt(retrieval)
+    val isQ = isQuestion(retrieval.input.question)
+    val prompt = if (!isQ) statementPrompt(retrieval.input)
+      else if (retrieval.citations.isEmpty()) noCitationPrompt(retrieval.input)
+      else prompt(retrieval)
     val raw = try {
       withTimeoutOrNull(timeoutMillis) {
         client.generate(GenerateInput(prompt)).filterIsInstance<GenerateEvent.Finished>().first().output
@@ -111,6 +118,13 @@ class ChatPresenter(
     if (isEcho(retrieval.input.question, text)) {
       val ack = withParticle(ACKNOWLEDGEMENT, retrieval.input.style.particle.text)
       return fallback.copy(text = ack, source = ChatAnswerSource.RETRIEVAL, rejectedReasons = listOf("echo"), rejectedText = text)
+    }
+    if (!isQ) {
+      val check = SummaryChecker.check(SummaryCheckInput(text, emptyList(), retrieval.input.style), minChars = 1, maxChars = MAX_CHAT_CHARS)
+      val rejected = check.reasons.filter { it.startsWith("invented-") || it in STATEMENT_REJECT_REASONS }.toMutableList()
+      if (bracketTag.containsMatchIn(text) && "section-tag" !in rejected) rejected += "section-tag"
+      return if (rejected.isEmpty()) fallback.copy(text = text.take(MAX_CHAT_CHARS), source = ChatAnswerSource.MODEL, citations = emptyList())
+      else fallback.copy(rejectedReasons = rejected, rejectedText = text)
     }
     if (retrieval.citations.isEmpty()) {
       // No records: any time, number, place or quote in the answer is made up (or dictated by the question).
@@ -171,6 +185,7 @@ class ChatPresenter(
       appendLine("- ใช้คำตามบันทึก ห้ามแปลงคำเป็นตัวเลขหรือปี เช่น \"ปีหน้า\" ให้ตอบว่า \"ปีหน้า\" \"หนึ่งเล่ม\" ให้ตอบว่า \"หนึ่งเล่ม\"")
       appendLine("- เวลาให้เขียนเป็นตัวเลขแบบเดียวกับบันทึก เช่น 17:45 ห้ามเขียนเป็นคำ")
       appendLine("- ถามเรื่องนัด: นับเฉพาะข้อความที่มีคำว่า \"มีนัด\" ถ้าไม่มีเลยให้ตอบว่าไม่มีนัด ห้ามเอาการเดินทางมาตอบแทน")
+      appendLine("- ห้ามคัดลอกแท็กหรือหัวข้อในวงเล็บ เช่น \"[areas]\" มาไว้ในคำตอบ")
       appendLine(INJECTION_RULE)
       appendLine("- รายการข้อเท็จจริงคัดมาตามช่วงเวลาที่ถามแล้ว ถ้ามีข้อเท็จจริงที่ตอบคำถามได้ ห้ามตอบว่าไม่พบข้อมูล ให้ตอบตามข้อเท็จจริงนั้นทันที (ตอบว่าไม่พบข้อมูลโดยไม่ทวนคำถามเฉพาะเมื่อไม่มีข้อเท็จจริงใดเกี่ยวกับเรื่องที่ถามเลย)")
       append("- ตอบภาษาไทยหนึ่งถึงสองประโยค ห้ามทวนคำถามหรือข้อความของผู้ใช้ซ้ำ")
@@ -178,7 +193,7 @@ class ChatPresenter(
       appendLine()
       appendLine("ข้อเท็จจริง:")
       // ponytail: promptText() is already cut to the token budget; a re-expanded list overflowed the engine on week questions
-      appendLine(r.context.promptText())
+      appendLine(sanitizePromptFacts(r.context.promptText()))
       appendLine("คำถาม: ${r.input.question}")
       append("คำตอบ:")
     }
@@ -199,6 +214,24 @@ class ChatPresenter(
     }
   }
 
+  private fun statementPrompt(input: ChatQuestionInput): String {
+    val particle = input.style.particle.text
+    return buildString {
+      appendLine("คุณคือ Haku ผู้ช่วยบันทึกประจำวันส่วนตัวในเครื่องของผู้ใช้")
+      appendLine("ผู้ใช้บอกเล่า พูดคุย หรือระบายความรู้สึก (ไม่ใช่คำถาม) ให้ตอบรับสั้น ๆ อย่างเป็นธรรมชาติหรือให้กำลังใจหนึ่งประโยค")
+      appendLine("กติกา:")
+      appendLine("- ห้ามระบุข้อเท็จจริงจากบันทึกเกี่ยวกับชีวิต สถานที่ เวลา หรือคนของผู้ใช้ เว้นแต่ผู้ใช้จะถามถึง")
+      appendLine("- ห้ามแต่งข้อเท็จจริง และห้ามทวนคำหรือข้อความของผู้ใช้ซ้ำ")
+      appendLine("- ห้ามคัดลอกชื่อหมวดหรือแท็กใด ๆ เช่น \"[areas]\"")
+      appendLine(INJECTION_RULE)
+      append("ตอบรับสั้น ๆ เป็นภาษาไทยหนึ่งประโยคอย่างเป็นธรรมชาติ")
+      if (particle.isNotEmpty()) append(" ลงท้ายด้วย \"$particle\" เพียงครั้งเดียว")
+      appendLine()
+      appendLine("ข้อความ: ${input.question}")
+      append("คำตอบ:")
+    }
+  }
+
   companion object {
     const val FROM_DIARY = "จากบันทึกของคุณ"
     const val NOT_FOUND = "ยังไม่พบเรื่องนี้ในบันทึกของคุณ ลองถามด้วยชื่อสถานที่หรือวันที่"
@@ -210,6 +243,30 @@ class ChatPresenter(
     const val ACKNOWLEDGEMENT = "รับทราบแล้ว" // neutral: the statement may be good news or bad
     const val ECHO_MAX_EXTRA_CHARS = 16
     const val ECHO_MIN_QUESTION_CHARS = 8
+
+    val QUESTION_CUES = listOf(
+      "ไหม", "มั้ย", "อะไร", "ไหน", "ยังไง", "อย่างไร",
+      "เมื่อไหร่", "เมื่อไร", "กี่", "ทำไม", "หรือเปล่า", "รึเปล่า", "บ้าง", "ใคร",
+      "ไง", "มั๊ย", "หรือยัง", "ป่าว", "เท่าไหร่", "เท่าไร",
+    )
+    // whole asks only: a bare "ขอ"/"หา" would also match ขอบคุณ, ของ, ปัญหา, หาย
+    val ASK_CUES = listOf("ช่วย", "ขอให้", "ขอดู", "บอกหน่อย", "บอกที", "สรุป", "หาให้", "ค้นหา")
+
+    // ponytail: pure classification helper; question if ends with '?' or contains a question/imperative cue, else statement
+    internal fun isQuestion(text: String): Boolean {
+      val trimmed = text.trim()
+      if (trimmed.endsWith('?') || trimmed.endsWith('？') || '?' in trimmed || '？' in trimmed) return true
+      val norm = Normalizer.normalize(TextInput(trimmed, "th")).normalized
+      return QUESTION_CUES.any { it in trimmed || it in norm } ||
+        ASK_CUES.any { it in trimmed || it in norm }
+    }
+
+    private val STATEMENT_REJECT_REASONS = setOf("not-thai", "latin-word", "control-chars", "too-long")
+    private val rawFactTag = Regex("""^-\s*\[(?!ตอนนี้|\d{4}-\d{2}-\d{2})[^\]]+\]\s*""")
+    private val bracketTag = Regex("""\[[^\]]+\]""")
+
+    internal fun sanitizePromptFacts(promptText: String): String =
+      promptText.lineSequence().map { line -> rawFactTag.replace(line, "- ") }.joinToString("\n")
 
     internal fun isEcho(question: String, answer: String, maxExtraChars: Int = ECHO_MAX_EXTRA_CHARS): Boolean {
       val q = Normalizer.normalize(TextInput(question, "th")).normalized.trim()
