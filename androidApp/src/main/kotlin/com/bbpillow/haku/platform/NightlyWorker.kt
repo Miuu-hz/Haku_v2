@@ -13,12 +13,16 @@ import androidx.work.WorkerParameters
 import com.bbpillow.haku.BuildConfig
 import com.bbpillow.haku.AppGraph
 import com.bbpillow.haku.HakuApplication
+import com.bbpillow.haku.capture.CaptureQueryInput
+import com.bbpillow.haku.capture.CaptureTypes
 import com.bbpillow.haku.capture.PlaceNames
+import com.bbpillow.haku.capture.PlaceRecognizer
 import com.bbpillow.haku.capture.diary.DiaryStyle
 import com.bbpillow.haku.network.ConnectionPurpose
 import com.bbpillow.haku.network.ConnectionRecord
 import com.bbpillow.haku.memory.dream.DreamInput
 import com.bbpillow.haku.platform.capture.CaptureController
+import com.bbpillow.haku.platform.signals.CalendarReader
 import com.bbpillow.haku.platform.widget.HakuWidget
 import com.bbpillow.haku.thinking.LocalModelClient
 import com.bbpillow.haku.thinking.ModelConfig
@@ -107,41 +111,83 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
   }
 
   /**
-   * Haku's own names for places the user has not named (reverse geocode, else "สถานที่ A"), then re-words the diary lines
-   * written while they were anonymous. Runs before compose so this run's lines and summary read the names. A lookup that
-   * fails is retried next run; one that answers (address or not) names the place for good. Never fails the job.
-   * ponytail: at most [MAX_LOOKUPS] a run, [LOOKUP_GAP_MS] apart; a place this run's compose creates is named next run.
+   * Haku's own names for places the user has not named: calendar first (overlap with non-all-day events), then reverse
+   * geocode, else "สถานที่ A", then re-words the diary lines written while they were anonymous. A place already named
+   * by geocoder may be upgraded to a calendar name. Never downgrades calendar -> geocoder.
+   * ponytail: at most [MAX_LOOKUPS] geocode lookups a run, [LOOKUP_GAP_MS] apart.
    */
   private suspend fun namePlaces(graph: AppGraph, now: Long, tz: Int) {
     try {
+      val initial = graph.io {
+        if (!NightlyPlan.shouldCompose(profile.load().onboarded)) null
+        else {
+          val before = places.list()
+          val unconfirmed = before.filter { !it.confirmed }
+          val dwellEvents = events.query(CaptureQueryInput(0, now + 86_400_000L, setOf(CaptureTypes.DWELL_START, CaptureTypes.DWELL_END)))
+          val dwells = PlaceRecognizer.pairDwells(dwellEvents)
+          val stops = PlaceRecognizer.mergeStops(dwells)
+          val (_, visits) = PlaceRecognizer.assignPlaces(stops, before)
+          Triple(before, unconfirmed, visits)
+        }
+      } ?: return
+
+      val (before, unconfirmed, visits) = initial
+      if (unconfirmed.isEmpty()) return
+
+      // Step 1: Calendar-derived place names (overlap >= 50% or >= 30 min)
+      val calendarUpdated = if (visits.isNotEmpty()) {
+        val minStart = maxOf(visits.minOf { it.startUtcMs }, now - 60 * 86_400_000L)
+        val maxEnd = visits.maxOf { it.endUtcMs }
+        val calendarEvents = CalendarReader.read(applicationContext, minStart, maxEnd + 86_400_000L)
+        if (calendarEvents.isEmpty()) 0 else {
+          val candidates = buildMap {
+            for (p in unconfirmed) {
+              val stays = visits.filter { it.placeId == p.id }.map { it.startUtcMs to it.endUtcMs }
+              PlaceNames.calendarCandidate(stays, calendarEvents)?.let { put(p.id, it) }
+            }
+          }
+          if (candidates.isEmpty()) 0 else {
+            graph.io {
+              PlaceNames.assignCalendar(places.list(), candidates).count { (id, name) -> places.setAutoName(id, name, replace = true) }
+            }
+          }
+        }
+      } else 0
+
+      // Step 2: Geocoder for remaining places with autoName == null
       val pending = graph.io {
-        if (!NightlyPlan.shouldCompose(profile.load().onboarded)) emptyList()
-        else places.list().filter { !it.confirmed && it.autoName == null }.take(MAX_LOOKUPS)
+        places.list().filter { !it.confirmed && it.autoName == null }.take(MAX_LOOKUPS)
       }
-      if (pending.isEmpty()) return
-      val present = PlaceGeocoder.isPresent()
+
       val found = LinkedHashMap<String, String?>()
       val tried = mutableListOf<ConnectionRecord>()
-      for (p in pending) {
-        if (!present) { found[p.id] = null; continue } // no geocoder on this device: letters straight away
-        try {
-          found[p.id] = PlaceGeocoder.lookup(applicationContext, p.lat, p.lon)?.let(PlaceNames::label)
-          tried += geocodeRecord(now, "สำเร็จ")
-        } catch (e: CancellationException) {
-          throw e
-        } catch (e: Exception) {
-          tried += geocodeRecord(now, "ไม่สำเร็จ")
+      if (pending.isNotEmpty()) {
+        val present = PlaceGeocoder.isPresent()
+        for (p in pending) {
+          if (!present) { found[p.id] = null; continue }
+          try {
+            found[p.id] = PlaceGeocoder.lookup(applicationContext, p.lat, p.lon)?.let(PlaceNames::label)
+            tried += geocodeRecord(now, "สำเร็จ")
+          } catch (e: CancellationException) {
+            throw e
+          } catch (e: Exception) {
+            tried += geocodeRecord(now, "ไม่สำเร็จ")
+          }
+          delay(LOOKUP_GAP_MS)
         }
-        delay(LOOKUP_GAP_MS)
       }
+
       val geocoded = found.values.count { it != null }
-      val (stored, reworded) = graph.io {
+      val (geocoderStored, reworded) = graph.io {
         tried.forEach(connections::add)
-        val before = places.list()
-        val stored = PlaceNames.assign(before, found).count { (id, name) -> places.setAutoName(id, name) }
-        stored to if (stored > 0) diary.relabel(before, tz, profile.load().style) else 0
+        val currentPlaces = places.list()
+        val assigned = PlaceNames.assign(currentPlaces, found)
+        val stored = assigned.count { (id, name) -> places.setAutoName(id, name) }
+        val totalChanged = calendarUpdated + stored
+        val reworded = if (totalChanged > 0) diary.relabel(before, tz, profile.load().style) else 0
+        stored to reworded
       }
-      log("places named=$stored geocoded=$geocoded fallback=${found.size - geocoded} failed=${pending.size - found.size} reworded=$reworded")
+      log("places calendar=$calendarUpdated geocoder=$geocoderStored geocoded=$geocoded fallback=${found.size - geocoded} failed=${pending.size - found.size} reworded=$reworded")
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {

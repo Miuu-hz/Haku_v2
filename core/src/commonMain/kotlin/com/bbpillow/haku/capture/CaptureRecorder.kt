@@ -9,6 +9,7 @@ data class CalendarRowInput(
   val allDay: Boolean = false,
   val canceled: Boolean = false,
   val declined: Boolean = false,
+  val location: String? = null,
 )
 
 /**

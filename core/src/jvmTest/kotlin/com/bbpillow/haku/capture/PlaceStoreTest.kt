@@ -45,7 +45,8 @@ class PlaceStoreTest {
     assertTrue(store.setAutoName("p1", "ถนนสีลม"))
     assertFalse(store.setAutoName("p1", "สถานที่ A"), "named once")
     assertFalse(store.setAutoName("nope", "x"))
-    assertEquals("ถนนสีลม", PlaceStore(db).list().single().autoName)
+    assertTrue(store.setAutoName("p1", "ศาลากลาง", replace = true), "calendar name replaces")
+    assertEquals("ศาลากลาง", PlaceStore(db).list().single().autoName)
   }
 
   @Test fun recognitionOutputRoundTripsThroughTheStoreAndIsStable() {

@@ -60,8 +60,8 @@ class PlaceStore(private val db: SQLiteConnection) : PlaceRepository {
     changes() > 0
   }
 
-  override fun setAutoName(id: String, name: String): Boolean = inTransaction {
-    run("UPDATE places SET auto_name = ? WHERE id = ? AND auto_name IS NULL") {
+  override fun setAutoName(id: String, name: String, replace: Boolean): Boolean = inTransaction {
+    run("UPDATE places SET auto_name = ? WHERE id = ? AND confirmed = 0" + if (replace) "" else " AND auto_name IS NULL") {
       it.bindText(1, name)
       it.bindText(2, id)
     }

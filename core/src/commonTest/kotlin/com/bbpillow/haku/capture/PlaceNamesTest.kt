@@ -26,4 +26,69 @@ class PlaceNamesTest {
     assertEquals(mapOf("place-3" to "สถานที่ B", "place-4" to "ถนนสีลม แห่งที่ 2", "place-5" to "สถานที่ C"), out)
     assertTrue(PlaceNames.isFallback("สถานที่ AA") && !PlaceNames.isFallback("ถนนสีลม"))
   }
+
+  @Test fun locationFieldWinsOverTitleNoun() {
+    val event = CalendarRowInput(
+      eventId = 1L,
+      beginUtcMs = 1_000L,
+      endUtcMs = 5_000L,
+      title = "ประชุม รพ.ศรีนครินทร์",
+      location = "ศาลากลาง",
+    )
+    assertEquals("ศาลากลาง", PlaceNames.candidateFromEvent(event))
+  }
+
+  @Test fun titleNounExtractedWithProperNameUntilNextSpace() {
+    val e1 = CalendarRowInput(1L, 1_000L, 5_000L, title = "พบผู้ว่า ศาลากลาง")
+    assertEquals("ศาลากลาง", PlaceNames.candidateFromEvent(e1))
+
+    val e2 = CalendarRowInput(2L, 1_000L, 5_000L, title = "ตรวจตา รพ.ศรีนครินทร์ 9 โมง")
+    assertEquals("รพ.ศรีนครินทร์", PlaceNames.candidateFromEvent(e2))
+  }
+
+  @Test fun noOverlapYieldsNoName() {
+    val stays = listOf(10_000L to 20_000L)
+    val events = listOf(
+      CalendarRowInput(1L, 30_000L, 40_000L, title = "พบผู้ว่า ศาลากลาง"),
+    )
+    assertNull(PlaceNames.calendarCandidate(stays, events))
+  }
+
+  @Test fun allDayEventIgnored() {
+    val stays = listOf(10_000L to 20_000L)
+    val allDayEvent = CalendarRowInput(1L, 0L, 86_400_000L, title = "พบผู้ว่า ศาลากลาง", allDay = true)
+    assertNull(PlaceNames.candidateFromEvent(allDayEvent))
+    assertNull(PlaceNames.calendarCandidate(stays, listOf(allDayEvent)))
+  }
+
+  @Test fun conflictingCandidatesPicksMajorityTieKeepsNull() {
+    val stay = listOf(0L to 10_000_000L)
+    val e1 = CalendarRowInput(1L, 1_000_000L, 2_000_000L, title = "พบผู้ว่า ศาลากลาง")
+    val e2 = CalendarRowInput(2L, 3_000_000L, 4_000_000L, title = "ติดต่องาน ศาลากลาง")
+    val e3 = CalendarRowInput(3L, 5_000_000L, 6_000_000L, title = "ตรวจตา รพ.ศรีนครินทร์")
+    assertEquals("ศาลากลาง", PlaceNames.calendarCandidate(stay, listOf(e1, e2, e3)))
+
+    // Tie: 1 vs 1 -> returns null so geocoder name is kept
+    assertNull(PlaceNames.calendarCandidate(stay, listOf(e1, e3)))
+  }
+
+  @Test fun calendarUpgradesGeocoderOrFallbackName() {
+    val places = listOf(
+      PlaceRecord("p1", 0.0, 0.0, autoName = "ถนนสุขุมวิท"),
+      PlaceRecord("p2", 0.0, 0.0, autoName = "สถานที่ A"),
+      PlaceRecord("p3", 0.0, 0.0, label = "ที่ทำงาน", confirmed = true),
+    )
+    val assigned = PlaceNames.assignCalendar(places, mapOf("p1" to "ศาลากลาง", "p2" to "รพ.ศรีนครินทร์", "p3" to "ศาลากลาง"))
+    assertEquals(mapOf("p1" to "ศาลากลาง", "p2" to "รพ.ศรีนครินทร์"), assigned)
+  }
+
+  @Test fun overlapThresholdFiftyPercentOrThirtyMinutes() {
+    val e20m = CalendarRowInput(1L, 0L, 20 * 60_000L, title = "ศาลากลาง")
+    assertTrue(PlaceNames.overlaps(0L, 10 * 60_000L, e20m))
+    assertTrue(!PlaceNames.overlaps(0L, 9 * 60_000L, e20m))
+
+    val e2h = CalendarRowInput(2L, 0L, 120 * 60_000L, title = "ศาลากลาง")
+    assertTrue(PlaceNames.overlaps(0L, 30 * 60_000L, e2h))
+    assertTrue(!PlaceNames.overlaps(0L, 29 * 60_000L, e2h))
+  }
 }

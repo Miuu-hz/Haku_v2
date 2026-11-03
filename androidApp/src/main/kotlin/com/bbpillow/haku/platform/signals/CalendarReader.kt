@@ -18,6 +18,7 @@ object CalendarReader {
     CalendarContract.Instances.ALL_DAY,
     CalendarContract.Instances.STATUS,
     CalendarContract.Instances.SELF_ATTENDEE_STATUS,
+    CalendarContract.Instances.EVENT_LOCATION,
   )
 
   /** Yesterday through tomorrow in local time; also the replace window for rescheduled/cancelled events. */
@@ -28,10 +29,9 @@ object CalendarReader {
       today.plusDays(2).atStartOfDay(zone).toInstant().toEpochMilli()
   }
 
-  fun read(context: Context, nowUtcMs: Long): List<CalendarRowInput> {
+  fun read(context: Context, fromUtcMs: Long, toUtcMs: Long): List<CalendarRowInput> {
     if (context.checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) return emptyList()
-    val (from, to) = window(nowUtcMs)
-    val cursor = CalendarContract.Instances.query(context.contentResolver, PROJECTION, from, to) ?: return emptyList()
+    val cursor = CalendarContract.Instances.query(context.contentResolver, PROJECTION, fromUtcMs, toUtcMs) ?: return emptyList()
     return cursor.use { c ->
       buildList {
         while (c.moveToNext()) {
@@ -44,10 +44,16 @@ object CalendarReader {
               allDay = c.getInt(4) != 0,
               canceled = c.getInt(5) == CalendarContract.Events.STATUS_CANCELED,
               declined = c.getInt(6) == CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED,
+              location = c.getString(7),
             ),
           )
         }
       }
     }
+  }
+
+  fun read(context: Context, nowUtcMs: Long): List<CalendarRowInput> {
+    val (from, to) = window(nowUtcMs)
+    return read(context, from, to)
   }
 }
