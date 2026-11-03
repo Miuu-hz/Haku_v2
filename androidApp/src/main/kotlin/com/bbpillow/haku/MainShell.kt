@@ -771,23 +771,37 @@ private fun ChatTab(
  * chat tab warmed it (the per-question load/unload below then only moves a reference); otherwise this question warms it.
  * internal: the debug AskDebugReceiver ASK_FULL action drives this exact path over adb.
  */
-internal suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutput? = graph.warmth.use { askOnce(graph, question) }
-
-private suspend fun askOnce(graph: AppGraph, question: String): ChatAnswerOutput? {
-  val tz = graph.tzOffsetMinutes
-  // "@ปฏิทิน …" / "@host …" (popup pick) = use exactly that, no picker; the gate card still asks before anything runs
+internal suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutput? {
   val skills = availableSkills(graph)
-  when (val m = MentionParser.parse(question, skills)) {
-    is Mention.Skill -> return chosenSkill(graph, question, m)
-    is Mention.Service -> return runSkill(graph, question, m.rest.ifBlank { question }, m.tools.take(MAX_SERVICE_TOOLS), chosen = true)
-    is Mention.NotFound -> {
-      val what = if (m.trigger == MentionParser.SERVICE) "บริการ" else "คำสั่ง"
-      return ChatAnswerOutput(question, "ไม่พบ$what ${m.trigger}${m.name} ลองพิมพ์ ${m.trigger} เพื่อดูรายการที่มี", emptyList(), ChatAnswerSource.MODEL)
-    }
-    null -> Unit
+  val mention = MentionParser.parse(question, skills)
+  return answerWithoutModel(graph, question, mention) ?: graph.warmth.use { askOnce(graph, question, skills, mention) }
+}
+
+/**
+ * The rule-only answers (appointment card, "ถ้า … ให้เตือน …", unknown @name). No model is used, so these never wait for
+ * the warm-up (a cold load is ~18 s). Null = the question needs the model.
+ */
+private suspend fun answerWithoutModel(graph: AppGraph, question: String, mention: Mention?): ChatAnswerOutput? = when (mention) {
+  // "@ปฏิทิน พรุ่งนี้ 10 โมง ทำฟัน": the pick itself is the appointment cue, so "นัด" is put in front for the parser
+  is Mention.Skill ->
+    if (mention.skill.action == CalendarAddArgs.ACTION && mention.rest.isNotBlank()) proposeAppointment(graph, "นัด ${mention.rest}") else null
+  is Mention.Service -> null
+  is Mention.NotFound -> {
+    val what = if (mention.trigger == MentionParser.SERVICE) "บริการ" else "คำสั่ง"
+    ChatAnswerOutput(question, "ไม่พบ$what ${mention.trigger}${mention.name} ลองพิมพ์ ${mention.trigger} เพื่อดูรายการที่มี", emptyList(), ChatAnswerSource.MODEL)
   }
-  proposeAppointment(graph, question)?.let { return it }
-  graph.safeIo { intentCommand.tryHandle(question, System.currentTimeMillis()) }?.let { return it } // P5.3 "ถ้า … ให้เตือน …"
+  null -> proposeAppointment(graph, question)
+    ?: graph.safeIo { intentCommand.tryHandle(question, System.currentTimeMillis()) } // P5.3 "ถ้า … ให้เตือน …"
+}
+
+/** Everything that needs a model, after [answerWithoutModel] found nothing. */
+private suspend fun askOnce(graph: AppGraph, question: String, skills: List<SkillRecord>, mention: Mention?): ChatAnswerOutput? {
+  // "@ปฏิทิน …" / "@host …" (popup pick) = use exactly that, no picker; the gate card still asks before anything runs
+  when (mention) {
+    is Mention.Skill -> return runSkill(graph, question, mention.rest.ifBlank { question }, listOf(mention.skill), chosen = true)
+    is Mention.Service -> return runSkill(graph, question, mention.rest.ifBlank { question }, mention.tools.take(MAX_SERVICE_TOOLS), chosen = true)
+    is Mention.NotFound, null -> Unit
+  }
   graph.pickSkill(question, skills)?.let { if (BuildConfig.DEBUG) Log.d("HakuSkill", "picked ${it.name}"); return runSkill(graph, question, question, listOf(it)) }
   val semantic = graph.questionSemantic(question) // words-only while the embedder is cold or absent
   val (presenter, retrieval) = graph.safeIo { composeRecent(System.currentTimeMillis()); chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style), semantic) } ?: return null
@@ -816,15 +830,6 @@ private suspend fun proposeAppointment(graph: AppGraph, text: String): ChatAnswe
     runCatching { CalendarWriter.conflictLine(graph.app, proposal.startUtcMs, proposal.endUtcMs, tz, proposal.allDay) }.getOrNull()
   }
   return answer.copy(appointment = proposal.copy(conflict = conflict ?: proposal.conflict))
-}
-
-/**
- * "@ปฏิทิน พรุ่งนี้ 10 โมง ทำฟัน": the user picked the skill, so it is used, never second-guessed. The calendar goes to the
- * rule parser first (fast, no model); the pick itself is the appointment cue, so "นัด" is put in front for the parser.
- */
-private suspend fun chosenSkill(graph: AppGraph, question: String, m: Mention.Skill): ChatAnswerOutput {
-  if (m.skill.action == CalendarAddArgs.ACTION && m.rest.isNotBlank()) proposeAppointment(graph, "นัด ${m.rest}")?.let { return it }
-  return runSkill(graph, question, m.rest.ifBlank { question }, listOf(m.skill), chosen = true)
 }
 
 /** Built-ins plus the MCP tools the user turned on (Settings → ความสามารถเสริม). */
