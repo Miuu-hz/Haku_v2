@@ -37,6 +37,8 @@ import com.bbpillow.haku.network.ConnectionStore
 import com.bbpillow.haku.platform.DataKeys
 import com.bbpillow.haku.platform.IcuWordSegmenter
 import com.bbpillow.haku.platform.LiteRtTextEmbedder
+import com.bbpillow.haku.platform.SharedEngines
+import com.google.ai.edge.litertlm.Engine
 import com.bbpillow.haku.platform.ModelDownloader
 import com.bbpillow.haku.platform.ModelImporter
 import com.bbpillow.haku.platform.billing.PlayBilling
@@ -63,6 +65,7 @@ import com.bbpillow.haku.surface.settings.ModelManagerPresenter
 import com.bbpillow.haku.surface.timeline.TimelinePresenter
 import com.bbpillow.haku.thinking.ModelBackend
 import com.bbpillow.haku.thinking.ModelConfig
+import com.bbpillow.haku.thinking.ModelWarmth
 import com.bbpillow.haku.thinking.context.SemanticTier
 import com.bbpillow.haku.thinking.context.VectorIndexOutput
 import com.bbpillow.haku.thinking.context.VectorIndexer
@@ -270,8 +273,9 @@ class AppGraph(val app: Application) {
     try {
       io { vectorIndexer() }.run(e, cap, CaptureController.dispatcher)
     } finally {
-      // chat keeps the shared engine open (questionSemantic); closing it here could free it under an in-flight embed
-      if (!SEMANTIC_CHAT) e.close()
+      // ponytail: unlocked read; a warm-up landing exactly now can see its embedder closed (that chat goes words-only
+      // until the next warm-up), never leaked. Closing is safe under an in-flight embed: both take the embedder's lock.
+      if (!warmth.isWarm) e.close()
     }
   }
 
@@ -290,9 +294,8 @@ class AppGraph(val app: Application) {
 
   /**
    * Chat-time semantic tier: embeds only the question (~0.3 s) when the engine is open. A cold engine takes ~27 s, so
-   * unless [waitForLoad] it starts loading in the background and this question goes words-only. Null = no model, no
-   * vectors yet, or a failure (never throws). ponytail: the engine stays open for the process once warm; release on
-   * onTrimMemory if RAM pressure shows up.
+   * unless [waitForLoad] this question goes words-only ([warmth] is loading it). Null = no model, no
+   * vectors yet, or a failure (never throws). The engine opens and closes with [warmth].
    */
   suspend fun questionSemantic(question: String, waitForLoad: Boolean = false, force: Boolean = false): SemanticTier? {
     // eval 2026-10-29 (Fold5, 35 items): tier on 94.3% vs off 91.4%. The earlier "stall" was the cached-app freezer.
@@ -300,7 +303,7 @@ class AppGraph(val app: Application) {
     try {
       val e = embedder() ?: return null
       val store = io { vectors.takeIf { it.count(EMBED_MODEL_ID) > 0 } } ?: return null
-      if (!e.isLoaded && !waitForLoad) return null.also { warm(e) }
+      if (!e.isLoaded && !waitForLoad) return null
       return VectorSemanticTier.forQuestion(question, e, store, EMBED_MODEL_ID, CaptureController.dispatcher)
     } catch (e: CancellationException) {
       throw e
@@ -315,13 +318,13 @@ class AppGraph(val app: Application) {
 
   /**
    * Week 2: the skill for a message nobody mentioned, or null = plain chat. Same embedder as the semantic tier; while it
-   * is cold this returns null (and warms it) so a first question never waits on the engine.
+   * is cold this returns null ([warmth] is loading it) so a first question never waits on the engine.
    */
   suspend fun pickSkill(text: String, skills: List<com.bbpillow.haku.skill.SkillRecord>): com.bbpillow.haku.skill.SkillRecord? = try {
     val e = embedder()
     when {
       e == null -> null
-      !e.isLoaded -> null.also { warm(e) }
+      !e.isLoaded -> null
       else -> (skillPicker?.takeIf { it.first === e } ?: (e to com.bbpillow.haku.skill.EmbeddingSkillPicker(e)).also { skillPicker = it })
         .second.let { p ->
           if (BuildConfig.DEBUG) Log.d("HakuSkill", "rank=${p.rank(text, skills).joinToString { "${it.first.name}:%.3f".format(it.second) }} chat=%.3f".format(p.anchorScore(text)))
@@ -335,26 +338,42 @@ class AppGraph(val app: Application) {
     null
   }
 
-  /** Chat tab opened: open the engine early so the first question can use the semantic tier. */
-  fun warmEmbedder() {
-    scope.launch {
+  /** The engine reference [warmth] holds; touched only from its event loop. */
+  private var warmEngine: Engine? = null
+
+  /**
+   * 5ข: the chat tab's LLM engine and embedder, open while the chat is in use. Holds one [SharedEngines] reference, so
+   * askHaku's LiteRtLocalModel.load and a skill's LiteRtAgentSession.start (same [modelConfig] key) reuse this engine,
+   * and dropping it never closes one a question still holds. LLM first: every question needs it, the embedder only helps.
+   */
+  val warmth = ModelWarmth(
+    scope,
+    WARM_IDLE_MS,
+    warmUp = {
       try {
-        val e = embedder() ?: return@launch
-        if (!e.isLoaded && io { vectors.count(EMBED_MODEL_ID) } > 0) warm(e)
+        modelConfig()?.let { warmEngine = SharedEngines.acquire(it) }
       } catch (e: CancellationException) {
         throw e
       } catch (e: Exception) {
-        Log.e(EMBED_TAG, "embedder warm-up failed: ${e::class.simpleName}")
+        Log.e("HakuModel", "warm-up failed: ${e::class.simpleName}")
       }
-    }
-  }
-
-  private fun warm(e: LiteRtTextEmbedder) {
-    scope.launch { runCatching { e.load() }.onFailure { Log.e(EMBED_TAG, "embedder load failed: ${it::class.simpleName}") } }
-  }
+      try {
+        embedder()?.load()
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        Log.e(EMBED_TAG, "embedder load failed: ${e::class.simpleName}")
+      }
+    },
+    coolDown = {
+      warmEngine?.let { warmEngine = null; SharedEngines.release(it) }
+      embedLock.withLock { embedder }?.close()
+    },
+  )
 
   private companion object {
     const val SEMANTIC_CHAT = true
+    const val WARM_IDLE_MS = 60_000L
     const val GUESS_WINDOW_MS = 14 * 86_400_000L
     const val EMBED_TAG = "HakuEmbed"
     const val DEBUG_EMBED_PATH = "/data/local/tmp/eg2.litertlm"
