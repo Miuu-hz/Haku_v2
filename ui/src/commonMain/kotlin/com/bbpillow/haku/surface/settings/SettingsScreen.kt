@@ -40,7 +40,8 @@ import com.bbpillow.haku.surface.theme.HakuTone
 
 /**
  * Settings screen ("ตั้งค่า") opened from the gear icon on the Memory tab.
- * Sections: (a) AI ในเครื่อง, (b) คำลงท้าย, (c) สรุปประจำวัน (P5.2, both off by default), (d) ล็อกแอป. State-hoisted.
+ * Sections: (a) AI ในเครื่อง, (b) คำลงท้าย, (c) สรุปประจำวัน (P5.2, both off by default), (d) ล็อกแอป,
+ * (e) ความเป็นส่วนตัว (P5.8 notification access, P4.1 audit, PDPA notice). State-hoisted.
  */
 @Composable
 fun SettingsScreen(
@@ -54,6 +55,10 @@ fun SettingsScreen(
   modifier: Modifier = Modifier,
   onToggleBrief: (BriefKind, Boolean) -> Unit = { _, _ -> },
   onPickBriefTime: (BriefKind) -> Unit = {},
+  notificationAccessOn: Boolean = false,
+  onOpenNotificationAccess: () -> Unit = {},
+  onOpenAudit: () -> Unit = {},
+  onOpenPrivacyNotice: () -> Unit = {},
   contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
 ) {
   Column(
@@ -76,25 +81,7 @@ fun SettingsScreen(
     ScreenTitle("ตั้งค่า")
 
     SectionLabel("AI ในเครื่อง")
-    SurfaceCard(
-      Modifier
-        .fillMaxWidth()
-        .clip(HakuRadius.Card)
-        .clickable(role = Role.Button, onClickLabel = "AI ในเครื่อง", onClick = onOpenModels),
-    ) {
-      Row(
-        Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-      ) {
-        IconTile(HakuIcons.Box, HakuTone.Violet, size = 40.dp)
-        Column(Modifier.weight(1f)) {
-          Text("AI ในเครื่อง", style = MaterialTheme.typography.titleSmall, color = HakuColors.Ink)
-          Text(state.activeModelLabel, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
-        }
-        Icon(HakuIcons.Chevron, contentDescription = null, tint = HakuColors.Muted, modifier = Modifier.size(18.dp))
-      }
-    }
+    NavRow(HakuIcons.Box, HakuTone.Violet, "AI ในเครื่อง", state.activeModelLabel, onOpenModels)
 
     SectionLabel("คำลงท้าย", Modifier.padding(top = 4.dp))
     SurfaceCard(Modifier.fillMaxWidth()) {
@@ -163,6 +150,17 @@ fun SettingsScreen(
       }
     }
 
+    SectionLabel("ความเป็นส่วนตัว", Modifier.padding(top = 4.dp))
+    // P5.8: the reason is on screen before the system page opens (Play prominent disclosure, PDPA s.23)
+    NavRow(
+      HakuIcons.File, HakuTone.Amber, "อ่านนัดจากแจ้งเตือนแชท",
+      (if (notificationAccessOn) "เปิดอยู่ · " else "ปิดอยู่ · ") +
+        "อ่านเฉพาะข้อความที่ดูเหมือนนัด กรองในเครื่อง ไม่เก็บข้อความแชท แตะเพื่อเปิดหรือปิดในตั้งค่าเครื่อง",
+      onOpenNotificationAccess,
+    )
+    NavRow(HakuIcons.Grid, HakuTone.Mint, "ประวัติการทำงาน", "ทุกคำสั่งที่ Haku ทำแทนคุณ และปุ่มหยุดทั้งหมด", onOpenAudit)
+    NavRow(HakuIcons.Lock, HakuTone.Blue, "ประกาศความเป็นส่วนตัว", "เก็บอะไร ไว้ที่ไหน นานเท่าไร และสิทธิ์ของคุณ", onOpenPrivacyNotice)
+
     state.message?.let { msg ->
       Text(
         msg,
@@ -170,6 +168,20 @@ fun SettingsScreen(
         color = HakuColors.Coral,
         modifier = Modifier.padding(horizontal = 4.dp),
       )
+    }
+  }
+}
+
+@Composable
+private fun NavRow(icon: androidx.compose.ui.graphics.vector.ImageVector, tone: HakuTone, title: String, detail: String, onClick: () -> Unit) {
+  SurfaceCard(Modifier.fillMaxWidth().clip(HakuRadius.Card).clickable(role = Role.Button, onClickLabel = title, onClick = onClick)) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+      IconTile(icon, tone, size = 40.dp)
+      Column(Modifier.weight(1f)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = HakuColors.Ink)
+        Text(detail, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
+      }
+      Icon(HakuIcons.Chevron, contentDescription = null, tint = HakuColors.Muted, modifier = Modifier.size(18.dp))
     }
   }
 }
