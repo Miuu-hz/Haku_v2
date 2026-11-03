@@ -8,7 +8,6 @@ import com.bbpillow.haku.platform.LiteRtTextEmbedder
 import com.bbpillow.haku.skill.BuiltInSkills
 import com.bbpillow.haku.skill.EmbeddingSkillPicker
 import kotlin.math.roundToInt
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
@@ -20,9 +19,9 @@ import org.json.JSONObject
 class SkillEvalReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     if (intent.action != ACTION) return
-    // No goAsync: model load + 52 embeds can outlive the broadcast limit; the app scope runs them.
+    // No goAsync: model load + 52 embeds can outlive the broadcast limit; a DebugJob keeps the process unfrozen.
     val app = context.applicationContext as HakuApplication
-    app.graph.scope.launch {
+    DebugJob.start(context) {
       try {
         mutex.withLock { run(context.applicationContext, app) }
       } catch (t: Throwable) {

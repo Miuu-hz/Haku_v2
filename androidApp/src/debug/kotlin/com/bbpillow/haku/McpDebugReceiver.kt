@@ -6,7 +6,6 @@ import android.content.Intent
 import android.util.Log
 import com.bbpillow.haku.action.ActionStatus
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -21,8 +20,8 @@ import org.json.JSONObject
 class McpDebugReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     val graph = (context.applicationContext as HakuApplication).graph
-    // no goAsync: a tool call may outlive the broadcast limit; the app scope runs it
-    graph.scope.launch {
+    // no goAsync: a tool call may outlive the broadcast limit; a DebugJob keeps the process unfrozen
+    DebugJob.start(context) {
       try {
         when (intent.action) {
           ACTION_ADD -> {
@@ -46,7 +45,7 @@ class McpDebugReceiver : BroadcastReceiver() {
               ?: graph.actionGate.proposals.value.lastOrNull { it.status == ActionStatus.PENDING }?.id
             if (id == null) {
               Log.w(TAG, "no pending proposal")
-              return@launch
+              return@start
             }
             val t0 = System.currentTimeMillis()
             val r = graph.confirmAction(id)

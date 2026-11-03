@@ -25,7 +25,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -42,9 +41,9 @@ import org.json.JSONObject
 class AskDebugReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     val app = context.applicationContext as HakuApplication
-    // No goAsync: model loads and indexing outlive the 60 s broadcast limit (ANR kill); the app scope runs them.
+    // No goAsync: model loads and indexing outlive the 60 s broadcast limit (ANR kill); a DebugJob keeps the process unfrozen.
     when (intent.action) {
-      ACTION_UNLOAD -> app.graph.scope.launch {
+      ACTION_UNLOAD -> DebugJob.start(context) {
         try {
           mutex.withLock { unloadWarm() }
         } catch (t: Throwable) {
@@ -56,7 +55,7 @@ class AskDebugReceiver : BroadcastReceiver() {
         val id = intent.getStringExtra("id") ?: System.currentTimeMillis().toString()
         val warm = intent.getBooleanExtra("warm", false)
         val semantic = intent.getBooleanExtra("semantic", false)
-        app.graph.scope.launch {
+        DebugJob.start(context) {
           try {
             mutex.withLock { runAsk(app, id, question, warm, semantic) }
           } catch (t: Throwable) {
@@ -67,7 +66,7 @@ class AskDebugReceiver : BroadcastReceiver() {
       // the Chat tab's own askHaku (mentions, picker, skill turns); logs the answer and any gate card it raised
       ACTION_ASK_FULL -> {
         val question = intent.getStringExtra("q").orEmpty()
-        app.graph.scope.launch {
+        DebugJob.start(context) {
           try {
             val t0 = System.currentTimeMillis()
             val a = mutex.withLock { askHaku(app.graph, question) }
@@ -81,7 +80,7 @@ class AskDebugReceiver : BroadcastReceiver() {
           }
         }
       }
-      ACTION_WARM -> app.graph.warmth.open()
+      ACTION_WARM -> DebugJob.start(context) { app.graph.warmth.use { } } // as opening the chat tab, but awake until warm
       else -> Unit
     }
   }
