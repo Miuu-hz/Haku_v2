@@ -29,45 +29,50 @@ object PlaceNames {
     "คาเฟ่", "โรงแรม", "ฟิตเนส", "ยิม", "สถานี",
   )
 
+  /** Building-level nouns trusted only inside an event's location field (in a title "คณะ" is often a committee). */
+  private val LOCATION_NOUNS = listOf("คณะ", "อาคาร", "ตึก", "ศูนย์")
+
+  private fun usable(s: String) = s.isNotEmpty() && s.length <= MAX_LEN && s !in junk && '+' !in s && s.any(Char::isLetter)
+
   /** Short label: a real feature name (not a house number or plus code), else road, else sub-district, district. */
   fun label(a: GeocodedAddressInput): String? {
     val feature = a.featureName?.takeUnless { it == a.houseNumber || it == a.postalCode }
     return listOf(feature, a.thoroughfare, a.subLocality, a.locality, a.subAdminArea)
       .mapNotNull { it?.trim() }
-      .firstOrNull { it.isNotEmpty() && it.length <= MAX_LEN && it !in junk && '+' !in it && it.any(Char::isLetter) }
+      .firstOrNull(::usable)
   }
 
   fun isFallback(name: String): Boolean = fallback.matches(name)
 
-  /** Finds a place noun in [title] from [PLACE_NOUNS] keeping any following proper name until the next space. */
-  fun extractTitleNoun(title: String): String? {
-    val match = PLACE_NOUNS
-      .mapNotNull { noun ->
-        val idx = title.indexOf(noun)
-        if (idx >= 0) idx to noun else null
-      }
-      .minWithOrNull(compareBy({ it.first }, { -it.second.length })) ?: return null
-    val start = match.first
-    val end = title.indexOf(' ', start).let { if (it == -1) title.length else it }
-    val candidate = title.substring(start, end).trim()
-    return candidate.takeIf {
-      it.isNotEmpty() && it.length <= MAX_LEN && it !in junk && '+' !in it && it.any(Char::isLetter)
-    }
+  /** Finds a place noun in [text] (earliest, longest) keeping any following proper name until the next space. */
+  fun extractTitleNoun(text: String, nouns: List<String> = PLACE_NOUNS): String? {
+    val start = nouns.mapNotNull { n -> text.indexOf(n).takeIf { it >= 0 }?.let { it to n } }
+      .minWithOrNull(compareBy({ it.first }, { -it.second.length }))?.first ?: return null
+    val end = text.indexOf(' ', start).let { if (it == -1) text.length else it }
+    return text.substring(start, end).trim().takeIf(::usable)
   }
 
   /**
-   * Candidate name per event: location if non-blank, <= 32 chars and not junk/plus-code, else title noun.
-   * All-day, canceled and declined events are ignored.
+   * Candidate name per event: the location when short; a long one ("ห้องประชุม… ชั้น 3 ศาลากลางจังหวัด…") gives its
+   * building noun, else its first word (the room). Then a place noun in the title. All-day, canceled, declined: none.
    */
   fun candidateFromEvent(event: CalendarRowInput): String? {
     if (event.allDay || event.canceled || event.declined) return null
-    val loc = event.location?.trim()?.takeIf {
-      it.isNotEmpty() && it.length <= MAX_LEN && it !in junk && '+' !in it && it.any(Char::isLetter)
+    val loc = unshiftTypos(event.location?.trim().orEmpty())
+    if (usable(loc)) return loc
+    if (loc.isNotEmpty()) {
+      (extractTitleNoun(loc, PLACE_NOUNS + LOCATION_NOUNS) ?: loc.substringBefore(' ').takeIf(::usable))?.let { return it }
     }
-    if (loc != null) return loc
     val title = event.title?.trim()?.takeIf { it.isNotEmpty() } ?: return null
     return extractTitleNoun(title)
   }
+
+  // Kedmanee: a Thai digit and a letter share a key (๖/ต); a digit between two Thai letters is a slipped Shift.
+  private val shiftedDigit = Regex("""(?<=[ก-ฮะ-ฺเ-์])[๓-๙](?=[ก-ฮะ-ฺเ-์])""")
+  private val unshifted = mapOf('๓' to 'ภ', '๔' to 'ถ', '๕' to 'ค', '๖' to 'ต', '๗' to 'จ', '๘' to 'ข', '๙' to 'ช')
+
+  /** "คณะเทคโนโลยีการเกษ๖ร" -> "คณะเทคโนโลยีการเกษตร"; "อาคาร ๒" and "ชั้น ๓" stay. */
+  fun unshiftTypos(s: String): String = shiftedDigit.replace(s) { unshifted.getValue(it.value[0]).toString() }
 
   /** Stay overlaps a non-all-day event by >= 50% of the event or >= 30 min. */
   fun overlaps(stayStartUtcMs: Long, stayEndUtcMs: Long, event: CalendarRowInput): Boolean {

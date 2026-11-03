@@ -146,6 +146,9 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
               PlaceNames.calendarCandidate(stays, calendarEvents)?.let { put(p.id, it) }
             }
           }
+          val unconfirmedIds = unconfirmed.map { it.id }.toSet()
+          val hit = calendarEvents.count { e -> visits.any { it.placeId in unconfirmedIds && PlaceNames.overlaps(it.startUtcMs, it.endUtcMs, e) } }
+          log("calendar visits=${visits.size} events=${calendarEvents.size} overlapUnconfirmed=$hit candidates=${candidates.size}")
           if (candidates.isEmpty()) 0 else {
             graph.io {
               PlaceNames.assignCalendar(places.list(), candidates).count { (id, name) -> places.setAutoName(id, name, replace = true) }

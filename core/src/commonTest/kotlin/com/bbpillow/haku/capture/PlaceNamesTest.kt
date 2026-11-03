@@ -46,6 +46,19 @@ class PlaceNamesTest {
     assertEquals("รพ.ศรีนครินทร์", PlaceNames.candidateFromEvent(e2))
   }
 
+  @Test fun longLocationGivesItsBuildingElseItsRoom() {
+    fun loc(l: String) = PlaceNames.candidateFromEvent(CalendarRowInput(1L, 0L, 1L, title = "ประชุม", location = l))
+    assertEquals("ศาลากลางจังหวัดขอนแก่น", loc("ห้องประชุมพระยามหาอำมาตย์ ชั้น 3 ศาลากลางจังหวัดขอนแก่น"))
+    assertEquals("คณะวิทยาศาสตร์", loc("ห้องประชุมสิริคุณากร ชั้น 2 คณะวิทยาศาสตร์ มข."))
+    assertEquals("ห้องประชุมใหญ่ชั้นห้า", loc("ห้องประชุมใหญ่ชั้นห้า อาคารที่มีชื่อยาวมากจนเกินสามสิบสองตัวอักษรแน่นอน"))
+    assertEquals(null, loc("ห้องประชุมที่มีชื่อยาวมากจนเกินสามสิบสองตัวอักษรแน่นอนเลย"))
+  }
+
+  @Test fun thaiDigitTypedWithShiftBetweenLettersIsTheLetter() {
+    assertEquals("คณะเทคโนโลยีการเกษตร", PlaceNames.unshiftTypos("คณะเทคโนโลยีการเกษ๖ร"))
+    assertEquals("อาคาร ๒ ชั้น ๓", PlaceNames.unshiftTypos("อาคาร ๒ ชั้น ๓"))
+  }
+
   @Test fun noOverlapYieldsNoName() {
     val stays = listOf(10_000L to 20_000L)
     val events = listOf(
