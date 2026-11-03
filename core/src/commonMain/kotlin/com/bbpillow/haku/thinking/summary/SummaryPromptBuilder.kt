@@ -3,11 +3,15 @@ package com.bbpillow.haku.thinking.summary
 import com.bbpillow.haku.capture.diary.EndingParticle
 import com.bbpillow.haku.language.TokenEstimator
 
-/** Compact Thai prompt: rewrite the given facts, add nothing (D14). Facts are cut to fit [budgetTokens]. */
+/**
+ * Compact Thai prompt for one part of the day: rewrite the given facts (`เวลา · สถานที่ · ทำอะไร`), add nothing (D14).
+ * Never asks for an ending particle: EveningSummarizer adds the user's one once, after the last part. Facts are cut to
+ * fit [budgetTokens].
+ */
 object SummaryPromptBuilder {
   const val DEFAULT_BUDGET_TOKENS = 900
 
-  private const val FACTS = "ข้อเท็จจริง:\n"
+  private const val FACTS = "ข้อเท็จจริง (เวลา · สถานที่ · ทำอะไร):\n"
   private const val CONTEXT = "ข้อมูลประกอบ (ใช้กำหนดน้ำเสียงเท่านั้น ห้ามนำมาเป็นข้อเท็จจริงของวันนี้):\n"
   private const val TAIL = "\nสรุป:"
 
@@ -34,13 +38,15 @@ object SummaryPromptBuilder {
   }
 
   private fun head(input: SummaryPromptInput) = buildString {
-    append("เขียนสรุปของ").append(input.header).append(" ให้เป็นย่อหน้าเดียวสั้น ๆ 2 ถึง 4 ประโยค อ่านลื่นไหลเหมือนเล่าให้เพื่อนฟัง\n")
+    val label = input.part.label
+    append("เขียนสรุป").append(label).append("ของ").append(input.header)
+    append(" เป็นประโยคเดียวสั้น ๆ (ไม่เกิน 2 ประโยค) ขึ้นต้นด้วย “").append(label).append("” อ่านลื่นไหลเหมือนเล่าให้เพื่อนฟัง\n")
     append("กติกา:\n")
     append("- ใช้เฉพาะข้อเท็จจริงในรายการด้านล่าง ห้ามเพิ่มข้อมูลใหม่ ห้ามเดา\n")
     append("- ใช้เวลา ตัวเลข และชื่อสถานที่ตามที่ให้ไว้เท่านั้น ห้ามคิดเวลาหรือชื่อสถานที่ขึ้นเอง\n")
     append("- เรียงตามลำดับเวลา ห้ามใส่ความรู้สึกหรือเหตุผลที่ไม่มีในรายการ\n")
     append("- เขียนเป็นภาษาไทยล้วน ไม่มีหัวข้อ ไม่มีรายการข้อ\n")
-    append(particleRule(input.style.particle)).append('\n')
+    append(particleRule(EndingParticle.NONE)).append('\n')
   }
 
   /** The ending rule line for a model prompt; chat skill turns reuse it so they end the way the user chose. */

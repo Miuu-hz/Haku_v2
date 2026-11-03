@@ -1,5 +1,7 @@
 package com.bbpillow.haku.thinking.summary
 
+import com.bbpillow.haku.capture.diary.DiaryStyle
+import com.bbpillow.haku.capture.diary.EndingParticle
 import com.bbpillow.haku.language.ThaiDateFormat
 import com.bbpillow.haku.thinking.GenerateEvent
 import com.bbpillow.haku.thinking.GenerateInput
@@ -12,8 +14,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * P2.7. Prompt, model, check, then store a model text once per day. The caller loads the model (the client is already loaded).
- * A failed check, a model error or a timeout falls back to [SummaryTemplate]; the reasons are returned, never shown.
+ * P2.7. The caller loads the model (the client is already loaded). The day's lines become facts
+ * (`เวลา · สถานที่ · ทำอะไร`, [SummaryFacts]) grouped into เช้า / บ่าย / เย็น; each part gets one short model call and its own
+ * check, and a part that fails (check, model error, timeout) reads as [SummaryTemplate.section] alone. The parts are
+ * joined in code and the user's particle is added once at the end. The joined text is checked again against the whole
+ * day; if that fails, or no part is model text, the whole-day [SummaryTemplate.paragraph] is used and not stored.
+ * Reasons are returned ("afternoon: invented-place"), never shown; a MODEL text may carry the reasons of its template parts.
  * An empty day is answered with the friendly no-data text and not stored, so a later run can still write the day.
  */
 class EveningSummarizer(
@@ -27,22 +33,41 @@ class EveningSummarizer(
     if (!input.regenerate) repository.find(input.day)?.let {
       return EveningSummaryOutput(it.text, it.source, null, emptyList(), fromStore = true)
     }
-    val prompt = SummaryPromptBuilder.build(
-      SummaryPromptInput(ThaiDateFormat.dayHeader(input.day), input.lines, input.style, input.contextLines),
-      budgetTokens,
-    )
-    val run = runModel(prompt.prompt)
-    val checked = run.output?.takeIf { run.failure == null }?.let { SummaryChecker.check(SummaryCheckInput(it.text, listOf(ThaiDateFormat.dayHeader(input.day)) + prompt.factLines, input.style)) }
-    val reasons = run.failure?.let { listOf(it) } ?: checked?.reasons.orEmpty()
-    val out = if (checked?.ok == true) {
-      EveningSummaryOutput(run.output!!.text.trim(), SummarySource.MODEL, run.output.metrics, emptyList())
+    val header = ThaiDateFormat.dayHeader(input.day)
+    val facts = SummaryFacts.extract(input.lines, input.style.particle)
+    val parts = SummaryFacts.sections(facts).map { section(header, it, input.contextLines) }
+    val metrics = parts.mapNotNull { it.metrics }.reduceOrNull(::plus)
+    val reasons = parts.flatMap { p -> p.reasons.map { "${p.part.name.lowercase()}: $it" } }
+    val joined = input.style.particle.appendTo(parts.joinToString(" ") { it.text })
+    val whole = SummaryChecker.check(SummaryCheckInput(joined, listOf(header) + facts.map { it.line }, input.style)).reasons
+    val out = if (parts.any { it.model } && whole.isEmpty()) {
+      EveningSummaryOutput(joined, SummarySource.MODEL, metrics, reasons)
     } else {
-      EveningSummaryOutput(SummaryTemplate.paragraph(input.day, input.lines, input.style), SummarySource.TEMPLATE, run.output?.metrics, reasons)
+      EveningSummaryOutput(SummaryTemplate.paragraph(input.day, input.lines, input.style), SummarySource.TEMPLATE, metrics, reasons + whole.map { "day: $it" })
     }
     // ponytail: only a model text is stored; the template is free to rebuild and the day may still grow.
     if (out.source == SummarySource.MODEL) repository.save(EveningSummaryRecord(input.day, out.text, out.source))
     return out
   }
+
+  private class Part(val part: SummaryPart, val text: String, val model: Boolean, val metrics: GenerateMetrics?, val reasons: List<String>)
+
+  /** One model call for one part; checked against that part's lines only, with no particle anywhere in it. */
+  private suspend fun section(header: String, section: SummarySection, context: List<String>): Part {
+    val prompt = SummaryPromptBuilder.build(SummaryPromptInput(header, section.part, section.facts.map { it.structured }, context), budgetTokens)
+    val run = runModel(prompt.prompt)
+    val text = run.output?.text?.trim()?.let(::dropEndParticle)
+    val lines = listOf(header) + section.facts.take(prompt.factLines.size).map { it.line }
+    val reasons = run.failure?.let { listOf(it) }
+      ?: SummaryChecker.check(SummaryCheckInput(text.orEmpty(), lines, PLAIN), SECTION_MIN_CHARS, SECTION_MAX_CHARS).reasons
+    val metrics = run.output?.metrics
+    return if (reasons.isEmpty() && text != null) Part(section.part, text, true, metrics, emptyList())
+    else Part(section.part, SummaryTemplate.section(section), false, metrics, reasons)
+  }
+
+  /** The prompt asks for no particle, but a trailing one is harmless to drop: the summary adds the user's once. */
+  private fun dropEndParticle(s: String) =
+    EndingParticle.entries.filter { it != EndingParticle.NONE }.fold(s.trimEnd(' ', '.')) { acc, p -> acc.removeSuffix(p.text) }.trimEnd()
 
   private class Run(val output: GenerateOutput?, val failure: String?)
 
@@ -61,7 +86,16 @@ class EveningSummarizer(
     Run(null, "model-error: ${e::class.simpleName}")
   }
 
+  private fun plus(a: GenerateMetrics, b: GenerateMetrics) = GenerateMetrics(
+    a.timeToFirstTokenMillis, a.totalMillis + b.totalMillis, a.chunkCount + b.chunkCount, null, a.cancelled || b.cancelled,
+  )
+
   companion object {
     const val DEFAULT_TIMEOUT_MS = 30_000L
+
+    /** Per part; three parts, two joining spaces and a particle stay under [SummaryChecker.MAX_CHARS] (3 x 160 + 5 = 485). */
+    const val SECTION_MAX_CHARS = 160
+    const val SECTION_MIN_CHARS = 10
+    private val PLAIN = DiaryStyle()
   }
 }

@@ -28,7 +28,7 @@ data class EveningSummaryOutput(
   val source: SummarySource,
   /** Null when the model did not run (empty day, stored summary). */
   val metrics: GenerateMetrics?,
-  /** Why the model text was refused; empty when [source] is MODEL or the model never ran. */
+  /** Why model text was refused, per part ("evening: too-long", "day: …"); a MODEL text lists its template parts here. */
   val rejectedReasons: List<String>,
   val fromStore: Boolean = false,
 )
@@ -51,7 +51,8 @@ interface EveningSummaryRepository {
   fun clear()
 }
 
-data class SummaryPromptInput(val header: String, val lines: List<String>, val style: DiaryStyle, val contextLines: List<String>)
+/** [header] = the day header; [lines] = that part's facts in [SummaryFact.structured] form. */
+data class SummaryPromptInput(val header: String, val part: SummaryPart, val lines: List<String>, val contextLines: List<String>)
 
 /** [factLines] = the lines that actually fit the budget; the checker treats only these as facts. */
 data class SummaryPromptOutput(val prompt: String, val factLines: List<String>, val estimatedTokens: Int)
