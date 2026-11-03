@@ -63,15 +63,9 @@ class LiteRtTextEmbedder(
    * Never creates the engine while an LLM engine is open: LiteRT then reuses the environment ("Adding options to the
    * existing LiteRT environment") and the LLM's next generation hangs (Fold5, 2026-11-03). Callers treat the throw as
    * "no embedder" (words-only retrieval, no picker). An engine opened before the LLM is fine and stays usable.
-   * ponytail: sees only LLM engines already open, not one initializing at this same moment; callers order themselves
-   * (warm-up and the nightly job embed first). A process-wide engine-open lock if another path ever races.
+   * Creation holds SharedEngines' lock, so an LLM that is still initializing counts as open too.
    */
-  private suspend fun ensureEngine(): EmbeddingEngine = engine ?: run {
-    if (SharedEngines.hasOpenEngine()) {
-      if (!refusedLogged) Log.w(TAG, "embedder not opened: an LLM engine is open (would hang its next generation)")
-      refusedLogged = true
-      throw IllegalStateException("LLM engine open; the embedder must open first")
-    }
+  private suspend fun ensureEngine(): EmbeddingEngine = engine ?: SharedEngines.whenNoneOpen {
     withContext(Dispatchers.Default + NonCancellable) {
       val e = if (gpu) {
         try {
@@ -86,6 +80,10 @@ class LiteRtTextEmbedder(
       engine = e
       e
     }
+  } ?: run {
+    if (!refusedLogged) Log.w(TAG, "embedder not opened: an LLM engine is open (would hang its next generation)")
+    refusedLogged = true
+    throw IllegalStateException("LLM engine open; the embedder must open first")
   }
 
   private fun open(b: Backend): EmbeddingEngine {

@@ -105,8 +105,12 @@ internal object SharedEngines {
   private val lock = Mutex()
   private val open = mutableListOf<Entry>()
 
-  /** True while any LLM engine is open. Unlocked read: an engine still initializing under [acquire] is not counted. */
-  internal fun hasOpenEngine(): Boolean = open.isNotEmpty()
+  /**
+   * Runs [block] (creating a non-LLM LiteRT engine) only when no LLM engine is open, else returns null. Under the same
+   * lock as [acquire], so no LLM is initializing meanwhile and none starts until [block] returns (measured: an unlocked
+   * check let the embedder in while the nightly LLM was still initializing, and that hung it too).
+   */
+  internal suspend fun <T : Any> whenNoneOpen(block: suspend () -> T): T? = lock.withLock { if (open.isEmpty()) block() else null }
 
   suspend fun acquire(config: ModelConfig): Engine = lock.withLock {
     val key = Key(config.modelPath, config.backend, config.maxTokens, config.speculativeDecoding)
