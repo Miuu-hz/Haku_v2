@@ -35,8 +35,11 @@ class EmbeddingSkillPickerTest {
   @Test fun aChatAnchorBeatsTheOnlySkill() = runTest {
     val e = KeywordEmbedder(listOf("นัด", "เมื่อวาน"))
     val p = EmbeddingSkillPicker(e, floor = 0f, anchors = listOf("เมื่อวาน"))
-    assertNull(p.pick("เมื่อวานไปไหน นัด", listOf(skill("a", "นัด"))))
+    assertNull(p.pick("เมื่อวานไปไหน", listOf(skill("a", "นัด"))))
+    assertEquals("a", p.pick("เมื่อวานไปไหน นัด", listOf(skill("a", "นัด")))?.name)
     assertEquals("a", p.pick("ลงนัด", listOf(skill("a", "นัด")))?.name)
+    val strict = EmbeddingSkillPicker(e, floor = 0f, chatMargin = 0.05f, anchors = listOf("เมื่อวาน"))
+    assertNull(strict.pick("เมื่อวานไปไหน นัด", listOf(skill("a", "นัด"))))
   }
 
   @Test fun noSkillWhenBelowFloorOrTooClose() = runTest {
