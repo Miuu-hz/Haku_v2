@@ -63,7 +63,10 @@ class NowStateBuilder(
   }
 
   private fun nameOf(placeId: String, known: List<PlaceRecord>): String =
-    DiaryTemplates.place(known.firstOrNull { it.id == placeId && it.confirmed }?.let { PlaceRef(it.label, it.category, it.id) } ?: PlaceRef())
+    // as EpisodeBuilder: a confirmed label wins, else the automatic (geocoded / "สถานที่ A") name
+    known.firstOrNull { it.id == placeId }.let { p ->
+      DiaryTemplates.place(if (p?.confirmed == true) PlaceRef(p.label, p.category, p.id) else PlaceRef(p?.autoName, placeId = placeId))
+    }
 
   private companion object {
     const val MAX_REMAINING = 3
