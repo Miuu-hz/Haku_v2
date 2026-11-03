@@ -770,25 +770,18 @@ internal suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutpu
 
 private suspend fun askOnce(graph: AppGraph, question: String): ChatAnswerOutput? {
   val tz = graph.tzOffsetMinutes
-  // Week 2: "/skill …" or "@service …" names what to use; a mention only skips the picker, the gate card still asks
+  // "@ปฏิทิน …" / "@host …" (popup pick) = use exactly that, no picker; the gate card still asks before anything runs
   val skills = availableSkills(graph)
   when (val m = MentionParser.parse(question, skills)) {
-    is Mention.Skill -> return runSkill(graph, question, m.rest.ifBlank { question }, listOf(m.skill))
-    is Mention.Service -> return runSkill(graph, question, m.rest.ifBlank { question }, m.tools.take(MAX_SERVICE_TOOLS))
+    is Mention.Skill -> return chosenSkill(graph, question, m)
+    is Mention.Service -> return runSkill(graph, question, m.rest.ifBlank { question }, m.tools.take(MAX_SERVICE_TOOLS), chosen = true)
     is Mention.NotFound -> {
       val what = if (m.trigger == MentionParser.SERVICE) "บริการ" else "คำสั่ง"
       return ChatAnswerOutput(question, "ไม่พบ$what ${m.trigger}${m.name} ลองพิมพ์ ${m.trigger} เพื่อดูรายการที่มี", emptyList(), ChatAnswerSource.MODEL)
     }
     null -> Unit
   }
-  val appointmentAnswer = graph.safeIo { appointmentCommand.tryPropose(question, System.currentTimeMillis(), tz) }
-  val proposal = appointmentAnswer?.appointment
-  if (proposal != null) {
-    val conflict = withContext(Dispatchers.IO) {
-      runCatching { CalendarWriter.conflictLine(graph.app, proposal.startUtcMs, proposal.endUtcMs, tz, proposal.allDay) }.getOrNull()
-    }
-    return appointmentAnswer.copy(appointment = proposal.copy(conflict = conflict ?: proposal.conflict))
-  }
+  proposeAppointment(graph, question)?.let { return it }
   graph.safeIo { intentCommand.tryHandle(question, System.currentTimeMillis()) }?.let { return it } // P5.3 "ถ้า … ให้เตือน …"
   graph.pickSkill(question, skills)?.let { if (BuildConfig.DEBUG) Log.d("HakuSkill", "picked ${it.name}"); return runSkill(graph, question, question, listOf(it)) }
   val semantic = graph.questionSemantic(question) // words-only while the embedder is cold or absent
@@ -809,6 +802,26 @@ private suspend fun askOnce(graph: AppGraph, question: String): ChatAnswerOutput
   }
 }
 
+/** The rule parser's appointment card for [text] with its calendar clash line, or null when [text] holds no appointment. */
+private suspend fun proposeAppointment(graph: AppGraph, text: String): ChatAnswerOutput? {
+  val tz = graph.tzOffsetMinutes
+  val answer = graph.safeIo { appointmentCommand.tryPropose(text, System.currentTimeMillis(), tz) } ?: return null
+  val proposal = answer.appointment ?: return null
+  val conflict = withContext(Dispatchers.IO) {
+    runCatching { CalendarWriter.conflictLine(graph.app, proposal.startUtcMs, proposal.endUtcMs, tz, proposal.allDay) }.getOrNull()
+  }
+  return answer.copy(appointment = proposal.copy(conflict = conflict ?: proposal.conflict))
+}
+
+/**
+ * "@ปฏิทิน พรุ่งนี้ 10 โมง ทำฟัน": the user picked the skill, so it is used, never second-guessed. The calendar goes to the
+ * rule parser first (fast, no model); the pick itself is the appointment cue, so "นัด" is put in front for the parser.
+ */
+private suspend fun chosenSkill(graph: AppGraph, question: String, m: Mention.Skill): ChatAnswerOutput {
+  if (m.skill.action == CalendarAddArgs.ACTION && m.rest.isNotBlank()) proposeAppointment(graph, "นัด ${m.rest}")?.let { return it }
+  return runSkill(graph, question, m.rest.ifBlank { question }, listOf(m.skill), chosen = true)
+}
+
 /** Built-ins plus the MCP tools the user turned on (Settings → ความสามารถเสริม). */
 private suspend fun availableSkills(graph: AppGraph): List<SkillRecord> =
   BuiltInSkills.ALL + (graph.safeIo { mcpServers.all().flatMap { it.tools }.filter { it.enabled } } ?: emptyList())
@@ -819,7 +832,7 @@ private const val MAX_SERVICE_TOOLS = 3
  * One skill turn: the model gets only [skills] as tools (built from their slots) and the skills' short instructions.
  * A call becomes a gate card under the answer; nothing runs or leaves the phone until the user confirms it.
  */
-private suspend fun runSkill(graph: AppGraph, question: String, text: String, skills: List<SkillRecord>): ChatAnswerOutput {
+private suspend fun runSkill(graph: AppGraph, question: String, text: String, skills: List<SkillRecord>, chosen: Boolean = false): ChatAnswerOutput {
   fun answer(t: String, actionId: String? = null) = ChatAnswerOutput(question, t, emptyList(), ChatAnswerSource.MODEL, actionId = actionId)
   val config = modelConfigOrNull(graph) ?: return answer("ต้องมี AI ในเครื่องก่อน จึงจะใช้ ${skills.joinToString { it.title }} ได้")
   var proposal: ActionProposalRecord? = null
@@ -827,7 +840,9 @@ private suspend fun runSkill(graph: AppGraph, question: String, text: String, sk
   val session = LiteRtAgentSession(emptyList(), tools)
   // the user's ending (onboarding) as in chat; without it the model falls back to a generic ผม/ดิฉัน … ครับ/ค่ะ
   val particle = graph.safeIo { profile.load().style.particle } ?: EndingParticle.NONE
-  val system = "คุณคือ Haku ตอบภาษาไทยสั้นๆ ใช้ tool ที่ให้ไว้เท่านั้น\n" + SummaryPromptBuilder.particleRule(particle) +
+  val system = "คุณคือ Haku ตอบภาษาไทยสั้นๆ ใช้ tool ที่ให้ไว้เท่านั้น\n" +
+    (if (chosen) "ผู้ใช้เลือกเครื่องมือนี้เอง ต้องเรียก tool ถ้าข้อมูลไม่พอให้ถามสั้นๆ ว่าขาดอะไร\n" else "") +
+    SummaryPromptBuilder.particleRule(particle) +
     skills.joinToString("") { "\n${it.title}: ${it.instructions}" }
   return try {
     session.start(AgentConfig(config, system))
