@@ -61,4 +61,31 @@ class SummaryCheckerTest {
     assertTrue("not-thai" in check("Left home at the usual time and reached the office on schedule, then had lunch ครับ"))
     assertTrue("control-chars" in check(ok.replace("เช้านี้", "เช้า​นี้")))
   }
+
+  // Made-up road names as the Thai geocoder writes them ("ถนน ชื่อ", with a space), in chat's fact-line shape.
+  private val roads = listOf(
+    "- [2026-11-02 08:00] 08:00 ออกจากถนน สายลมเย็นค่ะ",
+    "- [2026-11-02 08:46] 08:46 ถึงถนน ทุ่งดาวเรือง ใช้เวลาเดินทางราว 45 นาที อยู่ราว 50 นาทีค่ะ",
+    "- [2026-11-02 09:40] 09:40 ถึงถนน ดอกแก้วงาม อยู่ราว 2 ชั่วโมง 25 นาทีค่ะ",
+    "- [2026-11-02 12:08] 12:08 ถึงถนน ริมคลองใส แห่งที่ 2 อยู่ราว 1 ชั่วโมงค่ะ",
+  )
+  private fun roadCheck(text: String) =
+    SummaryChecker.check(SummaryCheckInput(text, roads, DiaryStyle(EndingParticle.KA)), minChars = 1).reasons
+
+  @Test fun `road names written without the geocoder's space pass`() {
+    val reply = "เมื่อวานนี้ มีการเดินทางจากถนนสายลมเย็น ไปยังถนนทุ่งดาวเรือง และต่อมาถึงถนนดอกแก้วงาม อยู่ราว 2 ชั่วโมง 25 นาทีค่ะ"
+    assertEquals(emptyList(), roadCheck(reply))
+    assertEquals(emptyList(), roadCheck("ออกจากถนน สายลมเย็น แล้วเดินทางไปยังถนน ทุ่งดาวเรืองค่ะ"))
+  }
+
+  @Test fun `a numbered road may be told with or without its number`() {
+    assertEquals(emptyList(), roadCheck("ตอนเที่ยงไปถึงถนนริมคลองใส แห่งที่ 2 อยู่ราว 1 ชั่วโมงค่ะ"))
+    assertEquals(emptyList(), roadCheck("ตอนเที่ยงไปถึงถนนริมคลองใส อยู่ราว 1 ชั่วโมงค่ะ"))
+  }
+
+  @Test fun `a road not in the facts is still caught`() {
+    assertTrue("invented-place" in roadCheck("เมื่อวานนี้ เดินทางจากถนนสายลมเย็น ไปยังถนนบึงน้ำใสค่ะ"))
+    assertTrue("invented-place" in roadCheck("เมื่อวานนี้ ถึงถนน ดาวเหนือ อยู่ราว 50 นาทีค่ะ"))
+    assertTrue("invented-place" in roadCheck("เมื่อวานนี้ ถึงถนนดอกแก้วงาม แล้วแวะที่ตลาดค่ะ"))
+  }
 }

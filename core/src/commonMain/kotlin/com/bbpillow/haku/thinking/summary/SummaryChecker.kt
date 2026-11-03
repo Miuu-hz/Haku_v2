@@ -17,7 +17,10 @@ object SummaryChecker {
     Regex("(หนึ่ง|สอง|สาม|สี่|ห้า|หก|เจ็ด|แปด|เก้า|สิบ|ร้อย) ?(ชั่วโมง|นาที|โมง|ทุ่ม|กิโลเมตร|ครั้ง|แห่ง|คน)")
   private val allParticles = listOf("ครับ", "ค่ะ", "คะ")
   private val placeCues = listOf("ออกจาก", "ถึง", "ไปที่", "ไปยัง", "แวะที่", "เดินทางไป")
-  private val cueContinuations = listOf("เวลา", "ช่วง", "ตอน", "จุดหมาย", "ที่หมาย", "แล้ว", "กัน", "ถึง")
+  // "ยัง": "เดินทางไปยัง…" — the ไปยัง cue right there checks the place itself
+  private val cueContinuations = listOf("เวลา", "ช่วง", "ตอน", "จุดหมาย", "ที่หมาย", "แล้ว", "กัน", "ถึง", "ยัง")
+  private val blanks = Regex("""\s+""")
+  private val nthPlace = Regex(""" แห่งที่ \d+$""")
   private val placeNouns = listOf(
     "ร้านอาหาร", "ร้านกาแฟ", "คาเฟ่", "โรงพยาบาล", "ห้าง", "สนามบิน", "โรงเรียน", "มหาวิทยาลัย", "ตลาด", "โรงแรม",
     "สวนสาธารณะ", "ฟิตเนส", "โรงหนัง", "ธนาคาร", "ร้านสะดวกซื้อ", "สถานี", "วัด", "บริษัท", "ออฟฟิศ",
@@ -52,14 +55,17 @@ object SummaryChecker {
     if (placeNouns.any { it in text && it !in facts } || cueNamesUnknownPlace(text, facts)) add("invented-place")
   }
 
-  /** After a place cue the text must continue with a place that appears in the facts (or a known non-place word). */
+  /**
+   * After a place cue the text must continue with a place that appears in the facts (or a known non-place word).
+   * Compared without spaces: the geocoder writes "ถนน ชื่อ" but Thai prose writes "ถนนชื่อ" (and the reverse).
+   */
   private fun cueNamesUnknownPlace(text: String, facts: String): Boolean {
-    val known = knownPlaces(facts)
+    val known = knownPlaces(facts).map { it.replace(blanks, "") }
     return placeCues.any { cue ->
       var from = text.indexOf(cue)
       var bad = false
       while (from >= 0 && !bad) {
-        val rest = text.substring(from + cue.length).trimStart(' ', '“', '"')
+        val rest = text.substring(from + cue.length).trimStart(' ', '“', '"').replace(blanks, "")
         bad = rest.isNotEmpty() && !rest.first().isDigit() && known.none { rest.startsWith(it) } && cueContinuations.none { rest.startsWith(it) }
         from = text.indexOf(cue, from + cue.length)
       }
@@ -72,6 +78,7 @@ object SummaryChecker {
     Regex("(?:ออกจาก|ถึง)(.+?)(?: ใช้เวลา| อยู่|$)", RegexOption.MULTILINE).findAll(facts)
       .forEach { add(stripParticle(it.groupValues[1])) }
     toList().forEach { add(it.removePrefix("ที่")) } // "ไปที่ทำงาน" reads as cue ไปที่ + ทำงาน
+    toList().forEach { add(it.replace(nthPlace, "")) } // "ถนน ก แห่งที่ 2" may be told as just "ถนนก"
     quoted.findAll(facts).forEach { add(it.groupValues[1]) }
   }.filter { it.isNotBlank() }.toSet()
 
