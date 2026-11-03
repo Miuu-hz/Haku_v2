@@ -293,4 +293,18 @@ class ContextAssemblerTest {
     assertTrue(c.items.isEmpty())
     assertTrue(c.dropped.isEmpty())
   }
+
+  @Test fun `past-tense ไปไหนมาบ้าง does not count as a now cue even when nowState is provided`() {
+    seedDiary()
+    val c = askNow("ไปไหนมาบ้าง", nowState)
+    assertTrue(c.items.none { it.section == ContextSection.NOW }, c.promptText())
+    assertEquals(ContextSection.RECALL, c.items.first().section)
+  }
+
+  @Test fun `now prefix on past-tense question does not count as a now cue`() {
+    seedDiary()
+    val c = askNow("ตอนนี้ไปไหนมาบ้าง", nowState)
+    // "ตอนนี้" is a real search word here, so no recent fallback; the point is only that the now item stays out
+    assertTrue(c.items.none { it.section == ContextSection.NOW }, c.promptText())
+  }
 }

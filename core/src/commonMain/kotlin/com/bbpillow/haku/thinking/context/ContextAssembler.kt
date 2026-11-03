@@ -64,7 +64,8 @@ class ContextAssembler(
 
     // Only for questions about now: on every question the line (today's appointments) crowded out the asked day
     // (Fold5 eval 2026-10-29: 94% -> 68% with it always on).
-    val now = input.now?.takeIf { NOW_CUES.any { cue -> cue in normalized } }
+    val isPast = PAST_CUES.any { it in normalized } && LOCATION_NOW_CUES.none { it in normalized }
+    val now = input.now?.takeIf { !isPast && NOW_CUES.any { cue -> cue in normalized } }
     val standing = standingItems(trace) + listOfNotNull(now?.let { nowItem(it, input, trace) })
     val pool = Pool()
     val fallback = range == null && words.isEmpty()
@@ -270,6 +271,8 @@ class ContextAssembler(
     private const val DAY_MS = 86_400_000L
     const val NOW_LABEL = "ตอนนี้"
     val NOW_CUES = listOf("ตอนนี้", "ขณะนี้", "เดี๋ยวนี้", "เมื่อกี้", "เมื่อครู่", "เหลือ", "ถัดไป", "นัดต่อไป", "อยู่ไหน", "อยู่ที่ไหน", "กี่โมงแล้ว", "วันอะไร", "วันที่เท่าไหร่", "วันที่เท่าไร")
+    val PAST_CUES = listOf("ไปไหนมาบ้าง", "ไปไหนมา")
+    private val LOCATION_NOW_CUES = listOf("อยู่ไหน", "อยู่ที่ไหน")
     /** Id of the "ตอนนี้" item's [MemoryRef]; no memory file holds it (it is rebuilt from capture events every question). */
     const val NOW_ID = "now"
     /** Above every retrieved line, below standing instructions: over budget it goes last but one. */

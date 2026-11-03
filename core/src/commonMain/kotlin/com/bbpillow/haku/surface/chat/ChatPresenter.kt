@@ -3,7 +3,9 @@ package com.bbpillow.haku.surface.chat
 import com.bbpillow.haku.capture.diary.EndingParticle
 
 import com.bbpillow.haku.capture.diary.DiaryStyle
+import com.bbpillow.haku.language.Normalizer
 import com.bbpillow.haku.language.SynonymTable
+import com.bbpillow.haku.language.TextInput
 import com.bbpillow.haku.language.TextPipeline
 import com.bbpillow.haku.language.ThaiDateFormat
 import com.bbpillow.haku.memory.MemoryFormat
@@ -106,6 +108,10 @@ class ChatPresenter(
     } ?: return fallback.copy(rejectedReasons = listOf("timeout"))
     val text = withParticle(cleanAnswer(raw, retrieval.input.question), retrieval.input.style.particle.text)
     if (text.isBlank()) return fallback.copy(rejectedReasons = listOf("blank"))
+    if (isEcho(retrieval.input.question, text)) {
+      val ack = withParticle(ACKNOWLEDGEMENT, retrieval.input.style.particle.text)
+      return fallback.copy(text = ack, source = ChatAnswerSource.RETRIEVAL, rejectedReasons = listOf("echo"), rejectedText = text)
+    }
     if (retrieval.citations.isEmpty()) {
       // No records: any time, number, place or quote in the answer is made up (or dictated by the question).
       val check = SummaryChecker.check(SummaryCheckInput(text, emptyList(), retrieval.input.style), minChars = 1, maxChars = MAX_CHAT_CHARS)
@@ -128,7 +134,13 @@ class ChatPresenter(
     val now = items.filter { it.section == ContextSection.NOW }
       .map { ChatCitation(ContextAssembler.NOW_LABEL, null, it.text.substringAfter("] "), it.atEpochMs, it.source) }
     val sources = items.filter { it.section in RECORD_SECTIONS }
-    val ordered = if (sources.any { RetrievalTier.STRUCTURAL in it.tiers }) sources.sortedBy { it.atEpochMs } else sources.sortedByDescending { it.value }
+    val ordered = if (sources.any { "recent fallback" in it.reason }) {
+      sources.sortedByDescending { it.atEpochMs }
+    } else if (sources.any { RetrievalTier.STRUCTURAL in it.tiers }) {
+      sources.sortedBy { it.atEpochMs }
+    } else {
+      sources.sortedByDescending { it.value }
+    }
     return now + ordered.take(MAX_CITATIONS).map { item ->
       val text = memory.find(item.source)?.text ?: item.text.substringAfter("] ")
       if (item.section == ContextSection.RECALL) {
@@ -161,7 +173,7 @@ class ChatPresenter(
       appendLine("- ถามเรื่องนัด: นับเฉพาะข้อความที่มีคำว่า \"มีนัด\" ถ้าไม่มีเลยให้ตอบว่าไม่มีนัด ห้ามเอาการเดินทางมาตอบแทน")
       appendLine(INJECTION_RULE)
       appendLine("- รายการข้อเท็จจริงคัดมาตามช่วงเวลาที่ถามแล้ว ถ้ามีข้อเท็จจริงที่ตอบคำถามได้ ห้ามตอบว่าไม่พบข้อมูล ให้ตอบตามข้อเท็จจริงนั้นทันที (ตอบว่าไม่พบข้อมูลโดยไม่ทวนคำถามเฉพาะเมื่อไม่มีข้อเท็จจริงใดเกี่ยวกับเรื่องที่ถามเลย)")
-      append("- ตอบภาษาไทยหนึ่งถึงสองประโยค ห้ามทวนคำถามซ้ำ")
+      append("- ตอบภาษาไทยหนึ่งถึงสองประโยค ห้ามทวนคำถามหรือข้อความของผู้ใช้ซ้ำ")
       if (particle.isNotEmpty()) append(" ลงท้ายด้วย \"$particle\" เพียงครั้งเดียว")
       appendLine()
       appendLine("ข้อเท็จจริง:")
@@ -177,6 +189,7 @@ class ChatPresenter(
     return buildString {
       appendLine("คุณคือ Haku ผู้ช่วยบันทึกประจำวันส่วนตัวในเครื่องของผู้ใช้")
       appendLine("ตอนนี้ไม่มีบันทึกที่ตรงกับคำถามนี้ ห้ามระบุข้อเท็จจริงเกี่ยวกับชีวิต สถานที่ เวลา หรือคนของผู้ใช้ ถ้าถามเรื่องชีวิตของผู้ใช้ให้บอกว่ายังไม่มีบันทึกเรื่องนี้")
+      appendLine("- หากผู้ใช้บอกเล่า พูดคุย หรือระบายความรู้สึก (ไม่ใช่คำถาม) ให้ตอบรับสั้น ๆ อย่างเป็นธรรมชาติหรือให้กำลังใจหนึ่งประโยค ห้ามแต่งข้อเท็จจริง และห้ามทวนคำของผู้ใช้")
       appendLine(INJECTION_RULE)
       append("พูดคุยและตอบสั้น ๆ เป็นภาษาไทยหนึ่งถึงสองประโยค")
       if (particle.isNotEmpty()) append(" ลงท้ายด้วย \"$particle\"")
@@ -194,6 +207,19 @@ class ChatPresenter(
     const val MAX_CHAT_CHARS = 600
     const val DEFAULT_BUDGET_TOKENS = 900
     const val DEFAULT_TIMEOUT_MS = 30_000L
+    const val ACKNOWLEDGEMENT = "รับทราบแล้ว" // neutral: the statement may be good news or bad
+    const val ECHO_MAX_EXTRA_CHARS = 16
+    const val ECHO_MIN_QUESTION_CHARS = 8
+
+    internal fun isEcho(question: String, answer: String, maxExtraChars: Int = ECHO_MAX_EXTRA_CHARS): Boolean {
+      val q = Normalizer.normalize(TextInput(question, "th")).normalized.trim()
+      if (q.length < ECHO_MIN_QUESTION_CHARS) return false // "ฝน" -> "ฝนตกค่ะ" is an answer, not an echo
+      val a = Normalizer.normalize(TextInput(answer, "th")).normalized.trim()
+      val qClean = q.filterNot { it.isWhitespace() }
+      val aClean = a.filterNot { it.isWhitespace() }
+      return (q in a && (a.length - q.length) < maxExtraChars) ||
+        (qClean.isNotEmpty() && qClean in aClean && (aClean.length - qClean.length) < maxExtraChars)
+    }
     private val duplicateParticle = Regex("""(ครับ|ค่ะ|คะ)(?:[\s.!…]*\1)+(?=[.!…]*$)""")
 
     internal fun cleanAnswer(raw: String, question: String = ""): String {
