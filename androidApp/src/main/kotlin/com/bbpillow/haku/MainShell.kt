@@ -1,5 +1,15 @@
 package com.bbpillow.haku
 
+import com.bbpillow.haku.skill.MentionParser
+import com.bbpillow.haku.skill.Mention
+import com.bbpillow.haku.skill.SkillRecord
+import com.bbpillow.haku.skill.BuiltInSkills
+import com.bbpillow.haku.platform.agent.SkillTool
+import com.bbpillow.haku.platform.agent.LiteRtAgentSession
+import com.bbpillow.haku.thinking.AgentConfig
+import com.bbpillow.haku.thinking.AgentInput
+import com.bbpillow.haku.thinking.execute
+import com.bbpillow.haku.action.ActionProposalRecord
 import com.bbpillow.haku.action.ActionDecision
 import com.bbpillow.haku.action.ActionStatus
 import com.bbpillow.haku.action.CalendarAddArgs
@@ -619,6 +629,7 @@ private fun ChatTab(
     }
   }
 
+  val proposals by graph.actionGate.proposals.collectAsState()
   ChatScreen(
     turns,
     engineLabel = modelLabel,
@@ -646,6 +657,10 @@ private fun ChatTab(
     onDismissAppointment = { index ->
       updateAppointment(index) { it.copy(status = AppointmentStatus.DISMISSED) }
     },
+    actions = proposals.associateBy { it.id },
+    onConfirmAction = { id -> scope.launch { graph.actionGate.confirm(id) } },
+    onDismissAction = { id -> graph.actionGate.dismiss(id) },
+    mentionSkills = availableSkills(graph),
     contentPadding = TabPadding,
   )
 }
@@ -653,6 +668,13 @@ private fun ChatTab(
 /** Retrieval on the DB thread, then the downloaded model if there is one (loaded for this question, released after). */
 private suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutput? {
   val tz = graph.tzOffsetMinutes
+  // Week 2: "/skill …" or "@service …" names what to use; a mention only skips the picker, the gate card still asks
+  val skills = availableSkills(graph)
+  when (val m = MentionParser.parse(question, skills)) {
+    is Mention.Skill -> return runSkill(graph, question, m.rest.ifBlank { question }, listOf(m.skill))
+    is Mention.Service -> return runSkill(graph, question, m.rest.ifBlank { question }, m.tools.take(MAX_SERVICE_TOOLS))
+    null -> Unit
+  }
   val appointmentAnswer = graph.safeIo { appointmentCommand.tryPropose(question, System.currentTimeMillis(), tz) }
   val proposal = appointmentAnswer?.appointment
   if (proposal != null) {
@@ -670,6 +692,7 @@ private suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutput
     return appointmentAnswer.copy(appointment = updatedProposal)
   }
   graph.safeIo { intentCommand.tryHandle(question, System.currentTimeMillis()) }?.let { return it } // P5.3 "ถ้า … ให้เตือน …"
+  graph.pickSkill(question, skills)?.let { return runSkill(graph, question, question, listOf(it)) }
   val semantic = graph.questionSemantic(question) // words-only while the embedder is cold or absent
   val (presenter, retrieval) = graph.safeIo { chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style), semantic) } ?: return null
   val config = modelConfigOrNull(graph) ?: return retrieval.fallback
@@ -685,6 +708,41 @@ private suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutput
     retrieval.fallback
   } finally {
     withContext(NonCancellable) { runCatching { model.unload() } }
+  }
+}
+
+/** Installed, enabled skills: built-ins for now. ponytail: MCP tools join here once the server store lands. */
+private fun availableSkills(@Suppress("UNUSED_PARAMETER") graph: AppGraph): List<SkillRecord> = BuiltInSkills.ALL
+
+private const val MAX_SERVICE_TOOLS = 3
+
+/**
+ * One skill turn: the model gets only [skills] as tools (built from their slots) and the skills' short instructions.
+ * A call becomes a gate card under the answer; nothing runs or leaves the phone until the user confirms it.
+ */
+private suspend fun runSkill(graph: AppGraph, question: String, text: String, skills: List<SkillRecord>): ChatAnswerOutput {
+  fun answer(t: String, actionId: String? = null) = ChatAnswerOutput(question, t, emptyList(), ChatAnswerSource.MODEL, actionId = actionId)
+  val config = modelConfigOrNull(graph) ?: return answer("ต้องมี AI ในเครื่องก่อน จึงจะใช้ ${skills.joinToString { it.title }} ได้")
+  var proposal: ActionProposalRecord? = null
+  val tools = skills.map { s -> SkillTool(s, graph.actionGate, graph.tzOffsetMinutes) { proposal = it } }
+  val session = LiteRtAgentSession(emptyList(), tools)
+  val system = "ตอบภาษาไทยสั้นๆ ใช้ tool ที่ให้ไว้เท่านั้น" + skills.joinToString("") { "\n${it.title}: ${it.instructions}" }
+  return try {
+    session.start(AgentConfig(config, system))
+    val out = session.execute(AgentInput(text))
+    val p = proposal
+    when {
+      p != null && p.status == ActionStatus.PENDING -> answer("ดูรายละเอียดในการ์ด แล้วกดยืนยันถ้าถูกต้อง", p.id)
+      p != null -> answer(p.message ?: out.text.trim(), p.id)
+      else -> answer(out.text.trim().ifBlank { "ยังทำไม่ได้ ลองบอกรายละเอียดเพิ่มอีกนิด" })
+    }
+  } catch (e: CancellationException) {
+    throw e
+  } catch (e: Exception) {
+    Log.e("HakuShell", "skill turn failed", e)
+    answer("ใช้ ${skills.joinToString { it.title }} ไม่สำเร็จ ลองใหม่อีกครั้ง")
+  } finally {
+    withContext(NonCancellable) { runCatching { session.close() } }
   }
 }
 

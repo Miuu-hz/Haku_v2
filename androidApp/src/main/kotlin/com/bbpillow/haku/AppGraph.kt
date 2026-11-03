@@ -302,6 +302,28 @@ class AppGraph(val app: Application) {
     }
   }
 
+  /** Rebuilt when the embedder is (new model file): its description vectors belong to that engine. */
+  private var skillPicker: Pair<LiteRtTextEmbedder, com.bbpillow.haku.skill.EmbeddingSkillPicker>? = null
+
+  /**
+   * Week 2: the skill for a message nobody mentioned, or null = plain chat. Same embedder as the semantic tier; while it
+   * is cold this returns null (and warms it) so a first question never waits on the engine.
+   */
+  suspend fun pickSkill(text: String, skills: List<com.bbpillow.haku.skill.SkillRecord>): com.bbpillow.haku.skill.SkillRecord? = try {
+    val e = embedder()
+    when {
+      e == null -> null
+      !e.isLoaded -> null.also { warm(e) }
+      else -> (skillPicker?.takeIf { it.first === e } ?: (e to com.bbpillow.haku.skill.EmbeddingSkillPicker(e)).also { skillPicker = it })
+        .second.pick(text, skills)
+    }
+  } catch (e: CancellationException) {
+    throw e
+  } catch (e: Exception) {
+    Log.e(EMBED_TAG, "skill picker unavailable: ${e::class.simpleName}")
+    null
+  }
+
   /** Chat tab opened: open the engine early so the first question can use the semantic tier. */
   fun warmEmbedder() {
     scope.launch {

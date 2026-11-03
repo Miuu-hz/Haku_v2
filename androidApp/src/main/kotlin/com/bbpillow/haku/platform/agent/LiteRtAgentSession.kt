@@ -22,6 +22,7 @@
 
 package com.bbpillow.haku.platform.agent
 
+import com.google.ai.edge.litertlm.OpenApiTool
 import com.bbpillow.haku.platform.SharedEngines
 import com.bbpillow.haku.platform.samplerConfig
 import com.bbpillow.haku.thinking.AgentConfig
@@ -57,7 +58,11 @@ import kotlinx.coroutines.withContext
  * ponytail: tools are fixed at construction. Gallery's ToolsProvider.registerTool (runtime add of
  * skills/MCP) comes with P4.2/P4.5; pass a new list and start() again until then.
  */
-class LiteRtAgentSession(private val tools: List<ToolDefinition>) : AgentSession {
+/** [jsonTools]: tools built at runtime (skills, MCP tools: see SkillTool); they report to the gate themselves. */
+class LiteRtAgentSession(
+  private val tools: List<ToolDefinition>,
+  private val jsonTools: List<OpenApiTool> = emptyList(),
+) : AgentSession {
   @Volatile private var engine: Engine? = null
   @Volatile private var config: AgentConfig? = null
   @Volatile private var conversation: Conversation? = null
@@ -136,7 +141,7 @@ class LiteRtAgentSession(private val tools: List<ToolDefinition>) : AgentSession
 
   private fun conversationConfig(config: AgentConfig) = ConversationConfig(
     systemInstruction = config.systemInstruction?.let { Contents.of(it) },
-    tools = tools.map { tool(it) },
+    tools = tools.map { tool(it) } + jsonTools.map { tool(it) },
     samplerConfig = samplerConfig(config.model),
   )
 }

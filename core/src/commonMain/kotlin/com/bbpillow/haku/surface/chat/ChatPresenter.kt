@@ -47,6 +47,8 @@ data class ChatAnswerOutput(
   val rejectedText: String? = null,
   /** Set when the question was an appointment to add (see AppointmentCommand); the UI shows a card. */
   val appointment: AppointmentProposal? = null,
+  /** Week 2: a skill/MCP call put an ActionGate card up; the UI shows that proposal under the answer. */
+  val actionId: String? = null,
 )
 
 /** What [ChatPresenter.retrieve] found: the model context, its citations and the no-model answer. */

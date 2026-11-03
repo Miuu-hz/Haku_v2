@@ -1,5 +1,9 @@
 package com.bbpillow.haku.surface.chat
 
+import com.bbpillow.haku.action.ActionProposalRecord
+import com.bbpillow.haku.skill.MentionParser
+import com.bbpillow.haku.skill.SkillRecord
+import com.bbpillow.haku.surface.action.ActionCard
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -70,6 +74,11 @@ fun ChatScreen(
   onOpenModels: () -> Unit = {},
   onAddAppointment: (Int) -> Unit = {},
   onDismissAppointment: (Int) -> Unit = {},
+  /** Week 2: gate proposals by id (cards under skill answers) and the skills the `/` `@` popup can offer. */
+  actions: Map<String, ActionProposalRecord> = emptyMap(),
+  onConfirmAction: (String) -> Unit = {},
+  onDismissAction: (String) -> Unit = {},
+  mentionSkills: List<SkillRecord> = emptyList(),
   modifier: Modifier = Modifier,
   contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
 ) {
@@ -120,13 +129,39 @@ fun ChatScreen(
             )
           } else {
             AnswerCard(turn.answer, onOpenDay)
+            turn.answer?.actionId?.let(actions::get)?.let { p ->
+              ActionCard(p, onConfirm = { onConfirmAction(p.id) }, onDismiss = { onDismissAction(p.id) })
+            }
           }
         }
       }
     }
+    MentionSuggestions(MentionParser.suggest(draft, mentionSkills)) { draft = it }
     InputPill(draft, { draft = it }, send, Modifier.padding(top = 12.dp))
   }
 }
+
+/** `/` lists skills that run in the phone, `@` lists outside services; a tap fills the mention and a space. */
+@Composable
+private fun MentionSuggestions(items: List<SkillRecord>, onPick: (String) -> Unit) {
+  if (items.isEmpty()) return
+  Column(Modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    items.take(MAX_MENTION_ROWS).forEach { s ->
+      val mention = s.server?.let { "${MentionParser.SERVICE}$it" } ?: "${MentionParser.SKILL}${s.aliases.firstOrNull() ?: s.name}"
+      SurfaceCard(
+        Modifier.fillMaxWidth().clip(HakuRadius.Card).clickable(role = Role.Button, onClickLabel = "ใช้ ${s.title}") { onPick("$mention ") },
+        padding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+          Text(mention, style = MaterialTheme.typography.labelLarge, color = HakuColors.Ink)
+          Text(if (s.server != null) "บริการภายนอก · ส่งข้อมูลออกจากเครื่อง" else s.title, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
+        }
+      }
+    }
+  }
+}
+
+private const val MAX_MENTION_ROWS = 5
 
 @Composable
 private fun Suggestions(onAsk: (String) -> Unit) {
