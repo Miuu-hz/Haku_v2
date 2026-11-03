@@ -3,8 +3,10 @@ package com.bbpillow.haku.thinking.appointment
 import com.bbpillow.haku.memory.MemoryFormat
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class AppointmentParserTest {
   // 2026-10-30 08:00 Asia/Bangkok (UTC+7 / 420 minutes) = 2026-10-30 01:00 UTC
@@ -21,6 +23,7 @@ class AppointmentParserTest {
     assertEquals("ขูดหินปูน", draft.title)
     assertEquals("2026-10-31T03:00:00.000Z", iso(draft.startUtcMs))
     assertEquals("2026-10-31T04:00:00.000Z", iso(draft.endUtcMs))
+    assertFalse(draft.allDay)
   }
 
   @Test fun `parse 10_00 colon format`() {
@@ -282,6 +285,71 @@ class AppointmentParserTest {
     assertEquals("2026-10-31T00:00:00.000Z", iso(draft.startUtcMs))
   }
 
+  // --- All-Day and Date Ranges ---
+
+  @Test fun `all-day single thai month date`() {
+    val draft = AppointmentParser.parse("มีนัดตรวจสุขภาพ วันที่ 5 พฤศจิกายน", now, TZ)
+    assertNotNull(draft)
+    assertTrue(draft.allDay)
+    assertEquals("ตรวจสุขภาพ", draft.title)
+    assertEquals("2026-11-04T17:00:00.000Z", iso(draft.startUtcMs))
+    assertEquals("2026-11-05T17:00:00.000Z", iso(draft.endUtcMs))
+  }
+
+  @Test fun `all-day date range with full month and hyphen`() {
+    val draft = AppointmentParser.parse("ขออนุญาตส่งแบบฟอร์ม... วันที่ 5-6 พฤศจิกายน", now, TZ)
+    assertNotNull(draft)
+    assertTrue(draft.allDay)
+    assertEquals("ขออนุญาตส่งแบบฟอร์ม", draft.title)
+    assertEquals("2026-11-04T17:00:00.000Z", iso(draft.startUtcMs))
+    assertEquals("2026-11-06T17:00:00.000Z", iso(draft.endUtcMs))
+  }
+
+  @Test fun `all-day date range with spaces around hyphen and abbreviated month`() {
+    val draft = AppointmentParser.parse("มีนัดอบรม 5 - 6 พ.ย.", now, TZ)
+    assertNotNull(draft)
+    assertTrue(draft.allDay)
+    assertEquals("อบรม", draft.title)
+    assertEquals("2026-11-04T17:00:00.000Z", iso(draft.startUtcMs))
+    assertEquals("2026-11-06T17:00:00.000Z", iso(draft.endUtcMs))
+  }
+
+  @Test fun `all-day date range with en dash and abbreviated month`() {
+    val draft = AppointmentParser.parse("งานสัมมนา 12–14 ธ.ค.", now, TZ)
+    assertNotNull(draft)
+    assertTrue(draft.allDay)
+    assertEquals("งานสัมมนา", draft.title)
+    assertEquals("2026-12-11T17:00:00.000Z", iso(draft.startUtcMs))
+    assertEquals("2026-12-14T17:00:00.000Z", iso(draft.endUtcMs))
+  }
+
+  @Test fun `all-day date range with thai numerals and BE year`() {
+    val draft = AppointmentParser.parse("ประชุมวิชาการ ๕-๖ พ.ย. ๒๕๖๙", now, TZ)
+    assertNotNull(draft)
+    assertTrue(draft.allDay)
+    assertEquals("ประชุมวิชาการ", draft.title)
+    assertEquals("2026-11-04T17:00:00.000Z", iso(draft.startUtcMs))
+    assertEquals("2026-11-06T17:00:00.000Z", iso(draft.endUtcMs))
+  }
+
+  @Test fun `all-day relative date with thang-wan`() {
+    val draft = AppointmentParser.parse("พรุ่งนี้มีประชุมทั้งวัน", now, TZ)
+    assertNotNull(draft)
+    assertTrue(draft.allDay)
+    assertEquals("มีประชุม", draft.title)
+    assertEquals("2026-10-30T17:00:00.000Z", iso(draft.startUtcMs))
+    assertEquals("2026-10-31T17:00:00.000Z", iso(draft.endUtcMs))
+  }
+
+  @Test fun `date range with clock time keeps time on first day and ends on last day plus 1 hour`() {
+    val draft = AppointmentParser.parse("ประชุม 5-6 พ.ย. 9 โมง", now, TZ)
+    assertNotNull(draft)
+    assertFalse(draft.allDay)
+    assertEquals("ประชุม", draft.title)
+    assertEquals("2026-11-05T02:00:00.000Z", iso(draft.startUtcMs))
+    assertEquals("2026-11-06T03:00:00.000Z", iso(draft.endUtcMs))
+  }
+
   // --- Title and Particles ---
 
   @Test fun `empty title defaults to nat`() {
@@ -335,8 +403,11 @@ class AppointmentParserTest {
     assertNull(AppointmentParser.parse("เจอกันพรุ่งนี้นะ", now, TZ))
   }
 
-  @Test fun `plain notes return null`() {
+  @Test fun `plain notes and numeric ranges return null`() {
     assertNull(AppointmentParser.parse("ซื้อไข่ไก่ นม ขนมปัง", now, TZ))
     assertNull(AppointmentParser.parse("สวัสดีครับ วันนี้อากาศดี", now, TZ))
+    assertNull(AppointmentParser.parse("5-6 คนพอไหม", now, TZ))
+    assertNull(AppointmentParser.parse("ราคา 5-6 พัน", now, TZ))
+    assertNull(AppointmentParser.parse("ฮ่าๆ 555", now, TZ))
   }
 }
