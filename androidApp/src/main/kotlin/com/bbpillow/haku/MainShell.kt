@@ -4,6 +4,8 @@ import com.bbpillow.haku.skill.MentionParser
 import com.bbpillow.haku.skill.Mention
 import com.bbpillow.haku.skill.SkillRecord
 import com.bbpillow.haku.skill.BuiltInSkills
+import com.bbpillow.haku.skill.McpResultSummary
+import com.bbpillow.haku.skill.SkillActions
 import com.bbpillow.haku.platform.agent.SkillTool
 import com.bbpillow.haku.platform.agent.LiteRtAgentSession
 import com.bbpillow.haku.thinking.AgentConfig
@@ -90,6 +92,8 @@ import com.bbpillow.haku.surface.stats.StatsScreen
 import com.bbpillow.haku.surface.stats.StatsUiState
 import com.bbpillow.haku.surface.timeline.TimelineScreen
 import com.bbpillow.haku.surface.timeline.TimelineUiState
+import com.bbpillow.haku.thinking.GenerateEvent
+import com.bbpillow.haku.thinking.GenerateInput
 import com.bbpillow.haku.thinking.LocalModelClient
 import com.bbpillow.haku.thinking.ModelConfig
 import kotlinx.coroutines.CancellationException
@@ -97,6 +101,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 private val NavItems = listOf(
@@ -737,7 +743,18 @@ private fun ChatTab(
       updateAppointment(index) { it.copy(status = AppointmentStatus.DISMISSED) }
     },
     actions = proposals.associateBy { it.id },
-    onConfirmAction = { id -> scope.launch { graph.confirmAction(id) } },
+    onConfirmAction = { id ->
+      scope.launch {
+        val record = graph.confirmAction(id) ?: return@launch
+        if (record.request.action != SkillActions.MCP_ACTION || record.status != ActionStatus.DONE) return@launch
+        val question = latestTurns.firstOrNull { it.answer?.actionId == id }?.answer?.question ?: return@launch
+        val text = summarizeMcpResult(graph, question, record)
+        // re-read: the summary takes seconds and a question asked meanwhile must be kept
+        val i = latestTurns.indexOfFirst { it.answer?.actionId == id }.takeIf { it >= 0 } ?: return@launch
+        val turn = latestTurns[i]
+        onTurns(latestTurns.toMutableList().also { it[i] = turn.copy(answer = turn.answer?.copy(text = text)) })
+      }
+    },
     onDismissAction = { id -> graph.actionGate.dismiss(id) },
     mentionSkills = mentionSkills,
     contentPadding = TabPadding,
@@ -828,6 +845,33 @@ private suspend fun runSkill(graph: AppGraph, question: String, text: String, sk
     answer("ใช้ ${skills.joinToString { it.title }} ไม่สำเร็จ ลองใหม่อีกครั้ง")
   } finally {
     withContext(NonCancellable) { runCatching { session.close() } }
+  }
+}
+
+/**
+ * Task T: the confirmed `mcp.call` result → a short Thai answer for the bubble. The result is untrusted external text,
+ * so this is a plain generate with no tools; no model, a failure or a blank reply give [McpResultSummary.FALLBACK].
+ */
+private suspend fun summarizeMcpResult(graph: AppGraph, question: String, record: ActionProposalRecord): String {
+  val particle = graph.safeIo { profile.load().style.particle } ?: EndingParticle.NONE
+  val raw = record.message?.takeIf { it.isNotBlank() } ?: return McpResultSummary.FALLBACK
+  val config = modelConfigOrNull(graph) ?: return McpResultSummary.FALLBACK
+  val prompt = McpResultSummary.prompt(question, record.request.title, raw, particle)
+  return graph.warmth.use {
+    val model = LiteRtLocalModel()
+    try {
+      val client = LocalModelClient(model)
+      client.load(config)
+      val out = client.generate(GenerateInput(prompt)).filterIsInstance<GenerateEvent.Finished>().first().output.text
+      McpResultSummary.finish(out, particle)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Log.e("HakuShell", "mcp summary failed, showing the fallback line", e)
+      McpResultSummary.FALLBACK
+    } finally {
+      withContext(NonCancellable) { runCatching { model.unload() } }
+    }
   }
 }
 

@@ -35,7 +35,9 @@ import com.bbpillow.haku.action.ActionProposalRecord
 import com.bbpillow.haku.action.ActionStatus
 import com.bbpillow.haku.action.CalendarAddArgs
 import com.bbpillow.haku.action.PermissionLevel
+import com.bbpillow.haku.skill.SkillActions
 import com.bbpillow.haku.surface.components.CapsuleButton
+import com.bbpillow.haku.surface.components.HakuIcons
 import com.bbpillow.haku.surface.components.IconTile
 import com.bbpillow.haku.surface.components.SurfaceCard
 import com.bbpillow.haku.surface.theme.HakuColors
@@ -102,7 +104,8 @@ fun ActionCard(
       horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
       IconTile(
-        icon = ActionCalendarIcon,
+        // MCP calls get the Extensions screen's glyph; everything else keeps the calendar
+        icon = if (proposal.request.action == SkillActions.MCP_ACTION) HakuIcons.Spark else ActionCalendarIcon,
         tone = HakuTone.Blue,
         modifier = Modifier.semantics { contentDescription = "คำสั่งที่รอยืนยัน" },
       )

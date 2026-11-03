@@ -241,7 +241,9 @@ class KtorMcpClient(
 
     internal fun mapMcpTool(tool: Tool, host: String): SkillRecord {
       val name = sanitizeToolName(tool.name)
-      val title = tool.name.replace('\r', ' ').replace('\n', ' ').trim().ifEmpty { name }
+      // the server's human title (MCP `title`, or annotations.title) when it sends one, else the raw name
+      val title = (tool.title?.takeIf { it.isNotBlank() } ?: tool.annotations?.title?.takeIf { it.isNotBlank() } ?: tool.name)
+        .replace('\r', ' ').replace('\n', ' ').trim().ifEmpty { name }
       val props = tool.inputSchema.properties ?: JsonObject(emptyMap())
       val requiredSet = tool.inputSchema.required?.toSet().orEmpty()
       val stringSlots = props.entries.mapNotNull { (propName, element) ->
