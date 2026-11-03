@@ -13,7 +13,10 @@ import androidx.work.WorkerParameters
 import com.bbpillow.haku.BuildConfig
 import com.bbpillow.haku.AppGraph
 import com.bbpillow.haku.HakuApplication
+import com.bbpillow.haku.capture.PlaceNames
 import com.bbpillow.haku.capture.diary.DiaryStyle
+import com.bbpillow.haku.network.ConnectionPurpose
+import com.bbpillow.haku.network.ConnectionRecord
 import com.bbpillow.haku.memory.dream.DreamInput
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.platform.widget.HakuWidget
@@ -25,6 +28,7 @@ import com.bbpillow.haku.thinking.summary.NightlyPlan
 import com.bbpillow.haku.thinking.summary.NightlyPlanInput
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
@@ -42,6 +46,7 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     val now = System.currentTimeMillis()
     val tz = graph.tzOffsetMinutes
     val days = NightlyPlan.candidateDays(now, tz)
+    namePlaces(graph, now, tz)
     val facts = graph.io {
       val profile = profile.load()
       if (!NightlyPlan.shouldCompose(profile.onboarded)) return@io null
@@ -102,6 +107,52 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
   }
 
   /**
+   * Haku's own names for places the user has not named (reverse geocode, else "สถานที่ A"), then re-words the diary lines
+   * written while they were anonymous. Runs before compose so this run's lines and summary read the names. A lookup that
+   * fails is retried next run; one that answers (address or not) names the place for good. Never fails the job.
+   * ponytail: at most [MAX_LOOKUPS] a run, [LOOKUP_GAP_MS] apart; a place this run's compose creates is named next run.
+   */
+  private suspend fun namePlaces(graph: AppGraph, now: Long, tz: Int) {
+    try {
+      val pending = graph.io {
+        if (!NightlyPlan.shouldCompose(profile.load().onboarded)) emptyList()
+        else places.list().filter { !it.confirmed && it.autoName == null }.take(MAX_LOOKUPS)
+      }
+      if (pending.isEmpty()) return
+      val present = PlaceGeocoder.isPresent()
+      val found = LinkedHashMap<String, String?>()
+      val tried = mutableListOf<ConnectionRecord>()
+      for (p in pending) {
+        if (!present) { found[p.id] = null; continue } // no geocoder on this device: letters straight away
+        try {
+          found[p.id] = PlaceGeocoder.lookup(applicationContext, p.lat, p.lon)?.let(PlaceNames::label)
+          tried += geocodeRecord(now, "สำเร็จ")
+        } catch (e: CancellationException) {
+          throw e
+        } catch (e: Exception) {
+          tried += geocodeRecord(now, "ไม่สำเร็จ")
+        }
+        delay(LOOKUP_GAP_MS)
+      }
+      val geocoded = found.values.count { it != null }
+      val (stored, reworded) = graph.io {
+        tried.forEach(connections::add)
+        val before = places.list()
+        val stored = PlaceNames.assign(before, found).count { (id, name) -> places.setAutoName(id, name) }
+        stored to if (stored > 0) diary.relabel(before, tz, profile.load().style) else 0
+      }
+      log("places named=$stored geocoded=$geocoded fallback=${found.size - geocoded} failed=${pending.size - found.size} reworded=$reworded")
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Log.e(TAG, "place naming failed: ${e::class.simpleName}")
+    }
+  }
+
+  private fun geocodeRecord(at: Long, result: String) =
+    ConnectionRecord(at, GEOCODER_HOST, "/", ConnectionPurpose.PLACE_NAME, null, null, result)
+
+  /**
    * P1.8 after diary and summary: memory consolidation for [day] (local yesterday, used as the Dream day, see
    * NightlyPlan.plan). Idempotent (engine returns the stored report). Never fails the job: the diary is already safe.
    */
@@ -136,6 +187,9 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     const val TAG = "HakuNightly"
     private const val NAME = "haku-nightly"
     private const val REPEAT_HOURS = 3L
+    private const val MAX_LOOKUPS = 30
+    private const val LOOKUP_GAP_MS = 300L
+    private const val GEOCODER_HOST = "Google (Android Geocoder)"
 
     /**
      * After onboarding and on every main-screen start. UPDATE keeps the period's timing but swaps in these constraints,

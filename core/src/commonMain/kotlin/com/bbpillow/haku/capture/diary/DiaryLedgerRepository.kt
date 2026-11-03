@@ -19,6 +19,9 @@ interface DiaryLedgerRepository {
   /** Undo a delete: clears the tombstone, points the line at its re-created record, returns the strike. False if not deleted. */
   fun restore(lineId: String, memoryDay: String, memoryRecordId: String): Boolean
 
+  /** Point a live line at the record that replaced it (re-worded after a place got a name). No-op on a tombstone. */
+  fun relink(lineId: String, memoryDay: String, memoryRecordId: String)
+
   /** True once the type has [DiaryThresholds.SUPPRESS_AFTER_DELETES] strikes; the composer then skips it. */
   fun isSuppressed(typeKey: String): Boolean
 

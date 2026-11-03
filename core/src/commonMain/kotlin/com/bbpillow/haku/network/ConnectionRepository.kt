@@ -5,6 +5,7 @@ enum class ConnectionPurpose(val thai: String, val carriesPersonalData: Boolean)
   MODEL_DOWNLOAD("ดาวน์โหลดโมเดล AI ลงเครื่อง", carriesPersonalData = false),
   MCP_DESCRIBE("ตรวจดูเครื่องมือบริการภายนอก (MCP)", carriesPersonalData = false),
   MCP("เรียกบริการภายนอก (MCP)", carriesPersonalData = true),
+  PLACE_NAME("ค้นชื่อสถานที่จากพิกัด", carriesPersonalData = true),
 }
 
 /**

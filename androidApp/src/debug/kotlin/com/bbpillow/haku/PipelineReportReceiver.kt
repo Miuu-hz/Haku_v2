@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.WorkManager
 import com.bbpillow.haku.capture.CaptureQueryInput
+import com.bbpillow.haku.capture.PlaceNames
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.surface.onboarding.ActiveModel
 import com.bbpillow.haku.surface.onboarding.ModelChoice
@@ -77,18 +78,22 @@ class PipelineReportReceiver : BroadcastReceiver() {
     root.put("capture", safeSection {
       val enabled = CaptureController.isEnabled(app)
       val now = System.currentTimeMillis()
-      val (total, last24h, placesCount) = app.graph.io {
+      val (total, last24h, known) = app.graph.io {
         Triple(
           events.count(),
           events.query(CaptureQueryInput(now - 86_400_000L, now)).size,
-          places.list().size,
+          places.list(),
         )
       }
       JSONObject().apply {
         put("enabled", enabled)
         put("events_total", total)
         put("events_last_24h", last24h)
-        put("places_count", placesCount)
+        put("places_count", known.size)
+        // counts only, never the names: they are the user's places
+        put("places_confirmed", known.count { it.confirmed })
+        put("places_auto_named", known.count { it.autoName != null })
+        put("places_fallback_named", known.count { it.autoName?.let(PlaceNames::isFallback) == true })
       }
     })
 

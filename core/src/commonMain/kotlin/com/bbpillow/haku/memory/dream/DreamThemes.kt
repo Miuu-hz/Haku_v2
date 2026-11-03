@@ -1,5 +1,6 @@
 package com.bbpillow.haku.memory.dream
 
+import com.bbpillow.haku.capture.PlaceNames
 import com.bbpillow.haku.capture.diary.DiaryTemplates
 import com.bbpillow.haku.language.TextInput
 import com.bbpillow.haku.language.TextPipeline
@@ -39,7 +40,8 @@ internal class DreamThemes(private val pipeline: TextPipeline, private val langu
   private fun classify(r: MemoryRecord): Pair<ThemeKind, String>? {
     val body = r.text.trim().replace(timePrefix, "")
     arrival.find(body)?.groupValues?.get(1)?.trim()
-      ?.takeIf { it.isNotEmpty() && it != DiaryTemplates.UNKNOWN_PLACE && it != DiaryTemplates.HOME }
+      // ponytail: "สถานที่ A" means nothing once the user names the place, so it never becomes a long-term theme
+      ?.takeIf { it.isNotEmpty() && it != DiaryTemplates.UNKNOWN_PLACE && it != DiaryTemplates.HOME && !PlaceNames.isFallback(it) }
       ?.let { return ThemeKind.PLACE to it }
     calendar.find(body)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }?.let { return ThemeKind.CALENDAR to it }
     return if (r.provenance == Provenance.USER_TYPED && body.isNotEmpty()) ThemeKind.NOTE to body else null
