@@ -42,6 +42,10 @@ dependencies {
   implementation(libs.androidx.fragment)
   implementation(libs.androidx.work.runtime)
   implementation(libs.play.billing.ktx)
+  implementation(libs.mcp.kotlin.sdk)
+  implementation(libs.ktor.client.android)
+  implementation(libs.ktor.client.core)
+  implementation(libs.kotlinx.serialization.json)
   androidTestImplementation(libs.androidx.test.runner)
   androidTestImplementation(libs.androidx.test.ext.junit)
 }

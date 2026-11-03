@@ -17,6 +17,9 @@ biometric = "1.1.0"
 fragment = "1.7.1"
 work = "2.10.1"
 billing = "9.1.0"
+mcp = "0.8.0"
+ktor = "3.4.3"
+serializationJson = "1.7.3"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -36,6 +39,10 @@ androidx-fragment = { module = "androidx.fragment:fragment", version.ref = "frag
 androidx-work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
 play-billing-ktx = { module = "com.android.billingclient:billing-ktx", version.ref = "billing" }
+mcp-kotlin-sdk = { module = "io.modelcontextprotocol:kotlin-sdk", version.ref = "mcp" }
+ktor-client-android = { module = "io.ktor:ktor-client-android", version.ref = "ktor" }
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serializationJson" }
 
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

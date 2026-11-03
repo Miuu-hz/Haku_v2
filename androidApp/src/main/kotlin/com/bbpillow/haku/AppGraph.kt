@@ -2,7 +2,10 @@ package com.bbpillow.haku
 
 import com.bbpillow.haku.action.AuditStore
 import com.bbpillow.haku.action.DefaultActionGate
+import com.bbpillow.haku.platform.mcp.KtorMcpClient
+import com.bbpillow.haku.platform.mcp.McpActionHandler
 import com.bbpillow.haku.platform.signals.CalendarActionHandler
+import com.bbpillow.haku.skill.McpServerStore
 import java.util.UUID
 import kotlinx.coroutines.launch
 import android.app.ActivityManager
@@ -72,7 +75,6 @@ import android.util.Log
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -102,6 +104,7 @@ class AppGraph(val app: Application) {
   /** Every connection it opens goes into the E3 connection log (Transparency screen). */
   val downloader by lazy { ModelDownloader(modelsDir, scope) { record -> io { connections.add(record) } } }
   val importer by lazy { ModelImporter(app, modelsDir, scope) }
+  val mcpClient by lazy { KtorMcpClient { record -> io { connections.add(record) } } }
 
   /** The stores and presenters. Touch only inside [io]: their constructors create tables. */
   inner class Data {
@@ -109,6 +112,8 @@ class AppGraph(val app: Application) {
     /** D11: seal any pre-D11 plaintext files once, before the stores below read them. */
     private val legacySealed = DataKeys.sealLegacyFiles(app)
     val profile = ProfileStore(DataKeys.files, app.filesDir.resolve("profile.txt").path.toPath())
+    /** MCP servers are settings (D11 encrypted), not personal memory: untouched by ForgetEverything. */
+    val mcpServers = McpServerStore(DataKeys.files, app.filesDir.resolve("mcp").path.toPath())
     val events = CaptureEventStore(db)
     val places = PlaceStore(db)
     private val pipeline = TextPipeline(IcuWordSegmenter())
@@ -186,7 +191,10 @@ class AppGraph(val app: Application) {
   /** P4.1 the one road for actions (chat card, chat notifications, model tools). Audit lines go to the DB thread. */
   val actionGate by lazy {
     DefaultActionGate(
-      handlers = listOf(CalendarActionHandler(app)),
+      handlers = listOf(
+        CalendarActionHandler(app),
+        McpActionHandler({ host -> io { mcpServers.all().firstOrNull { it.host.equals(host, ignoreCase = true) }?.url } }, mcpClient),
+      ),
       onAudit = { record -> scope.launch { io { audit.append(record) } } },
       clock = System::currentTimeMillis,
       newId = { UUID.randomUUID().toString() },
