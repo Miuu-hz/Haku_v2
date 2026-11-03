@@ -2,6 +2,7 @@ package com.bbpillow.haku.thinking
 
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -13,6 +14,8 @@ import kotlinx.coroutines.launch
  * question) run [warmUp]; [stop] (tab gone, app in background, memory trim) and [idleMillis] with no question run
  * [coolDown]. A stop or the timer never cools mid-question: a stop that arrives then waits for the last [use] to end.
  * Events run one at a time on [scope] in call order, so [warmUp]/[coolDown] never overlap and need no lock of their own.
+ * [use] runs its block only after the warm-up it triggered or queued behind has finished (or failed): the block's own
+ * model loads must not race [warmUp]'s (LiteRT hangs when the embedder opens while an LLM engine is open).
  */
 class ModelWarmth(
   scope: CoroutineScope,
@@ -22,7 +25,7 @@ class ModelWarmth(
 ) {
   private sealed interface Event {
     data object Open : Event
-    data object Begin : Event
+    data class Begin(val warmed: CompletableDeferred<Unit>) : Event
     data object End : Event
     data object Stop : Event
     data class Idle(val generation: Int) : Event
@@ -60,7 +63,7 @@ class ModelWarmth(
       }
       for (e in events) when (e) {
         Event.Open -> { stopWhenDone = false; warm(); if (busy == 0) restartTimer() }
-        Event.Begin -> { busy++; timer?.cancel(); generation++; warm() }
+        is Event.Begin -> { busy++; timer?.cancel(); generation++; try { warm() } finally { e.warmed.complete(Unit) } }
         Event.End -> { busy = maxOf(0, busy - 1); if (busy == 0) { if (stopWhenDone) cool() else restartTimer() } }
         Event.Stop -> if (busy > 0) stopWhenDone = true else cool()
         is Event.Idle -> if (e.generation == generation && busy == 0) cool()
@@ -72,10 +75,15 @@ class ModelWarmth(
 
   fun stop() { events.trySend(Event.Stop) }
 
-  /** One question: warms if cold (the caller's own load then shares what this opens) and holds off cooling until done. */
+  /**
+   * One question: warms if cold (the caller's own load then shares what this opens) and holds off cooling until done.
+   * Waits for the warm-up to finish first; the loop handles Begin after any warm-up already running.
+   */
   suspend fun <T> use(block: suspend () -> T): T {
-    events.trySend(Event.Begin)
+    val warmed = CompletableDeferred<Unit>()
+    events.trySend(Event.Begin(warmed))
     try {
+      warmed.await()
       return block()
     } finally {
       events.trySend(Event.End)

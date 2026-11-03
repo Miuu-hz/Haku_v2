@@ -105,6 +105,9 @@ internal object SharedEngines {
   private val lock = Mutex()
   private val open = mutableListOf<Entry>()
 
+  /** True while any LLM engine is open. Unlocked read: an engine still initializing under [acquire] is not counted. */
+  internal fun hasOpenEngine(): Boolean = open.isNotEmpty()
+
   suspend fun acquire(config: ModelConfig): Engine = lock.withLock {
     val key = Key(config.modelPath, config.backend, config.maxTokens, config.speculativeDecoding)
     open.firstOrNull { it.key == key }?.let { it.refs++; return@withLock it.engine }

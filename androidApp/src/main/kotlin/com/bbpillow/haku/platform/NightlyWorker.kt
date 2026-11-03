@@ -28,10 +28,11 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.withContext
 
 /**
- * P2.7 "runs while charging": composes the rule-based diary for yesterday and today, then the evening
- * summary with the downloaded model for the days [NightlyPlan] picks, then Dream (no model) for local yesterday, then
- * embeds new diary lines for the semantic tier (ชิ้น ค, only if the EmbeddingGemma file exists). Idempotent (diary ledger,
- * summary stored once, lines with a vector skipped). Each model is loaded only when needed and released after its step.
+ * P2.7 "runs while charging": composes the rule-based diary for yesterday and today, then embeds new diary lines for the
+ * semantic tier (ชิ้น ค, only if the EmbeddingGemma file exists), then the evening summary with the downloaded model for
+ * the days [NightlyPlan] picks, then Dream (no model) for local yesterday. Idempotent (diary ledger, summary stored once,
+ * lines with a vector skipped). Each model is loaded only when needed and released after its step. Embedding comes
+ * before the LLM: an EmbeddingEngine created while an LLM engine is open hangs the LLM (see LiteRtTextEmbedder).
  */
 class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
   private class Facts(val style: DiaryStyle, val lines: Map<String, List<String>>, val stored: Set<String>, val dreamed: Set<String>)
@@ -63,9 +64,9 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     }
     val plan = NightlyPlan.plan(NightlyPlanInput(true, config != null, now, tz, facts.lines.mapValues { it.value.size }, facts.stored, facts.dreamed))
     log("diary composed for $days; model=${config != null} summarize=${plan.summarizeDays}")
+    embed(graph) // before summarize: the embedder must open before (or after) the LLM, never while it is open
     if (config != null && plan.summarizeDays.isNotEmpty()) summarize(graph, config, plan.summarizeDays, facts)
     dream(graph, plan.dreamDay)
-    embed(graph)
     HakuWidget.update(applicationContext) // P3.5: the new diary/summary shows on the widget
     return Result.success()
   }
@@ -116,7 +117,7 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     }
   }
 
-  /** Vectors for lines written since the last run (cap per run); the engine is released inside indexVectors. */
+  /** Vectors for lines written since the last run (cap per run); indexVectors releases the engine unless the chat is warm. */
   private suspend fun embed(graph: AppGraph) {
     try {
       log("vectors ${graph.indexVectors() ?: "skipped: no embedding model"}")

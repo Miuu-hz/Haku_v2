@@ -387,25 +387,26 @@ class AppGraph(val app: Application) {
   /**
    * 5ข: the chat tab's LLM engine and embedder, open while the chat is in use. Holds one [SharedEngines] reference, so
    * askHaku's LiteRtLocalModel.load and a skill's LiteRtAgentSession.start (same [modelConfig] key) reuse this engine,
-   * and dropping it never closes one a question still holds. LLM first: every question needs it, the embedder only helps.
+   * and dropping it never closes one a question still holds. Embedder first: LiteRT hangs the next generation when an
+   * EmbeddingEngine is created while an LLM engine is open (Fold5, 2026-11-03), so it must never open after the LLM.
    */
   val warmth = ModelWarmth(
     scope,
     WARM_IDLE_MS,
     warmUp = {
       try {
-        modelConfig()?.let { warmEngine = SharedEngines.acquire(it) }
-      } catch (e: CancellationException) {
-        throw e
-      } catch (e: Exception) {
-        Log.e("HakuModel", "warm-up failed: ${e::class.simpleName}")
-      }
-      try {
         embedder()?.load()
       } catch (e: CancellationException) {
         throw e
       } catch (e: Exception) {
         Log.e(EMBED_TAG, "embedder load failed: ${e::class.simpleName}")
+      }
+      try {
+        modelConfig()?.let { warmEngine = SharedEngines.acquire(it) }
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        Log.e("HakuModel", "warm-up failed: ${e::class.simpleName}")
       }
     },
     coolDown = {

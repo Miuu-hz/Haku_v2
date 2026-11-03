@@ -25,6 +25,7 @@ class LiteRtTextEmbedder(
 ) : TextEmbedder {
   private val lock = Mutex()
   @Volatile private var engine: EmbeddingEngine? = null
+  private var refusedLogged = false
 
   /** True while the engine is open (between the first [embed]/[load] and [close]). */
   val isLoaded: Boolean get() = engine != null
@@ -58,19 +59,33 @@ class LiteRtTextEmbedder(
     }
   }
 
-  private suspend fun ensureEngine(): EmbeddingEngine = engine ?: withContext(Dispatchers.Default + NonCancellable) {
-    val e = if (gpu) {
-      try {
-        open(Backend.GPU()).also { backend = "GPU" }
-      } catch (t: Exception) {
-        Log.w(TAG, "GPU embedding engine failed, retrying on CPU", t)
+  /**
+   * Never creates the engine while an LLM engine is open: LiteRT then reuses the environment ("Adding options to the
+   * existing LiteRT environment") and the LLM's next generation hangs (Fold5, 2026-11-03). Callers treat the throw as
+   * "no embedder" (words-only retrieval, no picker). An engine opened before the LLM is fine and stays usable.
+   * ponytail: sees only LLM engines already open, not one initializing at this same moment; callers order themselves
+   * (warm-up and the nightly job embed first). A process-wide engine-open lock if another path ever races.
+   */
+  private suspend fun ensureEngine(): EmbeddingEngine = engine ?: run {
+    if (SharedEngines.hasOpenEngine()) {
+      if (!refusedLogged) Log.w(TAG, "embedder not opened: an LLM engine is open (would hang its next generation)")
+      refusedLogged = true
+      throw IllegalStateException("LLM engine open; the embedder must open first")
+    }
+    withContext(Dispatchers.Default + NonCancellable) {
+      val e = if (gpu) {
+        try {
+          open(Backend.GPU()).also { backend = "GPU" }
+        } catch (t: Exception) {
+          Log.w(TAG, "GPU embedding engine failed, retrying on CPU", t)
+          open(Backend.CPU()).also { backend = "CPU" }
+        }
+      } else {
         open(Backend.CPU()).also { backend = "CPU" }
       }
-    } else {
-      open(Backend.CPU()).also { backend = "CPU" }
+      engine = e
+      e
     }
-    engine = e
-    e
   }
 
   private fun open(b: Backend): EmbeddingEngine {

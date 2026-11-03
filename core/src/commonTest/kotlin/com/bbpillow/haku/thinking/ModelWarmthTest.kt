@@ -99,6 +99,19 @@ class ModelWarmthTest {
     assertEquals(listOf("up", "down", "up"), log.steps)
   }
 
+  @Test
+  fun questionWaitsForTheRunningWarmUpEvenIfItFails() = runTest {
+    val log = Log()
+    val gate = CompletableDeferred<Unit>()
+    val w = ModelWarmth(backgroundScope, IDLE, warmUp = { log.steps += "up"; gate.await(); error("no gpu") }, coolDown = { log.steps += "down" })
+    w.open(); runCurrent()
+    backgroundScope.launch { w.use { log.steps += "ask" } }
+    runCurrent()
+    assertEquals(listOf("up"), log.steps) // the question's own load must not race the warm-up's
+    gate.complete(Unit); runCurrent()
+    assertEquals(listOf("up", "ask"), log.steps)
+  }
+
   private companion object {
     const val IDLE = 60_000L
   }
