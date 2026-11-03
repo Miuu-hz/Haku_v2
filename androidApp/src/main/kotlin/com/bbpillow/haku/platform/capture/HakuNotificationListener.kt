@@ -22,6 +22,8 @@ class HakuNotificationListener : NotificationListenerService() {
     val n = sbn.notification ?: return
     if (sbn.isOngoing || (n.flags and (Notification.FLAG_GROUP_SUMMARY or Notification.FLAG_ONGOING_EVENT)) != 0) return
     val last = runCatching { NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n)?.messages?.lastOrNull() }.getOrNull()
+    // social apps also post likes/follows/posts: only real messages may become offers
+    if (sbn.packageName in NotificationAppointmentRule.MESSAGE_ONLY_APPS && n.category != Notification.CATEGORY_MESSAGE && last == null) return
     val extras = n.extras ?: return
     val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
     val body = last?.text?.toString() ?: extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()

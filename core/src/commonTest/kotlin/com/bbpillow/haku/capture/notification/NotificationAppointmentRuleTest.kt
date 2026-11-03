@@ -46,8 +46,21 @@ class NotificationAppointmentRuleTest {
 
   @Test fun `every allowlisted app is accepted`() {
     NotificationAppointmentRule.CHAT_APPS.forEachIndexed { i, app ->
-      assertNotNull(rule.offer(chat("x\nนัดประชุม 10:0$i พรุ่งนี้", app = app), tz), app)
+      assertNotNull(rule.offer(chat("x\nนัดประชุม ${i + 8}:30 พรุ่งนี้", app = app), tz), app)
     }
+  }
+
+  @Test fun `instagram and discord messages give an offer`() {
+    assertNotNull(rule.offer(chat("x\nพรุ่งนี้ 10 โมง เจอกันที่ร้าน", app = "com.instagram.android"), tz))
+    assertNotNull(rule.offer(chat("x\nพรุ่งนี้ 10 โมง เจอกันที่ร้าน", app = "com.discord"), tz))
+  }
+
+  @Test fun `unlisted package gives null`() {
+    assertNull(rule.offer(chat("x\nพรุ่งนี้ 10 โมง เจอกันที่ร้าน", app = "com.example.app"), tz))
+  }
+
+  @Test fun `message-only apps are all allowlisted`() {
+    assertTrue(NotificationAppointmentRule.CHAT_APPS.containsAll(NotificationAppointmentRule.MESSAGE_ONLY_APPS))
   }
 
   @Test fun `apps outside the allowlist are ignored`() {
