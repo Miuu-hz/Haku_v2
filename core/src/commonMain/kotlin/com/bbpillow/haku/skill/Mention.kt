@@ -17,7 +17,26 @@ sealed interface Mention {
   data class NotFound(val trigger: Char, val name: String, override val rest: String) : Mention
 }
 
+/**
+ * One row of the `@` popup (Gemini-style app list): a local skill or one outside service. Picking it fills
+ * "[trigger][key] " into the input, and the sent message then runs that row's tools and nothing else.
+ * [label] = what the row shows (skill title / server name); [key] = the space-free word typed after the trigger
+ * (a local skill's first alias, else its name; a server's host).
+ */
+data class MentionOption(val key: String, val label: String, val kind: Kind, val skills: List<SkillRecord>) {
+  enum class Kind { LOCAL, SERVICE }
+}
+
 object MentionParser {
+  /**
+   * The popup rows while the user types: [typed] = the input so far, only a trigger plus a partial word (no space).
+   * `@` lists every enabled local skill (one row each) and every service (one row per server); `/` lists local only.
+   * Filtered by prefix (ignore case) on key, label, aliases, name and host. [serviceNames]: host -> display name.
+   * Local rows first, then services, each in input order. Empty when the popup should be hidden.
+   */
+  fun options(typed: String, skills: List<SkillRecord>, serviceNames: Map<String, String> = emptyMap()): List<MentionOption> =
+    TODO("Task V (agy)")
+
   /** The leading mention of a sent message, resolved against enabled [skills]; null = no mention or nothing matches. */
   fun parse(text: String, skills: List<SkillRecord>): Mention? {
     val t = text.trimStart()
