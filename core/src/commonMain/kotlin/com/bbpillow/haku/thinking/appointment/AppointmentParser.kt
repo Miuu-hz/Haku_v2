@@ -185,7 +185,7 @@ object AppointmentParser {
   private fun parseThaiMonthDate(
     text: String, curYear: Int, curMonth: Int, curDay: Int, isTimeAhead: Boolean,
   ): DateMatch? {
-    val m = Regex("""(?:ในวันที่|ในวัน|วันที่|วัน)?\s*(\d{1,2})(?:\s*(?:[-–—]|ถึง)\s*(\d{1,2}))?\s*(ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.|มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)(?:\s*(?:พ\.ศ\.|ค\.ศ\.)?\s*(\d{4}))?""").find(text) ?: return null
+    val m = Regex("""(?:ในวันที่|ในวัน|วันที่|วัน)?\s*(\d{1,2})(?:\s*(?:[-–—]|ถึง)\s*(\d{1,2}))?\s*(ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.|มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)(?:\s*(?:พ\.ศ\.|ค\.ศ\.)?\s*(\d{4}))?(?:\s*นี้)?""").find(text) ?: return null
     val d1 = m.groupValues[1].toInt()
     val d2 = m.groupValues[2].takeIf { it.isNotEmpty() }?.toInt() ?: d1
     if (d1 !in 1..31 || d2 !in d1..31) return null
@@ -223,7 +223,7 @@ object AppointmentParser {
   private fun parseBareDayDate(
     text: String, curYear: Int, curMonth: Int, curDay: Int, isTimeAhead: Boolean,
   ): DateMatch? {
-    val m = Regex("""(?:ในวันที่|วันที่)\s*(\d{1,2})(?:\s*(?:[-–—]|ถึง)\s*(\d{1,2}))?\b""").find(text) ?: return null
+    val m = Regex("""(?:ในวันที่|วันที่)\s*(\d{1,2})(?:\s*(?:[-–—]|ถึง)\s*(\d{1,2}))?\b(?:\s*นี้)?""").find(text) ?: return null
     val d1 = m.groupValues[1].toInt()
     val d2 = m.groupValues[2].takeIf { it.isNotEmpty() }?.toInt() ?: d1
     if (d1 !in 1..31 || d2 !in d1..31) return null
@@ -252,6 +252,7 @@ object AppointmentParser {
     var s = chars.concatToString()
     // ponytail: remove leading appointment cues, particles, punctuation; fallback to "นัด" if blank
     s = s.replaceFirst(Regex("""^\s*(?:มีนัด|นัด)\s*"""), "")
+    s = s.replaceFirst(Regex("""^\s*(?:เดี๋ยว\s*(?:ต้อง|จะ)?|ต้อง|จะ)\s*(?:ไป|เข้า)?\s*"""), "") // "เดี๋ยวต้องเข้าประชุม" → "ประชุม"
     s = s.replace(Regex("""(?<=^|[\s,;!?])(?:ครับผม|นะครับ|นะคะ|ครับ|ค่ะ|คะ|นะ|จ้า|คับ)(?=[\s,;!?]|$)"""), " ")
     s = s.replace(Regex("""(?:ครับผม|นะครับ|นะคะ|ครับ|ค่ะ|คะ|นะ|จ้า|คับ)+$"""), "")
     s = s.replace(Regex("""[.,\-—–_!?:;\"'()\[\]{}]+"""), " ")

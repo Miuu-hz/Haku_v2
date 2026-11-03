@@ -410,4 +410,19 @@ class AppointmentParserTest {
     assertNull(AppointmentParser.parse("ราคา 5-6 พัน", now, TZ))
     assertNull(AppointmentParser.parse("ฮ่าๆ 555", now, TZ))
   }
+
+  // device test 2026-11-03: LINE/Messenger messages; "นี้" after the date and "เดี๋ยวต้องเข้า" leaked into the title
+  @Test fun `nee after a day-of-month is part of the date`() {
+    val draft = AppointmentParser.parse("วันที่ 31 นี้ เจอกันใหม่นะ", now, TZ)
+    assertNotNull(draft)
+    assertEquals("เจอกันใหม่", draft.title)
+    assertTrue(draft.allDay)
+    assertEquals("ตรวจตา", AppointmentParser.parse("นัดตรวจตา 5 พ.ย. นี้ 10:00", now, TZ)!!.title)
+  }
+
+  @Test fun `leading filler before the activity is dropped`() {
+    assertEquals("ประชุม ที่ศาลากลาง", AppointmentParser.parse("เดี๋ยวต้องเข้าประชุมพรุ่งนี้ที่ศาลากลาง ตอน 9 โมง", now, TZ)!!.title)
+    assertEquals("หาหมอ", AppointmentParser.parse("ต้องไปหาหมอ 10:00 พรุ่งนี้", now, TZ)!!.title)
+    assertEquals("ไปหาหมอ", AppointmentParser.parse("ไปหาหมอ 10:00 พรุ่งนี้", now, TZ)!!.title)
+  }
 }
