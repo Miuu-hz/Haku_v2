@@ -42,6 +42,7 @@ import com.bbpillow.haku.surface.onboarding.StartScreen
 import com.bbpillow.haku.surface.theme.HakuTheme
 import androidx.compose.material3.Text
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 /** The app: onboarding until done, then the D11 lock if on, then Home / Timeline / Memory. FragmentActivity for BiometricPrompt. */
 class MainActivity : FragmentActivity() {
@@ -111,7 +112,9 @@ private fun AppRoot(graph: AppGraph, activity: FragmentActivity) {
       LaunchedEffect(Unit) {
         (profile.model as? ActiveModel.Catalog)?.let { graph.downloader.resumeIfPartial(it.choice) }
         if (AppStart.shouldStartCaptureOnMain(grantedKinds(activity), CaptureController.isEnabled(activity))) CaptureController.start(activity)
-        NightlyWorker.schedule(activity) // onboarded from here on; KEEP = no-op after the first time
+        NightlyWorker.schedule(activity) // onboarded from here on; UPDATE keeps the timing, refreshes constraints
+        // cheap check (row count + a directory list); the rebuild itself queues on the DB thread, the screen does not wait
+        graph.scope.launch { graph.safeIo { rebuildIndexIfEmpty() }?.let { Log.i("HakuIndex", "index rebuilt: ${it.indexed} records") } }
         BriefWorker.sync(activity, profile, ExistingWorkPolicy.KEEP) // P5.2: pending briefs stay; a lost chain is re-made
         graph.billing.refresh() // P9.4 restore on start; offline = keep the saved plan within its 7-day grace
       }

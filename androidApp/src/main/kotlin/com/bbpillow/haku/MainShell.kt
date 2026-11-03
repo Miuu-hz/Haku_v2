@@ -46,12 +46,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.bbpillow.haku.capture.diary.EndingParticle
 import com.bbpillow.haku.capture.stats.PeriodKind
 import com.bbpillow.haku.thinking.summary.SummaryPromptBuilder
-import com.bbpillow.haku.memory.MemoryFormat
 import com.bbpillow.haku.platform.BiometricLock
 import com.bbpillow.haku.platform.LiteRtLocalModel
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.platform.signals.CalendarWriter
-import com.bbpillow.haku.platform.widget.HakuWidget
 import com.bbpillow.haku.skill.McpServerRecord
 import com.bbpillow.haku.surface.chat.AppointmentProposal
 import com.bbpillow.haku.surface.chat.AppointmentStatus
@@ -71,7 +69,6 @@ import com.bbpillow.haku.surface.intent.IntentListUiState
 import com.bbpillow.haku.surface.memory.TransparencyScreen
 import com.bbpillow.haku.surface.memory.TransparencyUiState
 import com.bbpillow.haku.surface.node.HomeNodeScreen
-import com.bbpillow.haku.surface.note.QuickNoteInput
 import com.bbpillow.haku.surface.onboarding.ActiveModel
 import com.bbpillow.haku.surface.onboarding.ModelChoice
 import com.bbpillow.haku.surface.onboarding.ModelKind
@@ -266,7 +263,16 @@ private fun SettingsTab(
     state = s,
     notificationAccessOn = notifOn,
     onOpenNotificationAccess = {
-      activity.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+      // straight to Haku's own switch (API 30+); a skin without that page gets the full listener list
+      val detail = android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).putExtra(
+        android.provider.Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+        android.content.ComponentName(activity, com.bbpillow.haku.platform.capture.HakuNotificationListener::class.java).flattenToString(),
+      )
+      try {
+        activity.startActivity(detail)
+      } catch (e: android.content.ActivityNotFoundException) {
+        activity.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+      }
     },
     onOpenExtensions = { page = SettingsPage.EXTENSIONS },
     onOpenAudit = { page = SettingsPage.AUDIT },
@@ -676,19 +682,11 @@ private fun ChatTab(
     if (appointment.status == AppointmentStatus.SAVING || appointment.status == AppointmentStatus.ADDED) return
     updateAppointment(index) { it.copy(status = AppointmentStatus.SAVING) }
     scope.launch {
-      // P4.1: through the gate like every other action; the tap on add is the user's confirm.
-      val gate = graph.actionGate
-      val done = (gate.submit(CalendarAddArgs.fromProposal(appointment)) as? ActionDecision.AwaitingUser)
-        ?.let { gate.confirm(it.proposal.id) }?.status == ActionStatus.DONE
+      // P4.1: through the gate like every other action; the tap on add is the user's confirm. confirmAction writes the diary note.
+      val done = (graph.actionGate.submit(CalendarAddArgs.fromProposal(appointment)) as? ActionDecision.AwaitingUser)
+        ?.let { graph.confirmAction(it.proposal.id) }?.status == ActionStatus.DONE
       if (done) {
         updateAppointment(index) { it.copy(status = AppointmentStatus.ADDED) }
-        val noteText = "นัด ${appointment.title} ${appointment.dayLabel} ${appointment.timeLabel}"
-        val saved = graph.safeIo {
-          quickNote.save(QuickNoteInput(noteText, System.currentTimeMillis()))
-        } != null
-        if (saved) {
-          HakuWidget.refresh(context)
-        }
       } else {
         updateAppointment(index) { it.copy(status = AppointmentStatus.FAILED) }
       }
@@ -739,7 +737,7 @@ private fun ChatTab(
       updateAppointment(index) { it.copy(status = AppointmentStatus.DISMISSED) }
     },
     actions = proposals.associateBy { it.id },
-    onConfirmAction = { id -> scope.launch { graph.actionGate.confirm(id) } },
+    onConfirmAction = { id -> scope.launch { graph.confirmAction(id) } },
     onDismissAction = { id -> graph.actionGate.dismiss(id) },
     mentionSkills = mentionSkills,
     contentPadding = TabPadding,
@@ -769,23 +767,15 @@ private suspend fun askOnce(graph: AppGraph, question: String): ChatAnswerOutput
   val appointmentAnswer = graph.safeIo { appointmentCommand.tryPropose(question, System.currentTimeMillis(), tz) }
   val proposal = appointmentAnswer?.appointment
   if (proposal != null) {
-    val conflicts = withContext(Dispatchers.IO) {
-      runCatching { CalendarWriter.conflicts(graph.app, proposal.startUtcMs, proposal.endUtcMs) }.getOrDefault(emptyList())
+    val conflict = withContext(Dispatchers.IO) {
+      runCatching { CalendarWriter.conflictLine(graph.app, proposal.startUtcMs, proposal.endUtcMs, tz) }.getOrNull()
     }
-    val first = conflicts.firstOrNull()
-    val updatedProposal = if (first != null) {
-      val startHhmm = MemoryFormat.formatUtc(first.beginUtcMs + graph.tzOffsetMinutes * 60_000L).substring(11, 16)
-      val endHhmm = MemoryFormat.formatUtc(first.endUtcMs + graph.tzOffsetMinutes * 60_000L).substring(11, 16)
-      proposal.copy(conflict = "ชนกับ “${first.title.orEmpty()}” $startHhmm–$endHhmm")
-    } else {
-      proposal
-    }
-    return appointmentAnswer.copy(appointment = updatedProposal)
+    return appointmentAnswer.copy(appointment = proposal.copy(conflict = conflict ?: proposal.conflict))
   }
   graph.safeIo { intentCommand.tryHandle(question, System.currentTimeMillis()) }?.let { return it } // P5.3 "ถ้า … ให้เตือน …"
   graph.pickSkill(question, skills)?.let { if (BuildConfig.DEBUG) Log.d("HakuSkill", "picked ${it.name}"); return runSkill(graph, question, question, listOf(it)) }
   val semantic = graph.questionSemantic(question) // words-only while the embedder is cold or absent
-  val (presenter, retrieval) = graph.safeIo { chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style), semantic) } ?: return null
+  val (presenter, retrieval) = graph.safeIo { composeRecent(System.currentTimeMillis()); chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style), semantic) } ?: return null
   val config = modelConfigOrNull(graph) ?: return retrieval.fallback
   val model = LiteRtLocalModel()
   return try {

@@ -50,7 +50,7 @@ internal fun grantedKinds(context: Context): Set<PermissionKind> = PermissionKin
 /**
  * The Android side of [OnboardingActions] (P3.6): system permission dialogs, the model download, the biometric prompt
  * and the first-place answer. Writes (profile, place) run on the DB thread; pure steps run here. On finish: capture
- * starts only with location + activity granted.
+ * starts with location + activity, or calendar alone (AppStart.shouldStartCapture).
  */
 @Composable
 fun OnboardingHost(graph: AppGraph, activity: FragmentActivity, onDone: (ProfileRecord) -> Unit) {

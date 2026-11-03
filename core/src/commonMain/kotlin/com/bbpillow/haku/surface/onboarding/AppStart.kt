@@ -11,9 +11,12 @@ object AppStart {
     else -> StartScreen.MAIN
   }
 
-  /** Capture needs a place fix and its wake-up; without either it would only log charging and calendar. */
+  /**
+   * Stays need a place fix and its wake-up (location + activity). Calendar alone is enough too: capture then reads the
+   * calendar (and charging) without any location listener, so its events still reach the diary.
+   */
   fun shouldStartCapture(granted: Set<PermissionKind>): Boolean =
-    PermissionKind.LOCATION in granted && PermissionKind.ACTIVITY in granted
+    (PermissionKind.LOCATION in granted && PermissionKind.ACTIVITY in granted) || PermissionKind.CALENDAR in granted
 
   /** Onboarding is marked done before its last button, so MAIN also starts capture if it never got started. */
   fun shouldStartCaptureOnMain(granted: Set<PermissionKind>, captureEnabled: Boolean): Boolean =

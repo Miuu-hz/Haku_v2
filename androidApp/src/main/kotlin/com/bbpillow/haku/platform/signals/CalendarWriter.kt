@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.provider.CalendarContract
 import android.util.Log
 import com.bbpillow.haku.capture.CalendarRowInput
+import com.bbpillow.haku.memory.MemoryFormat
 import java.time.ZoneId
 
 /**
@@ -145,6 +146,13 @@ object CalendarWriter {
       Log.e(TAG, "Failed to query calendar conflicts", e)
       emptyList()
     }
+  }
+
+  /** Blocking; call on IO. The card / heads-up line for the first overlap, e.g. ชนกับ “ประชุม” 10:00–11:00; null = free. */
+  fun conflictLine(context: Context, startUtcMs: Long, endUtcMs: Long, tzOffsetMinutes: Int): String? {
+    val first = conflicts(context, startUtcMs, endUtcMs).firstOrNull() ?: return null
+    fun hhmm(utcMs: Long) = MemoryFormat.formatUtc(utcMs + tzOffsetMinutes * 60_000L).substring(11, 16)
+    return "ชนกับ “${first.title.orEmpty()}” ${hhmm(first.beginUtcMs)}–${hhmm(first.endUtcMs)}"
   }
 
   private data class CalendarCandidate(

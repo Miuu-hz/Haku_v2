@@ -35,9 +35,18 @@ class AppStartTest {
   }
 
   @Test
-  fun captureNeedsLocationAndActivity() {
+  fun captureNeedsLocationAndActivityOrCalendar() {
     assertTrue(AppStart.shouldStartCapture(setOf(PermissionKind.LOCATION, PermissionKind.ACTIVITY)))
-    assertFalse(AppStart.shouldStartCapture(setOf(PermissionKind.LOCATION, PermissionKind.CALENDAR)))
+    assertTrue(AppStart.shouldStartCapture(setOf(PermissionKind.CALENDAR))) // calendar-only: events still reach the diary
+    assertTrue(AppStart.shouldStartCapture(setOf(PermissionKind.LOCATION, PermissionKind.CALENDAR)))
     assertFalse(AppStart.shouldStartCapture(setOf(PermissionKind.ACTIVITY)))
+    assertFalse(AppStart.shouldStartCapture(setOf(PermissionKind.LOCATION)))
+    assertFalse(AppStart.shouldStartCapture(emptySet()))
+  }
+
+  @Test
+  fun mainStartsCalendarOnlyCaptureToo() {
+    assertTrue(AppStart.shouldStartCaptureOnMain(setOf(PermissionKind.CALENDAR), captureEnabled = false))
+    assertFalse(AppStart.shouldStartCaptureOnMain(setOf(PermissionKind.CALENDAR), captureEnabled = true))
   }
 }

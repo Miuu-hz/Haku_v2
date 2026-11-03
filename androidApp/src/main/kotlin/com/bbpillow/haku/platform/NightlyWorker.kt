@@ -28,7 +28,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.withContext
 
 /**
- * P2.7 "runs while charging, screen off": composes the rule-based diary for yesterday and today, then the evening
+ * P2.7 "runs while charging": composes the rule-based diary for yesterday and today, then the evening
  * summary with the downloaded model for the days [NightlyPlan] picks, then Dream (no model) for local yesterday, then
  * embeds new diary lines for the semantic tier (ชิ้น ค, only if the EmbeddingGemma file exists). Idempotent (diary ledger,
  * summary stored once, lines with a vector skipped). Each model is loaded only when needed and released after its step.
@@ -44,6 +44,10 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     val facts = graph.io {
       val profile = profile.load()
       if (!NightlyPlan.shouldCompose(profile.onboarded)) return@io null
+      // calendar-only capture has no wake-ups (no activity transitions): this run is when its calendar gets re-read
+      if (CaptureController.isEnabled(applicationContext)) {
+        runCatching { CaptureController.catchUp(applicationContext, now) }.onFailure { Log.e(TAG, "catch-up failed: ${it::class.simpleName}") }
+      }
       days.forEach { compose(it) }
       Facts(profile.style, days.associateWith { d -> diary.readDay(d, tz).map { it.text } }, days.filter { summaries.find(it) != null }.toSet(), memory.listDreamDays().toSet())
     } ?: return Result.success().also { log("not onboarded, skipped") }
@@ -87,7 +91,7 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         if (out == null) log("summary $day skipped: lines changed") else log("summary $day source=${out.source} rejected=${out.rejectedReasons} metrics=${out.metrics}")
       }
     } catch (e: CancellationException) {
-      throw e // constraints lost (unplugged, screen on): WorkManager runs it again next window
+      throw e // constraints lost (unplugged): WorkManager runs it again next window
     } catch (e: Exception) {
       // the diary is already written; the summary falls back to the template on Home until a later run succeeds
       Log.e(TAG, "nightly summary failed: ${e::class.simpleName}")
@@ -132,16 +136,21 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     private const val NAME = "haku-nightly"
     private const val REPEAT_HOURS = 3L
 
-    /** After onboarding (and on every main-screen start; KEEP makes it a no-op once scheduled). Survives reboots via WorkManager. */
+    /**
+     * After onboarding and on every main-screen start. UPDATE keeps the period's timing but swaps in these constraints,
+     * so a phone that got the old device-idle request is fixed on its next app start. Survives reboots via WorkManager.
+     * No device-idle: a phone kept awake on its charger never goes idle, so the job never ran. Charging stays required:
+     * the run loads the LLM and EmbeddingGemma, fine on the charger even with the screen on (the capture thread is shared,
+     * so a screen read can wait behind one compose; the model runs off it).
+     */
     fun schedule(context: Context) {
       val constraints = Constraints.Builder()
         .setRequiresCharging(true)
-        .setRequiresDeviceIdle(true)
         .setRequiresBatteryNotLow(true)
         .build()
       // ponytail: every 3 h so a night of charging gets a run after 21:00; NightlyPlan keeps repeats cheap (no model load)
       val request = PeriodicWorkRequestBuilder<NightlyWorker>(REPEAT_HOURS, TimeUnit.HOURS).setConstraints(constraints).build()
-      WorkManager.getInstance(context).enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+      WorkManager.getInstance(context).enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
     }
 
     /** Test hook (debug receiver): one run now, no constraints. */

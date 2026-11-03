@@ -1,7 +1,14 @@
 package com.bbpillow.haku
 
+import com.bbpillow.haku.action.ActionProposalRecord
+import com.bbpillow.haku.action.ActionStatus
 import com.bbpillow.haku.action.AuditStore
+import com.bbpillow.haku.action.CalendarAddArgs
 import com.bbpillow.haku.action.DefaultActionGate
+import com.bbpillow.haku.memory.index.MemoryIndexer
+import com.bbpillow.haku.memory.index.RebuildReport
+import com.bbpillow.haku.platform.widget.HakuWidget
+import com.bbpillow.haku.surface.note.QuickNoteInput
 import com.bbpillow.haku.platform.mcp.KtorMcpClient
 import com.bbpillow.haku.platform.mcp.McpActionHandler
 import com.bbpillow.haku.platform.signals.CalendarActionHandler
@@ -172,6 +179,29 @@ class AppGraph(val app: Application) {
       diary.compose(DiaryComposeInput(day, tz, profile.load().style))
     }
 
+    private var recentComposedAtMs = 0L
+
+    /**
+     * Chat: yesterday and today composed before retrieval reads them (as Home does). Each compose renders a whole day, so
+     * at most once per [RECENT_COMPOSE_MS]. ponytail: a stay that ended inside that window shows up a few minutes late.
+     */
+    fun composeRecent(nowUtcMs: Long) {
+      if (nowUtcMs - recentComposedAtMs in 0 until RECENT_COMPOSE_MS) return
+      // a composer failure must not cost the answer: retrieval then reads what is already written
+      runCatching {
+        compose(today(nowUtcMs - DAY_MS))
+        compose(today(nowUtcMs))
+        recentComposedAtMs = nowUtcMs
+      }.onFailure { Log.e("HakuShell", "chat-time compose failed: ${it::class.simpleName}") }
+    }
+
+    /**
+     * haku.db recreated (cleared, restored) while `filesDir/memory` survived: the FTS index would stay empty forever.
+     * Null when nothing to do. ponytail: only the empty-index case; a partial desync needs a file-vs-index diff.
+     */
+    fun rebuildIndexIfEmpty(): RebuildReport? =
+      if (index.count() == 0 && (memory.listDays().isNotEmpty() || memory.listCategories().isNotEmpty())) MemoryIndexer(memory, index).rebuild() else null
+
     /**
      * A fresh engine per run on purpose: it caches Dream's ledger at construction, and forget-everything must not be
      * undone by a stale copy written back. ponytail: template wording only; pass a FactPhraser over the model later.
@@ -202,6 +232,17 @@ class AppGraph(val app: Application) {
       clock = System::currentTimeMillis,
       newId = { UUID.randomUUID().toString() },
     )
+  }
+
+  /**
+   * Every confirm goes through here (chat card, heads-up offer, model tool card): a `calendar.add` that ran also gets its
+   * diary line "นัด …", so the appointment reaches memory whichever road it came by.
+   */
+  suspend fun confirmAction(id: String): ActionProposalRecord? = actionGate.confirm(id)?.also { record ->
+    if (record.status != ActionStatus.DONE) return@also
+    val appointment = CalendarAddArgs.toProposal(record) ?: return@also // not a calendar.add
+    val note = "นัด ${appointment.title} ${appointment.dayLabel} ${appointment.timeLabel}"
+    if (safeIo { quickNote.save(QuickNoteInput(note, System.currentTimeMillis())) } != null) HakuWidget.refresh(app)
   }
 
   /** Runs [block] on the DB thread, one at a time with capture. */
@@ -377,6 +418,8 @@ class AppGraph(val app: Application) {
     const val SEMANTIC_CHAT = true
     const val WARM_IDLE_MS = 60_000L
     const val GUESS_WINDOW_MS = 14 * 86_400_000L
+    const val DAY_MS = 86_400_000L
+    const val RECENT_COMPOSE_MS = 5 * 60_000L
     const val EMBED_TAG = "HakuEmbed"
     const val DEBUG_EMBED_PATH = "/data/local/tmp/eg2.litertlm"
     /** Vectors are tagged with this; another embedding model means re-embed (VectorRepository.retainModel). */

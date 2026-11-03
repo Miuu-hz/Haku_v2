@@ -1,6 +1,10 @@
 package com.bbpillow.haku
 
 import com.bbpillow.haku.action.ActionDecision
+import com.bbpillow.haku.action.CalendarAddArgs
+import com.bbpillow.haku.platform.signals.CalendarWriter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.bbpillow.haku.platform.notify.AppointmentOfferHooks
 import com.bbpillow.haku.platform.notify.AppointmentOfferNotifier
 import kotlinx.coroutines.launch
@@ -18,10 +22,16 @@ class HakuApplication : Application() {
     // P5.8 chat notifications / selected text -> the action gate -> heads-up offer; the user's tap confirms.
     AppointmentOfferHooks.onOffer = { request ->
       graph.scope.launch {
-        (graph.actionGate.submit(request) as? ActionDecision.AwaitingUser)?.let { AppointmentOfferNotifier.post(this@HakuApplication, it.proposal) }
+        // as the chat card: an overlap goes on the heads-up as "ชนกับ …" (warning is the card's conflict line)
+        val args = CalendarAddArgs.parse(request.arguments)?.takeIf { request.action == CalendarAddArgs.ACTION && request.warning == null }
+        val conflict = args?.let {
+          withContext(Dispatchers.IO) { runCatching { CalendarWriter.conflictLine(this@HakuApplication, it.startUtcMs, it.endUtcMs, graph.tzOffsetMinutes) }.getOrNull() }
+        }
+        val checked = if (conflict != null) request.copy(warning = conflict) else request
+        (graph.actionGate.submit(checked) as? ActionDecision.AwaitingUser)?.let { AppointmentOfferNotifier.post(this@HakuApplication, it.proposal) }
       }
     }
-    AppointmentOfferHooks.confirm = { id -> graph.actionGate.confirm(id) }
+    AppointmentOfferHooks.confirm = { id -> graph.confirmAction(id) } // also writes the "นัด …" diary line, as the chat card
     AppointmentOfferHooks.dismiss = { id -> graph.actionGate.dismiss(id) }
     // No-op until capture was explicitly started once (end of onboarding, CaptureController.start).
     CaptureController.resumeIfEnabled(this)
