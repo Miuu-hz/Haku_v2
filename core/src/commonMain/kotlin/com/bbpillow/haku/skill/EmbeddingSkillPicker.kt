@@ -11,12 +11,13 @@ import com.bbpillow.haku.thinking.cosine
  * one wins, the answer is "no skill". Without them a single installed skill has no runner-up and wins every message
  * that clears the floor (seen on Fold5 2026-11-03: "เมื่อวานไปไหนมาบ้าง" went to add-appointment).
  * Description vectors are cached per text, so a list change re-embeds only what changed.
- * ponytail: floor/margin are first guesses; the week 2 spike sets them from the eval set.
+ * ponytail: chatMargin = -0.02 reaches 26/40 recall at 1/40 FP on the 2026-11-03 eval; lower flips chat rows (row 31 margin -0.025). Retune Thai anchor/description texts to push recall higher.
  */
 class EmbeddingSkillPicker(
   private val embedder: TextEmbedder,
-  private val floor: Float = 0.55f,
-  private val margin: Float = 0.03f,
+  private val floor: Float = DEFAULT_FLOOR,
+  private val margin: Float = DEFAULT_MARGIN,
+  private val chatMargin: Float = DEFAULT_CHAT_MARGIN,
   private val anchors: List<String> = CHAT_ANCHORS,
 ) : SkillPicker {
   private val cache = mutableMapOf<String, FloatArray>()
@@ -26,7 +27,9 @@ class EmbeddingSkillPicker(
     val best = ranked.firstOrNull() ?: return null
     val second = ranked.getOrNull(1)?.second ?: -1f
     val chat = anchorScore(text)
-    return best.first.takeIf { best.second >= floor && best.second - maxOf(second, chat) >= margin }
+    return best.first.takeIf {
+      best.second >= floor && best.second - second >= margin && best.second - chat >= chatMargin
+    }
   }
 
   /** Best plain-chat anchor score for [text] (the query vector is cached from the [rank] call just before). */
@@ -61,6 +64,10 @@ class EmbeddingSkillPicker(
   private fun document(s: SkillRecord) = DOC_PREFIX + (listOf(s.title, s.description) + s.aliases).joinToString(" · ")
 
   companion object {
+    const val DEFAULT_FLOOR = 0.55f
+    const val DEFAULT_MARGIN = 0.03f
+    const val DEFAULT_CHAT_MARGIN = -0.02f
+
     /** Plain chat about the user's own life: recall, summaries, small talk. */
     val CHAT_ANCHORS = listOf(
       "ถามว่าเมื่อวานหรือวันก่อนไปไหนมา ทำอะไรบ้าง",
