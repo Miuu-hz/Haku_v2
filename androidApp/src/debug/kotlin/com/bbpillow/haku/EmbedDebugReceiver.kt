@@ -12,7 +12,6 @@ import java.io.File
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 import kotlin.time.TimeSource
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -29,11 +28,11 @@ import org.json.JSONObject
  */
 class EmbedDebugReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
-    // No goAsync: model loads and indexing outlive the 60 s broadcast limit (ANR kill); the app scope runs them.
+    // No goAsync: model loads and indexing outlive the 60 s broadcast limit (ANR kill); a DebugJob keeps the process unfrozen.
     val app = context.applicationContext as HakuApplication
     if (intent.action == ACTION_INDEX) {
       val cap = intent.getIntExtra("n", 500).coerceIn(1, 5000)
-      app.graph.scope.launch {
+      DebugJob.start(context) {
         try {
           mutex.withLock { index(app, cap) }
         } catch (t: Throwable) {
@@ -48,7 +47,7 @@ class EmbedDebugReceiver : BroadcastReceiver() {
     val n = intent.getIntExtra("n", 50).coerceIn(1, 1000)
     val path = intent.getStringExtra("path") ?: app.graph.downloader.file(ModelChoice.EMBEDDING_GEMMA_2).path
     val cpu = intent.getBooleanExtra("cpu", false)
-    app.graph.scope.launch {
+    DebugJob.start(context) {
       try {
         mutex.withLock { run(app, n, path, cpu) }
       } catch (t: Throwable) {
