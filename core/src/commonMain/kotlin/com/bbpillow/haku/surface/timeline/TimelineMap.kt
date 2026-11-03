@@ -72,9 +72,9 @@ object TimelineMap {
     return latLon.indices.map { i -> (offX + (xs[i] - minX) * scale) / ASPECT to offY + (maxY - lats[i]) * scale }
   }
 
-  // Same rule as the diary (D14): only a place the user confirmed carries a name or a home/work icon.
+  // Same rule as the diary: an unconfirmed place shows Haku's own name (PlaceNames) and never a home/work icon.
   private fun labelOf(p: PlaceRecord): String = when {
-    !p.confirmed -> DiaryTemplates.UNKNOWN_PLACE
+    !p.confirmed -> p.autoName ?: DiaryTemplates.UNKNOWN_PLACE
     !p.label.isNullOrBlank() -> p.label
     p.category == PlaceCategory.HOME -> DiaryTemplates.HOME
     p.category == PlaceCategory.WORK -> DiaryTemplates.WORK

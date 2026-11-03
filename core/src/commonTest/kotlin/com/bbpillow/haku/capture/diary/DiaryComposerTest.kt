@@ -69,6 +69,9 @@ internal class FakeLedger : DiaryLedgerRepository {
     typeOf[lineId]?.let { t -> strikes[t] = maxOf((strikes[t] ?: 0) - 1, 0) }
     return true
   }
+  override fun relink(lineId: String, memoryDay: String, memoryRecordId: String) {
+    rows[lineId]?.takeIf { !it.deleted }?.let { rows[lineId] = it.copy(memoryDay = memoryDay, memoryRecordId = memoryRecordId) }
+  }
   override fun isSuppressed(typeKey: String) = (strikes[typeKey] ?: 0) >= DiaryThresholds.SUPPRESS_AFTER_DELETES
   override fun suppressedTypes() = strikes.filter { it.value >= DiaryThresholds.SUPPRESS_AFTER_DELETES }.map { SuppressedLineType(it.key, it.value) }
   override fun unsuppress(typeKey: String) { strikes.remove(typeKey) }
@@ -261,5 +264,21 @@ class DiaryComposerTest {
     ledger.rows.clear()
     assertTrue(c.compose(input(tuesday)).written.isEmpty())
     assertEquals(8, c.readDay(tuesday, tz).size)
+  }
+
+  @Test fun namingAPlaceRewordsOnlyUntouchedAnonymousLines() {
+    val c = composer()
+    val written = c.compose(input(tuesday)).written
+    assertTrue(c.deleteLine(written.single { it.text == "13:20 ออกจากสถานที่หนึ่ง" }.id))
+    val named = places.map { if (it.confirmed) it else it.copy(autoName = "ร้านกาแฟ") }
+
+    assertEquals(1, composer(known = named).relabel(places, tz, DiaryStyle()))
+
+    val texts = c.readDay(tuesday, tz).map { it.text }
+    assertTrue("12:40 ถึงร้านกาแฟ ใช้เวลาเดินทางราว 10 นาที อยู่ราว 40 นาที" in texts, texts.toString())
+    assertTrue(texts.none { "สถานที่หนึ่ง" in it || it.startsWith("13:20") }, "deleted line stays deleted")
+    assertEquals(7, texts.size)
+    assertEquals(0, composer(known = named).relabel(places, tz, DiaryStyle()), "second run finds nothing left")
+    assertTrue(composer(known = named).compose(input(tuesday)).written.isEmpty(), "ledger still knows every line")
   }
 }

@@ -7,6 +7,7 @@ import com.bbpillow.haku.capture.CaptureSource
 import com.bbpillow.haku.capture.PlaceRecognitionInput
 import com.bbpillow.haku.capture.PlaceRecognitionOutput
 import com.bbpillow.haku.capture.PlaceRecognizer
+import com.bbpillow.haku.capture.PlaceRecord
 import com.bbpillow.haku.capture.PlaceRepository
 import com.bbpillow.haku.memory.DailyEventInput
 import com.bbpillow.haku.memory.MemoryFormat
@@ -52,12 +53,12 @@ class DiaryComposer(
 
   private data class Day(val captured: List<CaptureEvent>, val recognized: PlaceRecognitionOutput, val rendered: DiaryDayOutput)
 
-  private fun renderDay(day: String, tzOffsetMinutes: Int, style: DiaryStyle): Day {
+  private fun renderDay(day: String, tzOffsetMinutes: Int, style: DiaryStyle, known: List<PlaceRecord> = places.list()): Day {
     val (start, end) = window(day, tzOffsetMinutes)
     // one extra day each side: the overnight stay before and the next stay after
     val captured = events.query(CaptureQueryInput(start - DAY_MS, end + DAY_MS))
     val recognized = PlaceRecognizer.recognize(
-      PlaceRecognitionInput(PlaceRecognizer.pairDwells(captured), places.list(), tzOffsetMinutes),
+      PlaceRecognitionInput(PlaceRecognizer.pairDwells(captured), known, tzOffsetMinutes),
     )
     val episodes = EpisodeBuilder.build(DiaryBuildInput(start, end, captured, recognized.places, recognized.visits))
     return Day(captured, recognized, DiaryRenderer.render(day, tzOffsetMinutes, style, episodes))
@@ -74,6 +75,41 @@ class DiaryComposer(
         val entry = ledger.find(DiaryLineIds.of(DiaryLineKind.DEPART, ids, time)) ?: return@forEach
         if (!entry.deleted && entry.memoryDay.isNotEmpty()) memory.deleteDaily(entry.memoryDay, entry.memoryRecordId)
       }
+  }
+
+  /**
+   * Places got Haku's own names (PlaceNames) since [before] was read: re-word every written line that still reads exactly
+   * as [before] rendered it, on every local day that has a daily file. A line the user deleted or replaced by editing has
+   * no live ledger row pointing at that text, so it is never touched. Returns how many lines were re-worded.
+   * ponytail: re-renders every day (two renders each); fine for months of diary, batch by day range if it gets slow.
+   */
+  fun relabel(before: List<PlaceRecord>, tzOffsetMinutes: Int, style: DiaryStyle): Int {
+    val off = tzOffsetMinutes * 60_000L
+    val days = memory.listDays().flatMap { d ->
+      val utc = requireNotNull(MemoryFormat.parseUtc("${d}T00:00:00.000Z")) { "bad day: $d" }
+      listOf(MemoryFormat.dayOf(utc + off), MemoryFormat.dayOf(utc + DAY_MS - 1 + off))
+    }.distinct()
+    val now = places.list()
+    return days.sumOf { relabelDay(it, tzOffsetMinutes, style, before, now) }
+  }
+
+  private fun relabelDay(day: String, tz: Int, style: DiaryStyle, before: List<PlaceRecord>, now: List<PlaceRecord>): Int {
+    val old = renderDay(day, tz, style, before).rendered.lines.associateBy { it.id }
+    var changed = 0
+    for (line in renderDay(day, tz, style, now).rendered.lines) {
+      val was = old[line.id]?.takeIf { it.text != line.text } ?: continue
+      val entry = ledger.find(line.id)?.takeIf { !it.deleted && it.memoryDay.isNotEmpty() } ?: continue
+      val record = memory.readDay(entry.memoryDay).firstOrNull { it.id == entry.memoryRecordId } ?: continue
+      if (record.text != was.text) continue
+      // new record first, then the ledger, then the old one: a crash leaves a duplicate the next run's twin check reuses, never a lost line
+      val memoryDay = MemoryFormat.dayOf(record.atEpochMs)
+      val fresh = memory.readDay(memoryDay).firstOrNull { it.atEpochMs == record.atEpochMs && it.text == line.text && it.provenance == record.provenance }
+        ?: memory.appendDaily(DailyEventInput(line.text, record.provenance, record.atEpochMs))
+      ledger.relink(line.id, memoryDay, fresh.id)
+      memory.deleteDaily(entry.memoryDay, record.id)
+      changed++
+    }
+    return changed
   }
 
   /** The stays and places the diary sees for the local day (timeline mini map, P3.2). Read-only; deleted events are gone. */

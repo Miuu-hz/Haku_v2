@@ -14,7 +14,7 @@ import kotlin.math.round
  *   15:00 มีนัด “หมอฟัน” ถึง 16:00
  */
 object DiaryTemplates {
-  const val UNKNOWN_PLACE = "สถานที่หนึ่ง" // never guess a name for a place the user has not confirmed
+  const val UNKNOWN_PLACE = "สถานที่หนึ่ง" // a place Haku has not named yet (PlaceNames runs nightly)
   const val HOME = "บ้าน"
   const val WORK = "ที่ทำงาน"
   private const val UNTITLED_APPOINTMENT = "มีนัดหนึ่งรายการ"

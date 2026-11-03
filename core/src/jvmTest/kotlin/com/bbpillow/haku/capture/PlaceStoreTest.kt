@@ -36,6 +36,18 @@ class PlaceStoreTest {
     assertTrue(store.list().isEmpty())
   }
 
+  @Test fun oldTableGainsAutoNameSetOnce() {
+    val db = BundledSQLiteDriver().open(":memory:").also(opened::add)
+    db.prepare("CREATE TABLE places(id TEXT PRIMARY KEY, lat REAL NOT NULL, lon REAL NOT NULL, label TEXT, category TEXT NOT NULL, confirmed INTEGER NOT NULL)").use { it.step() }
+    db.prepare("INSERT INTO places VALUES('p1', 1.0, 2.0, NULL, 'OTHER', 0)").use { it.step() }
+    val store = PlaceStore(db)
+    assertNull(store.list().single().autoName)
+    assertTrue(store.setAutoName("p1", "ถนนสีลม"))
+    assertFalse(store.setAutoName("p1", "สถานที่ A"), "named once")
+    assertFalse(store.setAutoName("nope", "x"))
+    assertEquals("ถนนสีลม", PlaceStore(db).list().single().autoName)
+  }
+
   @Test fun recognitionOutputRoundTripsThroughTheStoreAndIsStable() {
     val store = store()
     val input = PlaceRecognitionInput(PlaceRecognizer.pairDwells(SyntheticWeek.events()), tzOffsetMinutes = SyntheticWeek.TZ_OFFSET_MIN)

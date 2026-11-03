@@ -7,7 +7,11 @@ data class DwellRecord(val startUtcMs: Long, val endUtcMs: Long, val lat: Double
   val durationMs: Long get() = endUtcMs - startUtcMs
 }
 
-/** A place in the user's library. [confirmed] flips once, when the user accepts or renames it; guesses skip confirmed places. */
+/**
+ * A place in the user's library. [confirmed] flips once, when the user accepts or renames it; guesses skip confirmed places.
+ * [autoName] is Haku's own name for an unconfirmed place (reverse geocode or "สถานที่ A", see [PlaceNames]); a confirmed
+ * [label] always wins over it.
+ */
 data class PlaceRecord(
   val id: String,
   val lat: Double,
@@ -15,6 +19,7 @@ data class PlaceRecord(
   val label: String? = null,
   val category: PlaceCategory = PlaceCategory.OTHER,
   val confirmed: Boolean = false,
+  val autoName: String? = null,
 )
 
 /** A stay (after merging jitter and dropping short stops) attached to a place. */

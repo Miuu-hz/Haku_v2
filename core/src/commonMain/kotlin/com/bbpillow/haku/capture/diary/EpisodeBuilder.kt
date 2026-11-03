@@ -37,9 +37,11 @@ object EpisodeBuilder {
   private fun calendar(e: CaptureEvent): DiaryEpisode? =
     (e.source as? CaptureSource.CalendarEntry)?.let { DiaryEpisode.Calendar(e.timeUtcMs, it.title, e.endUtcMs, listOf(e.id)) }
 
-  // Nothing is shown for a place the user has not confirmed (D14: never invent names).
-  private fun placeRef(places: List<PlaceRecord>, v: PlaceVisitRecord): PlaceRef =
-    places.firstOrNull { it.id == v.placeId && it.confirmed }?.let { PlaceRef(it.label, it.category, v.placeId) } ?: PlaceRef(placeId = v.placeId)
+  // A place the user has not confirmed shows only Haku's own name for it (PlaceNames), never a home/work category.
+  private fun placeRef(places: List<PlaceRecord>, v: PlaceVisitRecord): PlaceRef {
+    val p = places.firstOrNull { it.id == v.placeId }
+    return if (p?.confirmed == true) PlaceRef(p.label, p.category, v.placeId) else PlaceRef(p?.autoName, placeId = v.placeId)
+  }
 
   // Over the cap, drop lowest priority first, latest first within a priority (mornings matter most to a diary).
   private fun cap(all: List<DiaryEpisode>): List<DiaryEpisode> {

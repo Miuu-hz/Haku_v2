@@ -57,6 +57,14 @@ class DiaryLedgerStore(private val db: SQLiteConnection) : DiaryLedgerRepository
     return true
   }
 
+  override fun relink(lineId: String, memoryDay: String, memoryRecordId: String) {
+    run("UPDATE diary_lines SET memory_day = ?, record_id = ? WHERE id = ? AND deleted = 0") {
+      it.bindText(1, memoryDay)
+      it.bindText(2, memoryRecordId)
+      it.bindText(3, lineId)
+    }
+  }
+
   override fun isSuppressed(typeKey: String): Boolean =
     db.prepare("SELECT strikes FROM diary_type_strikes WHERE type_key = ?").use { st ->
       st.bindText(1, typeKey)
