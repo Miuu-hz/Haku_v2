@@ -50,7 +50,6 @@ import com.bbpillow.haku.platform.LiteRtLocalModel
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.platform.signals.CalendarWriter
 import com.bbpillow.haku.platform.widget.HakuWidget
-import com.bbpillow.haku.skill.BuiltInSkills
 import com.bbpillow.haku.skill.McpServerRecord
 import com.bbpillow.haku.surface.chat.AppointmentProposal
 import com.bbpillow.haku.surface.chat.AppointmentStatus
@@ -699,6 +698,8 @@ private fun ChatTab(
   }
 
   val proposals by graph.actionGate.proposals.collectAsState()
+  var mentionSkills by remember { mutableStateOf(BuiltInSkills.ALL) }
+  LaunchedEffect(Unit) { mentionSkills = availableSkills(graph) } // re-read each time the chat tab opens
   ChatScreen(
     turns,
     engineLabel = modelLabel,
@@ -729,7 +730,7 @@ private fun ChatTab(
     actions = proposals.associateBy { it.id },
     onConfirmAction = { id -> scope.launch { graph.actionGate.confirm(id) } },
     onDismissAction = { id -> graph.actionGate.dismiss(id) },
-    mentionSkills = availableSkills(graph),
+    mentionSkills = mentionSkills,
     contentPadding = TabPadding,
   )
 }
@@ -781,8 +782,9 @@ internal suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutpu
   }
 }
 
-/** Installed, enabled skills: built-ins for now. ponytail: MCP tools join here once the server store lands. */
-private fun availableSkills(@Suppress("UNUSED_PARAMETER") graph: AppGraph): List<SkillRecord> = BuiltInSkills.ALL
+/** Built-ins plus the MCP tools the user turned on (Settings → ความสามารถเสริม). */
+private suspend fun availableSkills(graph: AppGraph): List<SkillRecord> =
+  BuiltInSkills.ALL + (graph.safeIo { mcpServers.all().flatMap { it.tools }.filter { it.enabled } } ?: emptyList())
 
 private const val MAX_SERVICE_TOOLS = 3
 
