@@ -15,6 +15,7 @@ data class AppointmentProposal(
   /** e.g. "ชนกับ “ประชุมทีมขาย” 09:30–10:30"; null = free. */
   val conflict: String? = null,
   val status: AppointmentStatus = AppointmentStatus.PENDING,
+  val allDay: Boolean = false,
 )
 
 enum class AppointmentStatus { PENDING, SAVING, ADDED, DISMISSED, NEEDS_PERMISSION, FAILED }

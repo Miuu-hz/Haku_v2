@@ -768,7 +768,7 @@ private suspend fun askOnce(graph: AppGraph, question: String): ChatAnswerOutput
   val proposal = appointmentAnswer?.appointment
   if (proposal != null) {
     val conflict = withContext(Dispatchers.IO) {
-      runCatching { CalendarWriter.conflictLine(graph.app, proposal.startUtcMs, proposal.endUtcMs, tz) }.getOrNull()
+      runCatching { CalendarWriter.conflictLine(graph.app, proposal.startUtcMs, proposal.endUtcMs, tz, proposal.allDay) }.getOrNull()
     }
     return appointmentAnswer.copy(appointment = proposal.copy(conflict = conflict ?: proposal.conflict))
   }

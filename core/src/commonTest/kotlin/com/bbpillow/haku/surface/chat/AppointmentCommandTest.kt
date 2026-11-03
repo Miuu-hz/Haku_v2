@@ -74,4 +74,58 @@ class AppointmentCommandTest {
     assertEquals("ศ 31 ต.ค.", proposal.dayLabel)
     assertEquals("10:00–11:00", proposal.timeLabel)
   }
+
+  @Test
+  fun singleDayAllDayAppointmentHasThangWanTimeLabelAndDateLabel() {
+    // 2026-11-05 is Thursday ("พฤ 5 พ.ย.")
+    val startUtc = requireNotNull(MemoryFormat.parseUtc("2026-11-04T17:00:00.000Z")) // 00:00 Bangkok on 5 Nov
+    val endUtc = requireNotNull(MemoryFormat.parseUtc("2026-11-05T17:00:00.000Z"))   // 00:00 Bangkok on 6 Nov
+    val command = AppointmentCommand { _, _, _ ->
+      AppointmentDraft("ตรวจสุขภาพ", startUtc, endUtc, allDay = true)
+    }
+    val result = command.tryPropose("มีนัดตรวจสุขภาพ วันที่ 5 พฤศจิกายน", nowUtcMs, tzOffsetMinutes)
+    assertNotNull(result)
+    val proposal = result.appointment
+    assertNotNull(proposal)
+    assertEquals("ตรวจสุขภาพ", proposal.title)
+    assertEquals("พฤ 5 พ.ย.", proposal.dayLabel)
+    assertEquals("ทั้งวัน", proposal.timeLabel)
+    assertTrue(proposal.allDay)
+  }
+
+  @Test
+  fun rangeAllDayAppointmentWithinSameMonthFormatsRangeAndThangWan() {
+    // 2026-11-05 to 2026-11-06 (end is 2026-11-07 00:00 local)
+    val startUtc = requireNotNull(MemoryFormat.parseUtc("2026-11-04T17:00:00.000Z"))
+    val endUtc = requireNotNull(MemoryFormat.parseUtc("2026-11-06T17:00:00.000Z"))
+    val command = AppointmentCommand { _, _, _ ->
+      AppointmentDraft("อบรม", startUtc, endUtc, allDay = true)
+    }
+    val result = command.tryPropose("มีนัดอบรม 5 - 6 พ.ย.", nowUtcMs, tzOffsetMinutes)
+    assertNotNull(result)
+    val proposal = result.appointment
+    assertNotNull(proposal)
+    assertEquals("อบรม", proposal.title)
+    assertEquals("5–6 พ.ย.", proposal.dayLabel)
+    assertEquals("ทั้งวัน", proposal.timeLabel)
+    assertTrue(proposal.allDay)
+  }
+
+  @Test
+  fun rangeAllDayAppointmentAcrossMonthsFormatsCrossMonthAndThangWan() {
+    // 2026-10-31 to 2026-11-01 (end is 2026-11-02 00:00 local)
+    val startUtc = requireNotNull(MemoryFormat.parseUtc("2026-10-30T17:00:00.000Z"))
+    val endUtc = requireNotNull(MemoryFormat.parseUtc("2026-11-01T17:00:00.000Z"))
+    val command = AppointmentCommand { _, _, _ ->
+      AppointmentDraft("สัมมนา", startUtc, endUtc, allDay = true)
+    }
+    val result = command.tryPropose("มีนัดสัมมนา 31 ต.ค. - 1 พ.ย.", nowUtcMs, tzOffsetMinutes)
+    assertNotNull(result)
+    val proposal = result.appointment
+    assertNotNull(proposal)
+    assertEquals("สัมมนา", proposal.title)
+    assertEquals("31 ต.ค.–1 พ.ย.", proposal.dayLabel)
+    assertEquals("ทั้งวัน", proposal.timeLabel)
+    assertTrue(proposal.allDay)
+  }
 }

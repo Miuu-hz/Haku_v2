@@ -9,6 +9,7 @@ import android.util.Log
 import com.bbpillow.haku.capture.CalendarRowInput
 import com.bbpillow.haku.memory.MemoryFormat
 import java.time.ZoneId
+import java.util.TimeZone
 
 /**
  * Android adapter for calendar writes and conflict checks.
@@ -16,6 +17,7 @@ import java.time.ZoneId
  */
 object CalendarWriter {
   private const val TAG = "CalendarWriter"
+  private const val DAY_MS = 86_400_000L
 
   private val CALENDAR_PROJECTION = arrayOf(
     CalendarContract.Calendars._ID,
@@ -37,7 +39,13 @@ object CalendarWriter {
     context.checkSelfPermission(Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED
 
   /** Blocking; call on IO. Event id, or null when no writable calendar / denied / failed. */
-  fun insert(context: Context, title: String, startUtcMs: Long, endUtcMs: Long): Long? {
+  fun insert(
+    context: Context,
+    title: String,
+    startUtcMs: Long,
+    endUtcMs: Long,
+    allDay: Boolean = false,
+  ): Long? {
     if (!canWrite(context)) return null
     return try {
       val selection = "${CalendarContract.Calendars.VISIBLE} = 1 AND " +
@@ -70,25 +78,39 @@ object CalendarWriter {
       val eventValues = ContentValues().apply {
         put(CalendarContract.Events.CALENDAR_ID, calendarId)
         put(CalendarContract.Events.TITLE, title)
-        put(CalendarContract.Events.DTSTART, startUtcMs)
-        put(CalendarContract.Events.DTEND, endUtcMs)
-        put(CalendarContract.Events.EVENT_TIMEZONE, ZoneId.systemDefault().id)
-        put(CalendarContract.Events.HAS_ALARM, 1)
+        if (allDay) {
+          val tz = TimeZone.getDefault()
+          val startOffset = tz.getOffset(startUtcMs)
+          val endOffset = tz.getOffset(endUtcMs)
+          val dtStart = (startUtcMs + startOffset).floorDiv(DAY_MS) * DAY_MS
+          val dtEnd = (endUtcMs + endOffset).floorDiv(DAY_MS) * DAY_MS
+          put(CalendarContract.Events.ALL_DAY, 1)
+          put(CalendarContract.Events.DTSTART, dtStart)
+          put(CalendarContract.Events.DTEND, dtEnd)
+          put(CalendarContract.Events.EVENT_TIMEZONE, "UTC")
+        } else {
+          put(CalendarContract.Events.DTSTART, startUtcMs)
+          put(CalendarContract.Events.DTEND, endUtcMs)
+          put(CalendarContract.Events.EVENT_TIMEZONE, ZoneId.systemDefault().id)
+          put(CalendarContract.Events.HAS_ALARM, 1)
+        }
       }
 
       val eventUri = context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, eventValues)
       val eventId = eventUri?.lastPathSegment?.toLongOrNull() ?: return null
 
-      // ponytail: 15-minute alert reminder; don't fail event creation if reminder fails
-      val reminderValues = ContentValues().apply {
-        put(CalendarContract.Reminders.EVENT_ID, eventId)
-        put(CalendarContract.Reminders.MINUTES, 15)
-        put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
-      }
-      try {
-        context.contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, reminderValues)
-      } catch (e: Exception) {
-        Log.e(TAG, "Failed to insert reminder for event", e)
+      if (!allDay) {
+        // ponytail: 15-minute alert reminder; don't fail event creation if reminder fails
+        val reminderValues = ContentValues().apply {
+          put(CalendarContract.Reminders.EVENT_ID, eventId)
+          put(CalendarContract.Reminders.MINUTES, 15)
+          put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
+        }
+        try {
+          context.contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, reminderValues)
+        } catch (e: Exception) {
+          Log.e(TAG, "Failed to insert reminder for event", e)
+        }
       }
 
       eventId
@@ -102,7 +124,13 @@ object CalendarWriter {
   }
 
   /** Blocking; call on IO. Overlapping events (not all-day, not cancelled, not declined); empty without READ_CALENDAR. */
-  fun conflicts(context: Context, startUtcMs: Long, endUtcMs: Long): List<CalendarRowInput> {
+  fun conflicts(
+    context: Context,
+    startUtcMs: Long,
+    endUtcMs: Long,
+    allDay: Boolean = false,
+  ): List<CalendarRowInput> {
+    if (allDay) return emptyList()
     if (context.checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
       return emptyList()
     }
@@ -118,19 +146,19 @@ object CalendarWriter {
       cursor.use { c ->
         buildList {
           while (c.moveToNext()) {
-            val allDay = c.getInt(4) != 0
+            val isRowAllDay = c.getInt(4) != 0
             val canceled = c.getInt(5) == CalendarContract.Events.STATUS_CANCELED
             val declined = c.getInt(6) == CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED
             val begin = c.getLong(1)
             val end = c.getLong(2)
-            if (!allDay && !canceled && !declined && begin < endUtcMs && end > startUtcMs) {
+            if (!isRowAllDay && !canceled && !declined && begin < endUtcMs && end > startUtcMs) {
               add(
                 CalendarRowInput(
                   eventId = c.getLong(0),
                   beginUtcMs = begin,
                   endUtcMs = end,
                   title = c.getString(3),
-                  allDay = allDay,
+                  allDay = isRowAllDay,
                   canceled = canceled,
                   declined = declined,
                 ),
@@ -149,8 +177,15 @@ object CalendarWriter {
   }
 
   /** Blocking; call on IO. The card / heads-up line for the first overlap, e.g. ชนกับ “ประชุม” 10:00–11:00; null = free. */
-  fun conflictLine(context: Context, startUtcMs: Long, endUtcMs: Long, tzOffsetMinutes: Int): String? {
-    val first = conflicts(context, startUtcMs, endUtcMs).firstOrNull() ?: return null
+  fun conflictLine(
+    context: Context,
+    startUtcMs: Long,
+    endUtcMs: Long,
+    tzOffsetMinutes: Int,
+    allDay: Boolean = false,
+  ): String? {
+    if (allDay) return null
+    val first = conflicts(context, startUtcMs, endUtcMs, allDay).firstOrNull() ?: return null
     fun hhmm(utcMs: Long) = MemoryFormat.formatUtc(utcMs + tzOffsetMinutes * 60_000L).substring(11, 16)
     return "ชนกับ “${first.title.orEmpty()}” ${hhmm(first.beginUtcMs)}–${hhmm(first.endUtcMs)}"
   }
