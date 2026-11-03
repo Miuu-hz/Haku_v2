@@ -55,5 +55,10 @@
       android:name=".AppointmentDebugReceiver"
       android:exported="true"
       android:permission="android.permission.DUMP" />
+    <!-- Week 2 skill picker accuracy eval over adb, logcat tag HakuSkillEval -->
+    <receiver
+      android:name=".SkillEvalReceiver"
+      android:exported="true"
+      android:permission="android.permission.DUMP" />
   </application>
 </manifest>
