@@ -36,6 +36,7 @@ class NotificationAppointmentRule(private val nowUtcMs: () -> Long) {
     }
     if (event.sourceApp == OWN_PACKAGE || event.sourceApp !in CHAT_APPS) return null
     val body = event.text.substringAfter('\n', event.text)
+    if (LIVE_STREAM.containsMatchIn(body)) return null // "เจอกันในไลฟ์ 2 ทุ่ม" is a broadcast, not the user's appointment
     val request = build(body, event.postedUtcMs, tzOffsetMinutes, origin) ?: return null
     if (request.dedupeKey in recentKeys) return null
     recentKeys.addLast(request.dedupeKey)
@@ -95,6 +96,10 @@ class NotificationAppointmentRule(private val nowUtcMs: () -> Long) {
   companion object {
     const val CALENDAR_ADD = "calendar.add"
     const val OWN_PACKAGE = "com.bbpillow.haku"
+
+    /** Live-stream announcements (shop / page / creator broadcasts): never offered from notifications. */
+    // ponytail: keyword list; widen it from real notifications that slip through
+    val LIVE_STREAM = Regex("""ไลฟ์|ถ่ายทอดสด|สตรีม|\blive\b""", RegexOption.IGNORE_CASE)
 
     /** How many recent offer keys the re-post guard remembers. */
     const val RECENT_OFFER_MAX = 20

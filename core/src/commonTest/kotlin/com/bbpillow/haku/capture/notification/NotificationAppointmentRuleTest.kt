@@ -99,6 +99,18 @@ class NotificationAppointmentRuleTest {
     ).forEach { assertNull(rule.offer(chat("x\n$it"), tz), it) }
   }
 
+  @Test fun `live-stream announcements give nothing`() {
+    listOf(
+      "เจอกันในไลฟ์คืนนี้ 2 ทุ่ม",
+      "ไลฟ์สด พรุ่งนี้ 20:00 เจอกันนะ",
+      "เจอกัน LIVE พรุ่งนี้ 2 ทุ่ม",
+      "ถ่ายทอดสดประชุมใหญ่ พรุ่งนี้ 10:00",
+      "เจอกันในสตรีมพรุ่งนี้ 2 ทุ่ม",
+    ).forEach { assertNull(rule.offer(chat("x\n$it"), tz), it) }
+    // a word merely containing "live" is not a live stream
+    assertNotNull(rule.offer(chat("x\nนัดคุยเรื่อง delivery พรุ่งนี้ 10:00"), tz))
+  }
+
   @Test fun `same message re-posted gives one offer`() {
     assertNotNull(rule.offer(chat("สมชาย\nมีนัดพบแพทย์ 10:30 พรุ่งนี้"), tz))
     assertNull(rule.offer(chat("สมชาย\nมีนัดพบแพทย์ 10:30 พรุ่งนี้"), tz)) // notification update
