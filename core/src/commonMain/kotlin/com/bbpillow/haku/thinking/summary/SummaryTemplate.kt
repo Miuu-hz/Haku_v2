@@ -8,11 +8,11 @@ object SummaryTemplate {
   const val NO_DATA = "วันนี้ยังไม่มีบันทึกอะไรเลย ไว้พรุ่งนี้มาดูกันใหม่"
   private val connectors = listOf("จากนั้น", "ต่อมา", "หลังจากนั้น")
 
-  fun noData(style: DiaryStyle) = NO_DATA + style.particle.text
+  fun noData(style: DiaryStyle) = style.particle.appendTo(NO_DATA)
 
   /** "วันจันทร์ที่ 7 ... เวลา 08:30 ออกจากบ้าน จากนั้นเวลา 09:10 ถึงที่ทำงาน ..." with the style's particle at the end. */
   fun paragraph(day: String, lines: List<String>, style: DiaryStyle): String {
-    val body = lines.map { it.trim().removeSuffix(style.particle.text).trimEnd() }.filter { it.isNotEmpty() }
+    val body = lines.map { style.particle.stripFrom(it.trim()).trimEnd() }.filter { it.isNotEmpty() }
     if (body.isEmpty()) return noData(style)
     return style.particle.appendTo(sentence(ThaiDateFormat.dayHeader(day), body))
   }

@@ -43,4 +43,16 @@ class SummaryFactsTest {
       SummaryTemplate.section(part),
     )
   }
+
+  @Test fun `extract strips both kha and ka forms for ka particle`() {
+    val mixed = listOf(
+      "08:00 ออกจากบ้านค่ะ",
+      "09:00 พรุ่งนี้ว่างไหมคะ",
+      "12:00 ทานข้าวกันนะคะ",
+    )
+    val facts = SummaryFacts.extract(mixed, EndingParticle.KA)
+    assertEquals("08:00 ออกจากบ้าน", facts[0].line)
+    assertEquals("09:00 พรุ่งนี้ว่างไหม", facts[1].line)
+    assertEquals("12:00 ทานข้าวกันนะ", facts[2].line)
+  }
 }

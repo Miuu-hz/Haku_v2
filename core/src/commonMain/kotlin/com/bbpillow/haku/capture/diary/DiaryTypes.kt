@@ -13,8 +13,55 @@ enum class EndingParticle(val text: String) {
   /** Thai typography: the particle joins a Thai word ("นาทีค่ะ") but is spaced after a digit, quote or Latin ("14:30 ค่ะ"). */
   fun appendTo(body: String): String {
     if (this == NONE) return body
-    val last = body.lastOrNull() ?: return text
-    return if (last in '฀'..'๿') body + text else "$body $text"
+    val form = formFor(body)
+    val trimmed = body.trimEnd()
+    val base = when {
+      this == KA && trimmed.endsWith("ค่ะ") -> trimmed.removeSuffix("ค่ะ")
+      this == KA && trimmed.endsWith("คะ") -> trimmed.removeSuffix("คะ")
+      this == KRAP && trimmed.endsWith("ครับ") -> trimmed.removeSuffix("ครับ")
+      else -> trimmed
+    }.trimEnd()
+    val last = base.lastOrNull() ?: return form
+    return if (last in '฀'..'๿') "$base$form" else "$base $form"
+  }
+
+  fun formFor(body: String): String {
+    if (this != KA) return text
+    // ponytail: question detection via trailing '?' and ending word list; full question detection needs NLP
+    val trimmed = body.trimEnd()
+    val hasQuestionMark = trimmed.endsWith('?') || trimmed.endsWith('？')
+    val clean = trimmed.trimEnd { it.isWhitespace() || it == '.' || it == '!' || it == '…' || it == '?' || it == '？' || it == '\u200B' }
+    val withoutParticle = when {
+      clean.endsWith("ครับ") -> clean.removeSuffix("ครับ")
+      clean.endsWith("ค่ะ") -> clean.removeSuffix("ค่ะ")
+      clean.endsWith("คะ") -> clean.removeSuffix("คะ")
+      else -> clean
+    }.trimEnd()
+    if (hasQuestionMark) return "คะ"
+    if (SOFTENERS.any { withoutParticle.endsWith(it) } && NOT_SOFTENER.none { withoutParticle.endsWith(it) }) return "คะ"
+    val targetBody = if (withoutParticle.endsWith("มา")) withoutParticle.removeSuffix("มา").trimEnd() else withoutParticle
+    if (YES_NO.any { withoutParticle.endsWith(it) }) return "คะ"
+    // "ไม่ได้ไปไหน", "ไม่มีอะไร": a question word after ไม่ is an indefinite in a statement
+    if ("ไม่" in targetBody.takeLast(NEGATION_REACH)) return "ค่ะ"
+    if (QUESTION_WORDS.any { withoutParticle.endsWith(it) || targetBody.endsWith(it) }) return "คะ"
+    return "ค่ะ"
+  }
+
+  /** Strips this particle's suffix(es) from [text], handling both forms for [KA]. */
+  fun stripFrom(text: String): String = when (this) {
+    NONE -> text
+    KRAP -> text.removeSuffix("ครับ")
+    KA -> text.removeSuffix("ค่ะ").removeSuffix("คะ")
+  }
+
+  companion object {
+    // ponytail: suffix match (Thai has no word breaks); words that only end like a softener go in NOT_SOFTENER. Grow on misses.
+    private val SOFTENERS = listOf("นะ", "น้า", "จ้ะ", "เนอะ", "สิ", "ล่ะ")
+    private val NOT_SOFTENER = listOf("หน้า", "ชนะ", "ทัศนะ")
+    /** Always a question, even after ไม่ ("ไม่ไปไหม"). */
+    private val YES_NO = listOf("ไหม", "มั้ย", "หรือ", "หรือเปล่า", "หรือยัง", "ใช่ไหม")
+    private val QUESTION_WORDS = listOf("ไหน", "อะไร", "ใคร", "เมื่อไหร่", "เมื่อไร", "ยังไง", "อย่างไร", "ทำไม", "กี่", "บ้าง")
+    private const val NEGATION_REACH = 12
   }
 }
 

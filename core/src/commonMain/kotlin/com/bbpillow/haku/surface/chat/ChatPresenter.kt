@@ -290,14 +290,23 @@ class ChatPresenter(
     /** The model sometimes echoes a source stamp such as "(24.10.2026 08:21)"; the citation already carries it. */
     private val dateTag = Regex("""\s*\(\d{1,4}[./-]\d{1,2}[./-]\d{1,4}[^)]*\)""")
 
-    private val finalParticle = Regex("""(ครับ|ค่ะ|คะ)([.!…]*)$""")
+    private val finalParticle = Regex("""(ครับ|ค่ะ|คะ)([.!…?？]*)$""")
 
     /** Lines copied from data written under another style (e.g. calendar rows) can end in the wrong particle. */
     internal fun withParticle(text: String, particle: String): String {
       if (particle.isEmpty() || text.isBlank()) return text
       val t = text.replace(bracketedParticle, "$1").trim()
-      return if (finalParticle.containsMatchIn(t)) finalParticle.replace(t) { "$particle${it.groupValues[2]}" }
-      else EndingParticle.entries.first { it.text == particle }.appendTo(t)
+      val ep = EndingParticle.entries.firstOrNull { it.text == particle } ?: if (particle == "คะ") EndingParticle.KA else null
+      return if (finalParticle.containsMatchIn(t)) {
+        finalParticle.replace(t) { m ->
+          val prefix = t.substring(0, m.range.first)
+          val chosen = ep?.formFor(prefix) ?: particle
+          val space = if (prefix.isNotEmpty() && !prefix.last().isWhitespace() && prefix.last() !in '฀'..'๿') " " else ""
+          "$space$chosen${m.groupValues[2]}"
+        }
+      } else {
+        ep?.appendTo(t) ?: t
+      }
     }
 
     private val bracketedParticle = Regex("""\s*\((ครับ|ค่ะ|คะ)\)""")
