@@ -45,7 +45,7 @@ import com.bbpillow.haku.surface.theme.HakuRadius
 import com.bbpillow.haku.surface.theme.HakuTone
 
 // ponytail: monoline calendar glyph matching HakuIcons style (24x24, 1.9f stroke, round caps)
-private val ActionCalendarIcon: ImageVector by lazy {
+internal val ActionCalendarIcon: ImageVector by lazy {
   val b = ImageVector.Builder("ActionCalendar", 24.dp, 24.dp, 24f, 24f)
   listOf(
     "M6.5 5.5h11a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2z",
