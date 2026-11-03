@@ -84,7 +84,7 @@ class ChatPresenterTest {
   }
 
   @Test fun `no citations with blank model output falls back`() = runTest {
-    val out = chat.answer(ask("ทดสอบ", DiaryStyle(EndingParticle.KRAP)), LocalModelClient(ReplyModel("   \n  ")))
+    val out = chat.answer(ask("ทดสอบไหม", DiaryStyle(EndingParticle.KRAP)), LocalModelClient(ReplyModel("   \n  ")))
     assertTrue(out.citations.isEmpty())
     assertEquals(ChatAnswerSource.RETRIEVAL, out.source)
     assertEquals(EndingParticle.KRAP.appendTo(ChatPresenter.NOT_FOUND), out.text)
@@ -167,5 +167,96 @@ class ChatPresenterTest {
     val r = withNow.retrieve(ChatQuestionInput("ไปไหนมาบ้าง", RecallRig.NOW))
     assertTrue(r.citations.none { it.label == ContextAssembler.NOW_LABEL })
     assertEquals(listOf("12:00 ไปกินข้าวที่ร้านกาแฟ", "08:00 ออกจากบ้าน"), r.citations.map { it.text })
+  }
+
+  @Test fun `isQuestion classifies statements and questions accurately`() {
+    assertFalse(ChatPresenter.isQuestion("เหนื่อยมาก"))
+    assertTrue(ChatPresenter.isQuestion("เหนื่อยไหม"))
+    assertTrue(ChatPresenter.isQuestion("ช่วยสรุปวันนี้"))
+    assertFalse(ChatPresenter.isQuestion("วันนี้ได้โบนัส!"))
+    assertFalse(ChatPresenter.isQuestion("ขอบคุณมาก"))
+    assertFalse(ChatPresenter.isQuestion("ปวดหัวมีปัญหานิดหน่อย"))
+    assertTrue(ChatPresenter.isQuestion("วันนี้เป็นไง"))
+    assertTrue(ChatPresenter.isQuestion("กินข้าวหรือยัง"))
+    assertFalse(ChatPresenter.isQuestion("ทำงานทั้งวันพรุ่งนี้ เหนื่อยมาก"))
+    assertTrue(ChatPresenter.isQuestion("ครั้งล่าสุดที่ไปร้านกาแฟคือเมื่อไร"))
+    assertTrue(ChatPresenter.isQuestion("ตอนนี้อยู่ไหน"))
+    assertTrue(ChatPresenter.isQuestion("สบายดีไหม?"))
+  }
+
+  @Test fun `statement with many matching records uses statement prompt and rejected model text falls back to acknowledgement without citations`() = runTest {
+    val p = Provenance.INFERRED_FROM_USER_DATA
+    for (i in 1..5) rig.daily("09:00 ทำงานวันที่ $i", "2026-09-2${i}T02:00:00.000Z", p)
+    val q = "ทำงานหนักมาก เหนื่อยสุดๆ" // no time word: "พรุ่งนี้" would scope retrieval to tomorrow (no records)
+    val r = ask(q, DiaryStyle(EndingParticle.KA))
+    assertEquals(ChatAnswerSource.RETRIEVAL, r.fallback.source)
+    assertEquals(EndingParticle.KA.appendTo(ChatPresenter.ACKNOWLEDGEMENT), r.fallback.text)
+    assertTrue(r.fallback.citations.isEmpty())
+
+    val rejectedModel = ReplyModel("[areas] ค่ะ")
+    val out = chat.answer(r, LocalModelClient(rejectedModel))
+
+    // 1. statement prompt chosen (contains statement instructions, does not contain fact dump)
+    val prompt = rejectedModel.prompts.single()
+    assertTrue("ผู้ใช้บอกเล่า พูดคุย หรือระบายความรู้สึก" in prompt)
+    assertFalse("ข้อเท็จจริง:" in prompt)
+
+    // 2. rejected model text falls back to "รับทราบแล้ว" + particle, no citations
+    assertEquals(ChatAnswerSource.RETRIEVAL, out.source)
+    assertEquals(EndingParticle.KA.appendTo(ChatPresenter.ACKNOWLEDGEMENT), out.text)
+    assertTrue(out.citations.isEmpty())
+    assertTrue(out.rejectedReasons.isNotEmpty())
+    assertEquals("[areas] ค่ะ", out.rejectedText)
+  }
+
+  @Test fun `statement with many matching records and accepted model text has no citations`() = runTest {
+    val p = Provenance.INFERRED_FROM_USER_DATA
+    for (i in 1..5) rig.daily("09:00 ทำงานวันที่ $i", "2026-09-2${i}T02:00:00.000Z", p)
+    val q = "ทำงานหนักมาก เหนื่อยสุดๆ" // no time word: "พรุ่งนี้" would scope retrieval to tomorrow (no records)
+    val r = ask(q, DiaryStyle(EndingParticle.KA))
+    val model = ReplyModel("สู้ๆ นะคะ พักผ่อนให้เพียงพอค่ะ")
+    val out = chat.answer(r, LocalModelClient(model))
+    assertEquals(ChatAnswerSource.MODEL, out.source)
+    assertEquals("สู้ๆ นะคะ พักผ่อนให้เพียงพอค่ะ", out.text)
+    assertTrue(out.citations.isEmpty())
+  }
+
+  @Test fun `question with matches keeps prompt and citations unchanged`() = runTest {
+    seed()
+    val model = ReplyModel("ครั้งล่าสุดที่ไปร้านกาแฟคือวันอังคารที่ 29 กันยายน ตอน 12:00")
+    val out = chat.answer(ask(coffee), LocalModelClient(model))
+    assertEquals(ChatAnswerSource.MODEL, out.source)
+    assertEquals(2, out.citations.size)
+    val prompt = model.prompts.single()
+    assertTrue("ข้อเท็จจริง:" in prompt)
+    assertTrue("[2026-09-29 12:00]" in prompt)
+  }
+
+  @Test fun `sanitizePromptFacts removes raw section tags while preserving date stamps and now label`() {
+    val raw = listOf(
+      "- [areas] ทำงานที่ออฟฟิศ",
+      "- [you] แพ้ถั่ว",
+      "- [2026-09-29 12:00] ไปกินข้าวที่ร้านกาแฟ",
+      "- [ตอนนี้] อยู่ที่บ้าน",
+      "- ตอบสั้นๆ ภาษาไทยเสมอ",
+    ).joinToString("\n")
+    val sanitized = ChatPresenter.sanitizePromptFacts(raw)
+    assertEquals(
+      listOf(
+        "- ทำงานที่ออฟฟิศ",
+        "- แพ้ถั่ว",
+        "- [2026-09-29 12:00] ไปกินข้าวที่ร้านกาแฟ",
+        "- [ตอนนี้] อยู่ที่บ้าน",
+        "- ตอบสั้นๆ ภาษาไทยเสมอ",
+      ).joinToString("\n"),
+      sanitized,
+    )
+  }
+
+  @Test fun `statement with blank model output falls back to acknowledgement`() = runTest {
+    val out = chat.answer(ask("ทำงานทั้งวัน เหนื่อยมาก", DiaryStyle(EndingParticle.KRAP)), LocalModelClient(ReplyModel("   \n  ")))
+    assertTrue(out.citations.isEmpty())
+    assertEquals(ChatAnswerSource.RETRIEVAL, out.source)
+    assertEquals(EndingParticle.KRAP.appendTo(ChatPresenter.ACKNOWLEDGEMENT), out.text)
   }
 }
