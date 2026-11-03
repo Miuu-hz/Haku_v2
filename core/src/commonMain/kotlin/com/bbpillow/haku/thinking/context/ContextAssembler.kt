@@ -67,11 +67,12 @@ class ContextAssembler(
     val now = input.now?.takeIf { NOW_CUES.any { cue -> cue in normalized } }
     val standing = standingItems(trace) + listOfNotNull(now?.let { nowItem(it, input, trace) })
     val pool = Pool()
+    val fallback = range == null && words.isEmpty()
     coreCandidates(words, lang, pool, trace)
-    dailyCandidates(input, range, words, latest, pool, trace)
+    dailyCandidates(input, range, words, latest, fallback, pool, trace)
     semantic?.let { semanticCandidates(it, input.question, range, pool, trace) }
     val others = pool.items.values.map { toItem(it, input.utcOffsetMinutes) }
-    return fit(input, standing, others, trace)
+    return fit(input, standing, others, trace, newestFirst = fallback)
   }
 
   // --- standing: always ---
@@ -136,24 +137,26 @@ class ContextAssembler(
   }
 
   // --- daily: D18 order ---
-  private fun dailyCandidates(input: AssembleInput, range: TimeRange?, words: List<String>, latest: Boolean, pool: Pool, trace: MutableList<String>) {
-    // 1. structural: every record inside the date range
-    if (range != null) {
-      val inRange = TimeWords.utcDays(range)
+  private fun dailyCandidates(input: AssembleInput, range: TimeRange?, words: List<String>, latest: Boolean, fallback: Boolean, pool: Pool, trace: MutableList<String>) {
+    // 1. structural: every record inside the date range (or last RECENT_FALLBACK_DAYS when the question has no words and no range)
+    val structuralRange = range ?: if (fallback) recentRange(input) else null
+    if (structuralRange != null) {
+      val inRange = TimeWords.utcDays(structuralRange)
         .flatMap { day -> memory.readDay(day).map { MemoryRef(MemoryLevel.DAILY, day, it.id) to it } }
-        .filter { (_, r) -> r.atEpochMs >= range.fromEpochMs && r.atEpochMs < range.toEpochMs }
-        .sortedBy { it.second.atEpochMs }
+        .filter { (_, r) -> r.atEpochMs >= structuralRange.fromEpochMs && r.atEpochMs < structuralRange.toEpochMs }
+        .let { if (fallback) it.sortedByDescending { p -> p.second.atEpochMs } else it.sortedBy { p -> p.second.atEpochMs } }
       // a whole week of "ออกจากบ้าน / ถึงที่ทำงาน" must not crowd out the one-off lines (appointments, new places, notes)
       // ponytail: "repeat" = same text once digits are gone (times, durations); use a line kind from the diary ledger if wording drifts
       val seen = mutableSetOf<String>()
       inRange.forEachIndexed { i, (ref, r) ->
         val repeat = !seen.add(r.text.filterNot { it.isDigit() })
-        val outside = !range.inWindow(r.atEpochMs)
+        val outside = !structuralRange.inWindow(r.atEpochMs)
         val v = STRUCTURAL_VALUE - i * 0.001 - (if (repeat) REPEAT_PENALTY else 0.0) - (if (outside) OUTSIDE_WINDOW_PENALTY else 0.0)
-        val why = "date word '${range.word}'" + (if (repeat) ", repeats an earlier line" else "") + (if (outside) ", outside the asked part of day" else "")
+        val why = (if (fallback) "recent fallback (${RECENT_FALLBACK_DAYS}d)" else "date word '${structuralRange.word}'") +
+          (if (repeat) ", repeats an earlier line" else "") + (if (outside) ", outside the asked part of day" else "")
         pool.get(ref, r, ContextSection.RECALL).add(RetrievalTier.STRUCTURAL, v, why)
       }
-      trace += "structural: ${inRange.size} records in range" + (range.window?.let { ", window $it" } ?: "")
+      trace += "structural: ${inRange.size} records in range" + (structuralRange.window?.let { ", window $it" } ?: "")
     }
     // 2. word search
     val base = SearchQueryInput("", input.languageCode, limit = limits.maxWordHits, levels = setOf(MemoryLevel.DAILY), fromEpochMs = range?.fromEpochMs, toEpochMs = range?.toEpochMs)
@@ -236,7 +239,13 @@ class ContextAssembler(
   private fun item(s: ContextSection, line: String, ref: MemoryRef, r: MemoryRecord, tiers: List<RetrievalTier>, reason: String, value: Double) =
     ContextItem(s, line, TokenEstimator.estimate("$line\n"), ref, r.provenance, r.atEpochMs, tiers, reason, value)
 
-  private fun fit(input: AssembleInput, standing: List<ContextItem>, others: List<ContextItem>, trace: MutableList<String>): AssembledContext {
+  private fun recentRange(input: AssembleInput): TimeRange {
+    val offMs = input.utcOffsetMinutes * 60_000L
+    val todayStart = (input.nowEpochMs + offMs).floorDiv(DAY_MS) * DAY_MS - offMs
+    return TimeRange("recent", todayStart - (RECENT_FALLBACK_DAYS - 1) * DAY_MS, todayStart + DAY_MS, utcOffsetMinutes = input.utcOffsetMinutes)
+  }
+
+  private fun fit(input: AssembleInput, standing: List<ContextItem>, others: List<ContextItem>, trace: MutableList<String>, newestFirst: Boolean = false): AssembledContext {
     val kept = (standing + others).toMutableList()
     val dropped = mutableListOf<ContextItem>()
     var total = kept.sumOf { it.tokens }
@@ -248,11 +257,17 @@ class ContextAssembler(
       total -= worst.tokens
     }
     if (dropped.isNotEmpty()) trace += "over budget (${input.budgetTokens}): dropped ${dropped.size} lowest-value items"
-    val ordered = kept.sortedWith(compareBy<ContextItem> { it.section.ordinal }.thenBy { if (it.section == ContextSection.RECALL) it.atEpochMs else 0L })
+    val ordered = kept.sortedWith(
+      compareBy<ContextItem> { it.section.ordinal }
+        .thenBy { if (it.section != ContextSection.RECALL) 0L else if (newestFirst) -it.atEpochMs else it.atEpochMs },
+    )
     return AssembledContext(input.question, input.budgetTokens, ordered, dropped, trace)
   }
 
   companion object {
+    // ponytail: fixed 3-day window for wordless/dateless questions; widen or scan last non-empty days if users ask after a quiet gap
+    const val RECENT_FALLBACK_DAYS = 3
+    private const val DAY_MS = 86_400_000L
     const val NOW_LABEL = "ตอนนี้"
     val NOW_CUES = listOf("ตอนนี้", "ขณะนี้", "เดี๋ยวนี้", "เมื่อกี้", "เมื่อครู่", "เหลือ", "ถัดไป", "นัดต่อไป", "อยู่ไหน", "อยู่ที่ไหน", "กี่โมงแล้ว", "วันอะไร", "วันที่เท่าไหร่", "วันที่เท่าไร")
     /** Id of the "ตอนนี้" item's [MemoryRef]; no memory file holds it (it is rebuilt from capture events every question). */
