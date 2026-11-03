@@ -21,8 +21,10 @@ class SkillTest {
   """.trimIndent()
 
   private val appt = SkillFormat.parse(md, SkillSource.BUILT_IN)
-  private val weather = SkillRecord("weather-today", "อากาศ", "Weather forecast for a city", "", listOf(SkillSlot("city", "เมือง")),
-    "mcp.call", source = SkillSource.MCP, server = "weather.example")
+  private val weather = SkillRecord(
+    "weather-today", "อากาศ", "Weather forecast for a city", "", listOf(SkillSlot("city", "เมือง")),
+    "mcp.call", source = SkillSource.MCP, server = "weather.example",
+  )
   private val all = listOf(appt, weather)
 
   @Test fun parsesAndRoundTrips() {
@@ -46,22 +48,97 @@ class SkillTest {
   }
 
   @Test fun mentionsResolveSkillsAliasesAndServices() {
-    val m = assertIs<Mention.Skill>(MentionParser.parse("/นัด พรุ่งนี้ 10 โมง ทำฟัน", all))
+    val builtInAppt = BuiltInSkills.ADD_APPOINTMENT
+    val skills = listOf(builtInAppt, weather)
+
+    val m = assertIs<Mention.Skill>(MentionParser.parse("/นัด พรุ่งนี้ 10 โมง ทำฟัน", skills))
     assertEquals("add-appointment", m.skill.name)
     assertEquals("พรุ่งนี้ 10 โมง ทำฟัน", m.rest)
-    assertIs<Mention.Service>(MentionParser.parse("@weather.example เชียงใหม่", all))
-    assertEquals(Mention.NotFound('/', "weather-today", "x"), MentionParser.parse("/weather-today x", all)) // an MCP tool is only reachable through @server
-    assertNull(MentionParser.parse("ไม่มี mention", all))
-    assertEquals(Mention.NotFound('/', "นัด", "x"), MentionParser.parse("/นัด x", listOf(appt.copy(enabled = false))))
-    assertEquals(Mention.NotFound('@', "nosuch", "เชียงใหม่"), MentionParser.parse("@nosuch เชียงใหม่", all))
-    assertNull(MentionParser.parse("/ x", all))
-    assertNull(MentionParser.parse("@", all))
+
+    val atSkill = assertIs<Mention.Skill>(MentionParser.parse("@ปฏิทิน พรุ่งนี้ 10 โมง ทำฟัน", skills))
+    assertEquals("add-appointment", atSkill.skill.name)
+    assertEquals("พรุ่งนี้ 10 โมง ทำฟัน", atSkill.rest)
+
+    val atService = assertIs<Mention.Service>(MentionParser.parse("@weather.example เชียงใหม่", skills))
+    assertEquals("weather.example", atService.server)
+    assertEquals(listOf(weather), atService.tools)
+    assertEquals("เชียงใหม่", atService.rest)
+
+    assertEquals(Mention.NotFound('/', "weather-today", "x"), MentionParser.parse("/weather-today x", skills)) // an MCP tool is only reachable through @server
+    assertNull(MentionParser.parse("ไม่มี mention", skills))
+    assertEquals(Mention.NotFound('/', "นัด", "x"), MentionParser.parse("/นัด x", listOf(builtInAppt.copy(enabled = false))))
+    assertEquals(Mention.NotFound('@', "nosuch", "x"), MentionParser.parse("@nosuch x", skills))
+    assertNull(MentionParser.parse("/ x", skills))
+    assertNull(MentionParser.parse("@", skills))
   }
 
-  @Test fun suggestionsWhileTyping() {
-    assertEquals(listOf(appt), MentionParser.suggest("/นั", all))
-    assertEquals(listOf(appt), MentionParser.suggest("/", all))
-    assertEquals(listOf(weather), MentionParser.suggest("@w", all))
-    assertTrue(MentionParser.suggest("/นัด พรุ่งนี้", all).isEmpty())
+  @Test fun optionsPopupListsLocalAndServiceRows() {
+    val appt = BuiltInSkills.ADD_APPOINTMENT
+    val skills = listOf(appt, weather)
+
+    // @ with empty partial lists local + service rows in order
+    val atEmpty = MentionParser.options("@", skills)
+    assertEquals(
+      listOf(
+        MentionOption("นัด", "เพิ่มนัด", MentionOption.Kind.LOCAL, listOf(appt)),
+        MentionOption("weather.example", "weather.example", MentionOption.Kind.SERVICE, listOf(weather)),
+      ),
+      atEmpty,
+    )
+
+    // prefix "ปฏ" finds the calendar skill by alias
+    assertEquals(
+      listOf(MentionOption("นัด", "เพิ่มนัด", MentionOption.Kind.LOCAL, listOf(appt))),
+      MentionParser.options("@ปฏ", skills),
+    )
+
+    // prefix on server host and on serviceNames label
+    assertEquals(
+      listOf(MentionOption("weather.example", "weather.example", MentionOption.Kind.SERVICE, listOf(weather))),
+      MentionParser.options("@wea", skills),
+    )
+    assertEquals(
+      listOf(MentionOption("weather.example", "พยากรณ์อากาศ", MentionOption.Kind.SERVICE, listOf(weather))),
+      MentionParser.options("@พยา", skills, mapOf("weather.example" to "พยากรณ์อากาศ")),
+    )
+
+    // disabled skill hidden
+    val disabledAppt = appt.copy(enabled = false)
+    val disabledWeather = weather.copy(enabled = false)
+    assertEquals(
+      listOf(MentionOption("weather.example", "weather.example", MentionOption.Kind.SERVICE, listOf(weather))),
+      MentionParser.options("@", listOf(disabledAppt, weather)),
+    )
+    assertEquals(
+      listOf(MentionOption("นัด", "เพิ่มนัด", MentionOption.Kind.LOCAL, listOf(appt))),
+      MentionParser.options("@", listOf(appt, disabledWeather)),
+    )
+    assertTrue(MentionParser.options("@", listOf(disabledAppt, disabledWeather)).isEmpty())
+
+    // / lists local only
+    assertEquals(
+      listOf(MentionOption("นัด", "เพิ่มนัด", MentionOption.Kind.LOCAL, listOf(appt))),
+      MentionParser.options("/", skills),
+    )
+
+    // space -> empty
+    assertTrue(MentionParser.options("@ ", skills).isEmpty())
+    assertTrue(MentionParser.options("/ ", skills).isEmpty())
+    assertTrue(MentionParser.options("@นัด พรุ่งนี้", skills).isEmpty())
+    assertTrue(MentionParser.options(" @", skills).isEmpty())
+    assertTrue(MentionParser.options("", skills).isEmpty())
+
+    // multiple tools for same server grouped into one service row
+    val weather2 = SkillRecord(
+      "forecast-tomorrow", "พรุ่งนี้", "Tomorrow", "", emptyList(),
+      "mcp.call", source = SkillSource.MCP, server = "weather.example",
+    )
+    assertEquals(
+      listOf(
+        MentionOption("นัด", "เพิ่มนัด", MentionOption.Kind.LOCAL, listOf(appt)),
+        MentionOption("weather.example", "weather.example", MentionOption.Kind.SERVICE, listOf(weather, weather2)),
+      ),
+      MentionParser.options("@", listOf(appt, weather, weather2)),
+    )
   }
 }
