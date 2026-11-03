@@ -50,6 +50,7 @@ import com.bbpillow.haku.surface.components.SurfaceCard
 import com.bbpillow.haku.surface.theme.HakuColors
 import com.bbpillow.haku.surface.theme.HakuRadius
 import com.bbpillow.haku.surface.theme.HakuTone
+import com.bbpillow.haku.surface.settings.PrivacyNoticeSections
 
 /**
  * Callbacks of the onboarding pager. Everything that touches the OS (permission dialogs, model download, biometric
@@ -172,6 +173,23 @@ private fun Privacy() {
   PromiseRow(HakuIcons.Box, HakuTone.Violet, "AI ทำงานในเครื่อง ไม่ส่งขึ้น cloud")
   PromiseRow(HakuIcons.Grid, HakuTone.Mint, "เปิดดูได้ว่าระบบจำอะไร")
   PromiseRow(HakuIcons.File, HakuTone.Coral, "ลบได้ทุกบรรทัด ลบแล้วไม่กลับมา")
+  // PDPA s.23: the full notice is one tap away before any data is collected (also in Settings)
+  var full by remember { mutableStateOf(false) }
+  Text(
+    if (full) "ซ่อนประกาศฉบับเต็ม" else "อ่านประกาศความเป็นส่วนตัวฉบับเต็ม",
+    style = MaterialTheme.typography.labelLarge,
+    color = HakuColors.Ink,
+    textAlign = TextAlign.Center,
+    modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { full = !full }.padding(vertical = 8.dp),
+  )
+  if (full) PrivacyNoticeSections.forEach { (title, lines) ->
+    SurfaceCard(Modifier.fillMaxWidth()) {
+      Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = HakuColors.Ink)
+        lines.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted) }
+      }
+    }
+  }
 }
 
 @Composable

@@ -72,6 +72,7 @@ import com.bbpillow.haku.surface.settings.ModelManagerPresenter
 import com.bbpillow.haku.surface.settings.ModelManagerScreen
 import com.bbpillow.haku.surface.settings.ModelManagerUiState
 import com.bbpillow.haku.surface.settings.ModelStatus
+import com.bbpillow.haku.surface.settings.PrivacyNoticeScreen
 import com.bbpillow.haku.surface.settings.SettingsScreen
 import com.bbpillow.haku.surface.settings.SettingsUiState
 import com.bbpillow.haku.surface.stats.StatsScreen
@@ -228,9 +229,32 @@ private fun SettingsTab(
     else Toast.makeText(activity, "ต้องอนุญาตการแจ้งเตือนก่อน เปิดได้ในการตั้งค่าเครื่อง", Toast.LENGTH_LONG).show()
   }
 
+  // P5.8 notification access lives in system settings: re-read it every time the user comes back from there
+  fun listenerOn() = androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(activity).contains(activity.packageName)
+  var notifOn by remember { mutableStateOf(listenerOn()) }
+  val lifecycle = LocalLifecycleOwner.current.lifecycle
+  DisposableEffect(lifecycle) {
+    val observer = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_RESUME) notifOn = listenerOn() }
+    lifecycle.addObserver(observer)
+    onDispose { lifecycle.removeObserver(observer) }
+  }
+  var page by remember { mutableStateOf(SettingsPage.MAIN) }
+  BackHandler(enabled = page != SettingsPage.MAIN) { page = SettingsPage.MAIN }
+  when (page) {
+    SettingsPage.AUDIT -> return AuditTab(graph) { page = SettingsPage.MAIN }
+    SettingsPage.PRIVACY -> return PrivacyNoticeScreen(onBack = { page = SettingsPage.MAIN }, contentPadding = TabPadding)
+    SettingsPage.MAIN -> Unit
+  }
+
   val s = state ?: return
   SettingsScreen(
     state = s,
+    notificationAccessOn = notifOn,
+    onOpenNotificationAccess = {
+      activity.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+    },
+    onOpenAudit = { page = SettingsPage.AUDIT },
+    onOpenPrivacyNotice = { page = SettingsPage.PRIVACY },
     onBack = onClose,
     onOpenModels = onOpenModels,
     onParticle = { p -> update { setParticle(p, it) } },
@@ -275,6 +299,26 @@ private fun SettingsTab(
     contentPadding = TabPadding,
   )
 }
+
+private enum class SettingsPage { MAIN, AUDIT, PRIVACY }
+
+/** P4.1 audit log + emergency stop. ponytail: the stop flag is in memory (gate), it resets on process death. */
+@Composable
+private fun AuditTab(graph: AppGraph, onBack: () -> Unit) {
+  val gate = graph.actionGate
+  val stopped by gate.stopped.collectAsState()
+  var records by remember { mutableStateOf<List<com.bbpillow.haku.action.AuditRecord>>(emptyList()) }
+  LaunchedEffect(stopped) { graph.safeIo { audit.recent(AUDIT_PAGE) }?.let { records = it } }
+  com.bbpillow.haku.surface.action.AuditScreen(
+    records = records,
+    stopped = stopped,
+    onToggleStop = { stop -> if (stop) gate.stopAll() else gate.resume() },
+    onBack = onBack,
+    contentPadding = TabPadding,
+  )
+}
+
+private const val AUDIT_PAGE = 200
 
 @Composable
 private fun ModelManagerTab(
