@@ -1,5 +1,6 @@
 package com.bbpillow.haku.platform.mcp
 
+import android.util.Log
 import com.bbpillow.haku.action.ActionHandler
 import com.bbpillow.haku.action.ActionResultOutput
 import com.bbpillow.haku.action.PermissionLevel
@@ -42,7 +43,8 @@ class McpActionHandler(
       ActionResultOutput(ok = true, message = result)
     } catch (e: CancellationException) {
       throw e
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+      Log.w("HakuMcp", "call $host/$tool failed: ${e.javaClass.simpleName}: ${e.message?.take(200)}")
       ActionResultOutput(ok = false, message = FAILED_MESSAGE)
     }
   }

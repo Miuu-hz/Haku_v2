@@ -65,5 +65,10 @@
       android:name=".PipelineReportReceiver"
       android:exported="true"
       android:permission="android.permission.DUMP" />
+    <!-- MCP server add/list/enable + confirm the newest gate card over adb, logcat tag HakuMcp -->
+    <receiver
+      android:name=".McpDebugReceiver"
+      android:exported="true"
+      android:permission="android.permission.DUMP" />
   </application>
 </manifest>
