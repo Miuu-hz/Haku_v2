@@ -52,27 +52,44 @@ class NotificationAppointmentRule(private val nowUtcMs: () -> Long) {
     if (draft.startUtcMs <= nowUtcMs()) return null
     return ActionRequestInput(
       action = CALENDAR_ADD,
-      arguments = mapOf(
-        "title" to draft.title,
-        "startUtcMs" to draft.startUtcMs.toString(),
-        "endUtcMs" to draft.endUtcMs.toString(),
-      ),
+      arguments = buildMap {
+        put("title", draft.title)
+        put("startUtcMs", draft.startUtcMs.toString())
+        put("endUtcMs", draft.endUtcMs.toString())
+        if (draft.allDay) put("allDay", "true")
+      },
       title = draft.title,
-      detail = detailOf(draft.startUtcMs, draft.endUtcMs, tzOffsetMinutes),
+      detail = detailOf(draft.startUtcMs, draft.endUtcMs, tzOffsetMinutes, draft.allDay),
       origin = origin,
       dedupeKey = "$CALENDAR_ADD:${draft.title}|${draft.startUtcMs}",
     )
   }
 
   // Same labels as surface/chat/AppointmentCommand: "<weekday> <date> · <start>–<end>".
-  private fun detailOf(startUtcMs: Long, endUtcMs: Long, tzOffsetMinutes: Int): String {
+  private fun detailOf(startUtcMs: Long, endUtcMs: Long, tzOffsetMinutes: Int, allDay: Boolean = false): String {
     val startLocalMs = startUtcMs + tzOffsetMinutes * 60_000L
     val endLocalMs = endUtcMs + tzOffsetMinutes * 60_000L
-    val day = MemoryFormat.dayOf(startLocalMs)
-    val dayLabel = "${ThaiDateFormat.shortWeekday(day)} ${ThaiDateFormat.shortDate(day)}"
-    val startHhmm = MemoryFormat.formatUtc(startLocalMs).substring(11, 16)
-    val endHhmm = MemoryFormat.formatUtc(endLocalMs).substring(11, 16)
-    return "$dayLabel · $startHhmm–$endHhmm"
+    val startDay = MemoryFormat.dayOf(startLocalMs)
+    return if (allDay) {
+      val lastDay = MemoryFormat.dayOf(endLocalMs - 1L)
+      val dayLabel = if (startDay == lastDay) {
+        "${ThaiDateFormat.shortWeekday(startDay)} ${ThaiDateFormat.shortDate(startDay)}"
+      } else {
+        val (sY, sM, sD) = startDay.split('-').map { it.toInt() }
+        val (lY, lM, lD) = lastDay.split('-').map { it.toInt() }
+        if (sY == lY && sM == lM) {
+          "$sD–$lD ${ThaiDateFormat.shortDate(startDay).substringAfter(' ')}"
+        } else {
+          "${ThaiDateFormat.shortDate(startDay)}–${ThaiDateFormat.shortDate(lastDay)}"
+        }
+      }
+      "$dayLabel · ทั้งวัน"
+    } else {
+      val dayLabel = "${ThaiDateFormat.shortWeekday(startDay)} ${ThaiDateFormat.shortDate(startDay)}"
+      val startHhmm = MemoryFormat.formatUtc(startLocalMs).substring(11, 16)
+      val endHhmm = MemoryFormat.formatUtc(endLocalMs).substring(11, 16)
+      "$dayLabel · $startHhmm–$endHhmm"
+    }
   }
 
   companion object {

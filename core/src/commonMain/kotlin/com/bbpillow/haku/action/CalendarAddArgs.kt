@@ -8,6 +8,7 @@ data class CalendarAddInput(
   val title: String,
   val startUtcMs: Long,
   val endUtcMs: Long,
+  val allDay: Boolean = false,
 )
 
 /**
@@ -19,6 +20,7 @@ object CalendarAddArgs {
   const val KEY_TITLE = "title"
   const val KEY_START_UTC_MS = "startUtcMs"
   const val KEY_END_UTC_MS = "endUtcMs"
+  const val KEY_ALL_DAY = "allDay"
   private const val DETAIL_SEP = " · "
 
   fun toRequest(
@@ -26,11 +28,14 @@ object CalendarAddArgs {
     origin: ActionOrigin = ActionOrigin.CHAT_RULE,
   ): ActionRequestInput = ActionRequestInput(
     action = ACTION,
-    arguments = mapOf(
-      KEY_TITLE to proposal.title,
-      KEY_START_UTC_MS to proposal.startUtcMs.toString(),
-      KEY_END_UTC_MS to proposal.endUtcMs.toString(),
-    ),
+    arguments = buildMap {
+      put(KEY_TITLE, proposal.title)
+      put(KEY_START_UTC_MS, proposal.startUtcMs.toString())
+      put(KEY_END_UTC_MS, proposal.endUtcMs.toString())
+      if (proposal.allDay) {
+        put(KEY_ALL_DAY, "true")
+      }
+    },
     title = proposal.title,
     detail = "${proposal.dayLabel}$DETAIL_SEP${proposal.timeLabel}",
     origin = origin,
@@ -47,7 +52,8 @@ object CalendarAddArgs {
     val startUtcMs = arguments[KEY_START_UTC_MS]?.toLongOrNull() ?: return null
     val endUtcMs = arguments[KEY_END_UTC_MS]?.toLongOrNull() ?: return null
     if (endUtcMs < startUtcMs) return null
-    return CalendarAddInput(title = title, startUtcMs = startUtcMs, endUtcMs = endUtcMs)
+    val allDay = arguments[KEY_ALL_DAY]?.toBoolean() ?: false
+    return CalendarAddInput(title = title, startUtcMs = startUtcMs, endUtcMs = endUtcMs, allDay = allDay)
   }
 
   fun toProposal(
@@ -67,6 +73,7 @@ object CalendarAddArgs {
       timeLabel = timeLabel,
       conflict = request.warning,
       status = status,
+      allDay = parsed.allDay,
     )
   }
 

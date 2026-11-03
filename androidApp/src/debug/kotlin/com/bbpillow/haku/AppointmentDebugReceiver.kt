@@ -28,11 +28,11 @@ class AppointmentDebugReceiver : BroadcastReceiver() {
         val t0 = System.currentTimeMillis()
         val tz = app.graph.tzOffsetMinutes
         val p = app.graph.safeIo { appointmentCommand.tryPropose(q, t0, tz) }?.appointment
-        val conflicts = p?.let { withContext(Dispatchers.IO) { CalendarWriter.conflicts(app, it.startUtcMs, it.endUtcMs) } }.orEmpty()
+        val conflicts = p?.let { withContext(Dispatchers.IO) { CalendarWriter.conflicts(app, it.startUtcMs, it.endUtcMs, it.allDay) } }.orEmpty()
         var written = "-"
         if (p != null && write) {
           written = withContext(Dispatchers.IO) {
-            val id = CalendarWriter.insert(app, p.title, p.startUtcMs, p.endUtcMs) ?: return@withContext "insert-failed"
+            val id = CalendarWriter.insert(app, p.title, p.startUtcMs, p.endUtcMs, p.allDay) ?: return@withContext "insert-failed"
             val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, id)
             val back = app.contentResolver.query(uri, arrayOf(CalendarContract.Events.TITLE), null, null, null)
               ?.use { if (it.moveToFirst()) it.getString(0) else null }

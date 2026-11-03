@@ -26,7 +26,7 @@ class CalendarActionHandler(
       return ActionResultOutput(ok = false, message = NEEDS_PERMISSION_MESSAGE, needsPermission = true)
     }
     val eventId = withContext(ioDispatcher) {
-      CalendarWriter.insert(context, parsed.title, parsed.startUtcMs, parsed.endUtcMs)
+      CalendarWriter.insert(context, parsed.title, parsed.startUtcMs, parsed.endUtcMs, parsed.allDay)
     }
     if (eventId == null) {
       return if (!CalendarWriter.canWrite(context)) {

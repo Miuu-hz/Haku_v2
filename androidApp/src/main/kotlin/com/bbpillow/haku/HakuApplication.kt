@@ -25,7 +25,7 @@ class HakuApplication : Application() {
         // as the chat card: an overlap goes on the heads-up as "ชนกับ …" (warning is the card's conflict line)
         val args = CalendarAddArgs.parse(request.arguments)?.takeIf { request.action == CalendarAddArgs.ACTION && request.warning == null }
         val conflict = args?.let {
-          withContext(Dispatchers.IO) { runCatching { CalendarWriter.conflictLine(this@HakuApplication, it.startUtcMs, it.endUtcMs, graph.tzOffsetMinutes) }.getOrNull() }
+          withContext(Dispatchers.IO) { runCatching { CalendarWriter.conflictLine(this@HakuApplication, it.startUtcMs, it.endUtcMs, graph.tzOffsetMinutes, it.allDay) }.getOrNull() }
         }
         val checked = if (conflict != null) request.copy(warning = conflict) else request
         (graph.actionGate.submit(checked) as? ActionDecision.AwaitingUser)?.let { AppointmentOfferNotifier.post(this@HakuApplication, it.proposal) }

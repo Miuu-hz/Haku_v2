@@ -111,6 +111,24 @@ class NotificationAppointmentRuleTest {
     assertNull(rule.offerSelected(chat("สวัสดีครับ", app = "shared"), tz))
   }
 
+  @Test fun `all-day notification offer carries allDay flag and formatted labels`() {
+    val offer = rule.offer(chat("สมชาย\nมีนัดอบรม 5 - 6 พ.ย."), tz)
+    assertNotNull(offer)
+    assertEquals("calendar.add", offer.action)
+    assertEquals("อบรม", offer.title)
+    assertEquals("true", offer.arguments["allDay"])
+    assertEquals("5–6 พ.ย. · ทั้งวัน", offer.detail)
+  }
+
+  @Test fun `all-day single-day notification offer carries allDay flag and formatted labels`() {
+    val offer = rule.offer(chat("สมชาย\nมีนัดตรวจสุขภาพ วันที่ 5 พฤศจิกายน"), tz)
+    assertNotNull(offer)
+    assertEquals("calendar.add", offer.action)
+    assertEquals("ตรวจสุขภาพ", offer.title)
+    assertEquals("true", offer.arguments["allDay"])
+    assertEquals("พฤ 5 พ.ย. · ทั้งวัน", offer.detail)
+  }
+
   @Test fun `offer submits to a fake ActionGate and confirms or dismisses by proposal id`() = runTest {
     val gate = FakeActionGate()
     val offer = assertNotNull(rule.offer(chat("สมชาย\nมีนัดขูดหินปูน 10.00น. พรุ่งนี้"), tz))
