@@ -744,6 +744,10 @@ internal suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutpu
   when (val m = MentionParser.parse(question, skills)) {
     is Mention.Skill -> return runSkill(graph, question, m.rest.ifBlank { question }, listOf(m.skill))
     is Mention.Service -> return runSkill(graph, question, m.rest.ifBlank { question }, m.tools.take(MAX_SERVICE_TOOLS))
+    is Mention.NotFound -> {
+      val what = if (m.trigger == MentionParser.SERVICE) "บริการ" else "คำสั่ง"
+      return ChatAnswerOutput(question, "ไม่พบ$what ${m.trigger}${m.name} ลองพิมพ์ ${m.trigger} เพื่อดูรายการที่มี", emptyList(), ChatAnswerSource.MODEL)
+    }
     null -> Unit
   }
   val appointmentAnswer = graph.safeIo { appointmentCommand.tryPropose(question, System.currentTimeMillis(), tz) }

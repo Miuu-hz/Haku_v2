@@ -12,6 +12,9 @@ sealed interface Mention {
 
   /** `@weather.example เชียงใหม่พรุ่งนี้`: the picker then chooses only among that server's tools. */
   data class Service(val server: String, val tools: List<SkillRecord>, override val rest: String) : Mention
+
+  /** `@nosuch …` / `/nosuch …`: a trigger plus a non-blank name that matches nothing enabled. Chat answers "ไม่พบ…". */
+  data class NotFound(val trigger: Char, val name: String, override val rest: String) : Mention
 }
 
 object MentionParser {
