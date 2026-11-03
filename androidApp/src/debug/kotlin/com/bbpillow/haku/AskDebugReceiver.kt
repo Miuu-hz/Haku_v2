@@ -63,6 +63,23 @@ class AskDebugReceiver : BroadcastReceiver() {
           }
         }
       }
+      // the Chat tab's own askHaku (mentions, picker, skill turns); logs the answer and any gate card it raised
+      ACTION_ASK_FULL -> {
+        val question = intent.getStringExtra("q").orEmpty()
+        app.graph.scope.launch {
+          try {
+            val t0 = System.currentTimeMillis()
+            val a = mutex.withLock { askHaku(app.graph, question) }
+            val p = a?.actionId?.let { id -> app.graph.actionGate.proposals.value.firstOrNull { it.id == id } }
+            Log.i(TAG, org.json.JSONObject().put("q", question).put("ms", System.currentTimeMillis() - t0).put("text", a?.text)
+              .put("source", a?.source?.name).put("citations", a?.citations?.size).put("appointment", a?.appointment?.let { "${it.title} ${it.dayLabel} ${it.timeLabel}" })
+              .put("card", p?.let { "${it.request.action} | ${it.request.title} | ${it.request.detail} | ${it.request.origin} | ${it.status}" })
+              .toString())
+          } catch (t: Throwable) {
+            Log.e(TAG, "ask full failed", t)
+          }
+        }
+      }
       else -> Unit
     }
   }
@@ -197,6 +214,7 @@ class AskDebugReceiver : BroadcastReceiver() {
     const val TAG = "HakuAsk"
     const val ACTION_ASK = "com.bbpillow.haku.debug.ASK"
     const val ACTION_UNLOAD = "com.bbpillow.haku.debug.ASK_UNLOAD"
+    const val ACTION_ASK_FULL = "com.bbpillow.haku.debug.ASK_FULL"
     const val MIB = 1024.0 * 1024.0
 
     val mutex = Mutex()

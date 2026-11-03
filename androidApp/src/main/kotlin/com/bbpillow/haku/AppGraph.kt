@@ -315,7 +315,10 @@ class AppGraph(val app: Application) {
       e == null -> null
       !e.isLoaded -> null.also { warm(e) }
       else -> (skillPicker?.takeIf { it.first === e } ?: (e to com.bbpillow.haku.skill.EmbeddingSkillPicker(e)).also { skillPicker = it })
-        .second.pick(text, skills)
+        .second.let { p ->
+          if (BuildConfig.DEBUG) Log.d("HakuSkill", "rank=${p.rank(text, skills).joinToString { "${it.first.name}:%.3f".format(it.second) }} chat=%.3f".format(p.anchorScore(text)))
+          p.pick(text, skills)
+        }
     }
   } catch (e: CancellationException) {
     throw e

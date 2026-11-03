@@ -7,6 +7,9 @@ import com.bbpillow.haku.thinking.cosine
  * Picks a skill by EmbeddingGemma cosine between the message and each skill's one-line description (+ title, aliases).
  * Returns a skill only when it clears [floor] and beats the runner-up by [margin]; otherwise plain chat, because a
  * wrong skill costs more (a confusing card) than no skill (the user can still type `/`).
+ * [anchors] stand for plain chat (Haku's main job: questions about the user's own days). They compete like skills; if
+ * one wins, the answer is "no skill". Without them a single installed skill has no runner-up and wins every message
+ * that clears the floor (seen on Fold5 2026-11-03: "เมื่อวานไปไหนมาบ้าง" went to add-appointment).
  * Description vectors are cached per text, so a list change re-embeds only what changed.
  * ponytail: floor/margin are first guesses; the week 2 spike sets them from the eval set.
  */
@@ -14,14 +17,35 @@ class EmbeddingSkillPicker(
   private val embedder: TextEmbedder,
   private val floor: Float = 0.55f,
   private val margin: Float = 0.03f,
+  private val anchors: List<String> = CHAT_ANCHORS,
 ) : SkillPicker {
   private val cache = mutableMapOf<String, FloatArray>()
 
-  override suspend fun pick(text: String, skills: List<SkillRecord>): SkillRecord? = rank(text, skills).let { ranked ->
+  override suspend fun pick(text: String, skills: List<SkillRecord>): SkillRecord? {
+    val ranked = rank(text, skills)
     val best = ranked.firstOrNull() ?: return null
     val second = ranked.getOrNull(1)?.second ?: -1f
-    best.first.takeIf { best.second >= floor && best.second - second >= margin }
+    val chat = anchorScore(text)
+    return best.first.takeIf { best.second >= floor && best.second - maxOf(second, chat) >= margin }
   }
+
+  /** Best plain-chat anchor score for [text] (the query vector is cached from the [rank] call just before). */
+  suspend fun anchorScore(text: String): Float {
+    if (anchors.isEmpty()) return -1f
+    val docs = anchors.map { DOC_PREFIX + it }
+    val missing = docs.filter { it !in cache }
+    if (missing.isNotEmpty()) missing.zip(embedder.embed(missing)).forEach { (d, v) -> cache[d] = v }
+    val q = query(text)
+    return docs.maxOf { cosine(q, cache.getValue(it)) }
+  }
+
+  private suspend fun query(text: String): FloatArray {
+    val key = QUERY_PREFIX + text.trim()
+    lastQuery?.takeIf { it.first == key }?.let { return it.second }
+    return embedder.embed(listOf(key)).single().also { lastQuery = key to it }
+  }
+
+  private var lastQuery: Pair<String, FloatArray>? = null
 
   /** Every enabled skill with its score, best first (the spike and the debug screen read this). */
   suspend fun rank(text: String, skills: List<SkillRecord>): List<Pair<SkillRecord, Float>> {
@@ -30,15 +54,23 @@ class EmbeddingSkillPicker(
     val docs = enabled.map(::document)
     val missing = docs.filter { it !in cache }.distinct()
     if (missing.isNotEmpty()) missing.zip(embedder.embed(missing)).forEach { (d, v) -> cache[d] = v }
-    val q = embedder.embed(listOf(QUERY_PREFIX + text.trim())).single()
+    val q = query(text)
     return enabled.zip(docs).map { (s, d) -> s to cosine(q, cache.getValue(d)) }.sortedByDescending { it.second }
   }
 
   private fun document(s: SkillRecord) = DOC_PREFIX + (listOf(s.title, s.description) + s.aliases).joinToString(" · ")
 
-  private companion object {
+  companion object {
+    /** Plain chat about the user's own life: recall, summaries, small talk. */
+    val CHAT_ANCHORS = listOf(
+      "ถามว่าเมื่อวานหรือวันก่อนไปไหนมา ทำอะไรบ้าง",
+      "สรุปวันนี้ สัปดาห์นี้ ใช้เวลาที่ไหนนานเท่าไร",
+      "ถามเรื่องที่เคยบันทึกหรือเคยเล่าไว้",
+      "คุยเล่น ทักทาย ถามความเห็น",
+    )
+
     // EmbeddingGemma's retrieval prompts (model card): query vs document sides
-    const val QUERY_PREFIX = "task: search result | query: "
-    const val DOC_PREFIX = "title: none | text: "
+    private const val QUERY_PREFIX = "task: search result | query: "
+    private const val DOC_PREFIX = "title: none | text: "
   }
 }

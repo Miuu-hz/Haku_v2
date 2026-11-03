@@ -25,15 +25,22 @@ class EmbeddingSkillPickerTest {
   private val emb = KeywordEmbedder(listOf("นัด", "ปฏิทิน", "เตือน", "อากาศ"))
 
   @Test fun picksClearWinnerAndCachesDocuments() = runTest {
-    val p = EmbeddingSkillPicker(emb)
+    val p = EmbeddingSkillPicker(emb, anchors = emptyList())
     assertEquals(appt, p.pick("ลงปฏิทินว่ามีนัดพรุ่งนี้", listOf(appt, remind)))
     val before = emb.calls
     p.pick("มีนัดอีกอัน", listOf(appt, remind))
     assertEquals(before + 1, emb.calls) // only the query was embedded again
   }
 
+  @Test fun aChatAnchorBeatsTheOnlySkill() = runTest {
+    val e = KeywordEmbedder(listOf("นัด", "เมื่อวาน"))
+    val p = EmbeddingSkillPicker(e, floor = 0f, anchors = listOf("เมื่อวาน"))
+    assertNull(p.pick("เมื่อวานไปไหน นัด", listOf(skill("a", "นัด"))))
+    assertEquals("a", p.pick("ลงนัด", listOf(skill("a", "นัด")))?.name)
+  }
+
   @Test fun noSkillWhenBelowFloorOrTooClose() = runTest {
-    val p = EmbeddingSkillPicker(emb)
+    val p = EmbeddingSkillPicker(emb, anchors = emptyList())
     assertNull(p.pick("อากาศวันนี้", listOf(appt, remind)))
     assertNull(p.pick("นัด เตือน", listOf(skill("a", "นัด"), skill("b", "เตือน"))))
     assertNull(p.pick("นัด", listOf(appt.copy(enabled = false))))

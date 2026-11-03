@@ -666,7 +666,8 @@ private fun ChatTab(
 }
 
 /** Retrieval on the DB thread, then the downloaded model if there is one (loaded for this question, released after). */
-private suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutput? {
+/** internal: the debug AskDebugReceiver ASK_FULL action drives this exact path over adb. */
+internal suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutput? {
   val tz = graph.tzOffsetMinutes
   // Week 2: "/skill …" or "@service …" names what to use; a mention only skips the picker, the gate card still asks
   val skills = availableSkills(graph)
@@ -692,7 +693,7 @@ private suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutput
     return appointmentAnswer.copy(appointment = updatedProposal)
   }
   graph.safeIo { intentCommand.tryHandle(question, System.currentTimeMillis()) }?.let { return it } // P5.3 "ถ้า … ให้เตือน …"
-  graph.pickSkill(question, skills)?.let { return runSkill(graph, question, question, listOf(it)) }
+  graph.pickSkill(question, skills)?.let { if (BuildConfig.DEBUG) Log.d("HakuSkill", "picked ${it.name}"); return runSkill(graph, question, question, listOf(it)) }
   val semantic = graph.questionSemantic(question) // words-only while the embedder is cold or absent
   val (presenter, retrieval) = graph.safeIo { chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style), semantic) } ?: return null
   val config = modelConfigOrNull(graph) ?: return retrieval.fallback
