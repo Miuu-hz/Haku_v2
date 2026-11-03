@@ -39,11 +39,13 @@ object SummaryPromptBuilder {
 
   private fun head(input: SummaryPromptInput) = buildString {
     val label = input.part.label
-    append("เขียนสรุป").append(label).append("ของ").append(input.header)
+    append("เขียนสรุป").append(label)
     append(" เป็นประโยคเดียวสั้น ๆ (ไม่เกิน 2 ประโยค) ขึ้นต้นด้วย “").append(label).append("” อ่านลื่นไหลเหมือนเล่าให้เพื่อนฟัง\n")
     append("กติกา:\n")
     append("- ใช้เฉพาะข้อเท็จจริงในรายการด้านล่าง ห้ามเพิ่มข้อมูลใหม่ ห้ามเดา\n")
     append("- ใช้เวลา ตัวเลข และชื่อสถานที่ตามที่ให้ไว้เท่านั้น ห้ามคิดเวลาหรือชื่อสถานที่ขึ้นเอง\n")
+    // the Fold5 repeated the full date in every part and ran long: the summary already sits under its day
+    append("- ไม่ต้องบอกวันที่ เล่าสั้นกระชับ ไม่จำเป็นต้องครบทุกรายการ\n")
     append("- เรียงตามลำดับเวลา ห้ามใส่ความรู้สึกหรือเหตุผลที่ไม่มีในรายการ\n")
     append("- เขียนเป็นภาษาไทยล้วน ไม่มีหัวข้อ ไม่มีรายการข้อ\n")
     append(particleRule(EndingParticle.NONE)).append('\n')

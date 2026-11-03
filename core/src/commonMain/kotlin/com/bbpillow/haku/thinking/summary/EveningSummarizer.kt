@@ -18,7 +18,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  * (`เวลา · สถานที่ · ทำอะไร`, [SummaryFacts]) grouped into เช้า / บ่าย / เย็น; each part gets one short model call and its own
  * check, and a part that fails (check, model error, timeout) reads as [SummaryTemplate.section] alone. The parts are
  * joined in code and the user's particle is added once at the end. The joined text is checked again against the whole
- * day; if that fails, or no part is model text, the whole-day [SummaryTemplate.paragraph] is used and not stored.
+ * day, its length limit counting model text only (each part's cap keeps that under [SummaryChecker.MAX_CHARS]; a template
+ * part is as long as its lines, like the whole-day template always was). If that fails, or no part is model text, the
+ * whole-day [SummaryTemplate.paragraph] is used and not stored.
  * Reasons are returned ("afternoon: invented-place"), never shown; a MODEL text may carry the reasons of its template parts.
  * An empty day is answered with the friendly no-data text and not stored, so a later run can still write the day.
  */
@@ -35,11 +37,16 @@ class EveningSummarizer(
     }
     val header = ThaiDateFormat.dayHeader(input.day)
     val facts = SummaryFacts.extract(input.lines, input.style.particle)
-    val parts = SummaryFacts.sections(facts).map { section(header, it, input.contextLines) }
+    val sections = SummaryFacts.sections(facts)
+    val cap = partCap(sections.size)
+    val parts = sections.map { section(header, it, input.contextLines, cap) }
     val metrics = parts.mapNotNull { it.metrics }.reduceOrNull(::plus)
     val reasons = parts.flatMap { p -> p.reasons.map { "${p.part.name.lowercase()}: $it" } }
     val joined = input.style.particle.appendTo(parts.joinToString(" ") { it.text })
-    val whole = SummaryChecker.check(SummaryCheckInput(joined, listOf(header) + facts.map { it.line }, input.style)).reasons
+    val templateChars = parts.filterNot { it.model }.sumOf { it.text.length }
+    val whole = SummaryChecker.check(
+      SummaryCheckInput(joined, listOf(header) + facts.map { it.line }, input.style), maxChars = SummaryChecker.MAX_CHARS + templateChars,
+    ).reasons
     val out = if (parts.any { it.model } && whole.isEmpty()) {
       EveningSummaryOutput(joined, SummarySource.MODEL, metrics, reasons)
     } else {
@@ -53,13 +60,13 @@ class EveningSummarizer(
   private class Part(val part: SummaryPart, val text: String, val model: Boolean, val metrics: GenerateMetrics?, val reasons: List<String>)
 
   /** One model call for one part; checked against that part's lines only, with no particle anywhere in it. */
-  private suspend fun section(header: String, section: SummarySection, context: List<String>): Part {
-    val prompt = SummaryPromptBuilder.build(SummaryPromptInput(header, section.part, section.facts.map { it.structured }, context), budgetTokens)
+  private suspend fun section(header: String, section: SummarySection, context: List<String>, cap: Int): Part {
+    val prompt = SummaryPromptBuilder.build(SummaryPromptInput(section.part, section.facts.map { it.structured }, context), budgetTokens)
     val run = runModel(prompt.prompt)
     val text = run.output?.text?.trim()?.let(::dropEndParticle)
     val lines = listOf(header) + section.facts.take(prompt.factLines.size).map { it.line }
     val reasons = run.failure?.let { listOf(it) }
-      ?: SummaryChecker.check(SummaryCheckInput(text.orEmpty(), lines, PLAIN), SECTION_MIN_CHARS, SECTION_MAX_CHARS).reasons
+      ?: SummaryChecker.check(SummaryCheckInput(text.orEmpty(), lines, PLAIN), SECTION_MIN_CHARS, cap).reasons
     val metrics = run.output?.metrics
     return if (reasons.isEmpty() && text != null) Part(section.part, text, true, metrics, emptyList())
     else Part(section.part, SummaryTemplate.section(section), false, metrics, reasons)
@@ -93,8 +100,12 @@ class EveningSummarizer(
   companion object {
     const val DEFAULT_TIMEOUT_MS = 30_000L
 
-    /** Per part; three parts, two joining spaces and a particle stay under [SummaryChecker.MAX_CHARS] (3 x 160 + 5 = 485). */
-    const val SECTION_MAX_CHARS = 160
+    /** One part's cap; fewer parts may not go longer, so one sentence stays one sentence. */
+    const val SECTION_MAX_CHARS = 180
+    private const val JOIN_RESERVE = 10 // joining spaces and the particle
+
+    /** n parts of model text, joined, stay under [SummaryChecker.MAX_CHARS]: 3 parts get 163 each, 1-2 parts 180. */
+    fun partCap(parts: Int) = minOf(SECTION_MAX_CHARS, (SummaryChecker.MAX_CHARS - JOIN_RESERVE) / parts.coerceAtLeast(1))
     const val SECTION_MIN_CHARS = 10
     private val PLAIN = DiaryStyle()
   }

@@ -93,6 +93,13 @@ class EveningSummarizerTest {
     assertFalse(out.text.contains("07:45"))
   }
 
+  @Test fun `a long template part does not throw away the model parts`() = runTest {
+    val busy = (0 until 8).map { "%02d:%02d ถึงที่ทำงาน ใช้เวลาเดินทางราว 40 นาที อยู่ราว 8 ชั่วโมงครับ".format(8 + it / 2, it * 5) } + lines.last()
+    val out = summarizer(ScriptedModel(mutableListOf("ช่วงเช้าไปโรงพยาบาล", evening))).summarize(input(l = busy))
+    assertEquals(SummarySource.MODEL, out.source, out.rejectedReasons.toString())
+    assertTrue(out.text.length > SummaryChecker.MAX_CHARS && out.text.contains(evening))
+  }
+
   @Test fun `every part failing gives the whole-day template, not stored`() = runTest {
     val out = summarizer(ScriptedModel(mutableListOf("ช่วงเช้าไปโรงพยาบาล", "ช่วงเย็นไปตลาด"))).summarize(input())
     assertEquals(SummarySource.TEMPLATE, out.source)
@@ -112,7 +119,7 @@ class EveningSummarizerTest {
 
   @Test fun `three long parts stay under the whole-day cap`() = runTest {
     val day3 = listOf("08:30 ออกจากบ้านครับ", "13:00 ถึงที่ทำงานครับ", "19:00 มีนัด “ดินเนอร์กับแม่”ครับ")
-    fun pad(s: String) = (s + " แล้วก็เล่าต่ออีกนิดหน่อย".repeat(20)).take(EveningSummarizer.SECTION_MAX_CHARS)
+    fun pad(s: String) = (s + " แล้วก็เล่าต่ออีกนิดหน่อย".repeat(20)).take(EveningSummarizer.partCap(3))
     val replies = mutableListOf(pad("ช่วงเช้าออกจากบ้านตอน 08:30"), pad("ช่วงบ่ายถึงที่ทำงานตอน 13:00"), pad("ช่วงเย็นมีนัด “ดินเนอร์กับแม่” ตอน 19:00"))
     val out = summarizer(ScriptedModel(replies)).summarize(input(l = day3))
     assertEquals(SummarySource.MODEL, out.source, out.rejectedReasons.toString())
@@ -160,7 +167,7 @@ class EveningSummarizerTest {
     val model = ScriptedModel(mutableListOf())
     summarizer(model, budget).summarize(input(l = many))
     assertTrue(model.prompts.isNotEmpty() && model.prompts.all { TokenEstimator.estimate(it) <= budget })
-    val p = SummaryPromptBuilder.build(SummaryPromptInput("h", SummaryPart.MORNING, many, listOf("บริบท")), budget)
+    val p = SummaryPromptBuilder.build(SummaryPromptInput(SummaryPart.MORNING, many, listOf("บริบท")), budget)
     assertTrue(p.estimatedTokens <= budget)
     assertTrue(p.factLines.size < many.size && p.factLines.isNotEmpty())
   }

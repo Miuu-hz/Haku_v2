@@ -51,8 +51,8 @@ interface EveningSummaryRepository {
   fun clear()
 }
 
-/** [header] = the day header; [lines] = that part's facts in [SummaryFact.structured] form. */
-data class SummaryPromptInput(val header: String, val part: SummaryPart, val lines: List<String>, val contextLines: List<String>)
+/** [lines] = that part's facts in [SummaryFact.structured] form. */
+data class SummaryPromptInput(val part: SummaryPart, val lines: List<String>, val contextLines: List<String>)
 
 /** [factLines] = the lines that actually fit the budget; the checker treats only these as facts. */
 data class SummaryPromptOutput(val prompt: String, val factLines: List<String>, val estimatedTokens: Int)
