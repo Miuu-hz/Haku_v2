@@ -47,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
@@ -71,8 +72,8 @@ import com.bbpillow.haku.surface.theme.HakuRadius
 import com.bbpillow.haku.surface.theme.HakuTone
 import com.bbpillow.haku.thinking.LlmDefaults
 
-/** One question and its answer; [answer] = null while Haku is still looking. */
-data class ChatTurn(val question: String, val answer: ChatAnswerOutput?)
+/** One question and its answer; [answer] = null while Haku is still looking, [partial] is the text so far while [answer] == null. */
+data class ChatTurn(val question: String, val answer: ChatAnswerOutput?, val partial: String = "")
 
 private val UserBubble = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)
 private val AnswerBubble = RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp)
@@ -90,6 +91,7 @@ fun ChatScreen(
   turns: List<ChatTurn>,
   engineLabel: String,
   onAsk: (String) -> Unit,
+  onStop: () -> Unit = {},
   onOpenDay: (String) -> Unit,
   mode: ChatMode = ChatMode.GENERAL,
   modeOptions: List<ChatModeOption> = ChatModes.options(LlmDefaults.AGENT_MIN_CONTEXT),
@@ -113,7 +115,12 @@ fun ChatScreen(
   val send = { if (draft.text.isNotBlank() && !busy) { onAsk(draft.text.trim()); draft = TextFieldValue("") } }
   val mentions = remember(draft.text, mentionSkills, mentionServiceNames) { MentionParser.options(draft.text, mentionSkills, mentionServiceNames) }
   val list = rememberLazyListState()
-  LaunchedEffect(turns.size, turns.lastOrNull()?.answer) { if (turns.isNotEmpty()) list.animateScrollToItem(turns.size) }
+  LaunchedEffect(turns.size) { if (turns.isNotEmpty()) list.animateScrollToItem(turns.size) }
+  LaunchedEffect(turns.lastOrNull()?.partial, turns.lastOrNull()?.answer) {
+    if (turns.isNotEmpty() && list.layoutInfo.visibleItemsInfo.lastOrNull()?.index == turns.size) {
+      list.scrollToItem(turns.size, Int.MAX_VALUE)
+    }
+  }
 
   // Keyboard open: lift the input above it; the nav padding counts as already-consumed space so there is no double gap.
   Column(modifier.fillMaxSize().padding(contentPadding).consumeWindowInsets(contentPadding).imePadding()) {
@@ -148,7 +155,7 @@ fun ChatScreen(
             val appointment = turn.answer?.appointment
             if (appointment != null) {
               if (turn.answer?.text?.isNotBlank() == true) {
-                AnswerCard(turn.answer, onOpenDay)
+                AnswerCard(turn.answer, "", onOpenDay)
               }
               AppointmentCard(
                 proposal = appointment,
@@ -156,7 +163,7 @@ fun ChatScreen(
                 onDismiss = { onDismissAppointment(i) },
               )
             } else {
-              AnswerCard(turn.answer, onOpenDay)
+              AnswerCard(turn.answer, turn.partial, onOpenDay)
               turn.answer?.actionId?.let(actions::get)?.let { p ->
                 ActionCard(p, onConfirm = { onConfirmAction(p.id) }, onDismiss = { onDismissAction(p.id) })
               }
@@ -170,7 +177,7 @@ fun ChatScreen(
         draft = TextFieldValue(filled, TextRange(filled.length))
       }
     }
-    InputPill(draft, { draft = it }, send, Modifier.padding(top = 12.dp))
+    InputPill(draft, { draft = it }, send, busy, onStop, Modifier.padding(top = 12.dp))
     ModeBar(
       mode = mode,
       options = modeOptions,
@@ -239,15 +246,22 @@ private fun Suggestions(onAsk: (String) -> Unit) {
 }
 
 @Composable
-private fun AnswerCard(answer: ChatAnswerOutput?, onOpenDay: (String) -> Unit) {
+private fun AnswerCard(answer: ChatAnswerOutput?, partial: String, onOpenDay: (String) -> Unit) {
   Column(
     Modifier.widthIn(max = 340.dp).hakuShadow(AnswerBubble).background(HakuColors.Surface, AnswerBubble).padding(horizontal = 16.dp, vertical = 12.dp),
   ) {
     if (answer == null) {
-      Text("กำลังหาคำตอบ…", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
+      if (partial.isBlank()) {
+        Text("กำลังหาคำตอบ…", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
+      } else {
+        Text(partial, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Ink)
+      }
       return@Column
     }
     Text(answer.text, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Ink)
+    if (answer.stopped) {
+      Text(ChatPresenter.STOPPED_LABEL, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted, modifier = Modifier.padding(top = 8.dp))
+    }
     if (answer.source == ChatAnswerSource.GENERAL) {
       Text(ChatPresenter.GENERAL_LABEL, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted, modifier = Modifier.padding(top = 8.dp))
     }
@@ -270,7 +284,14 @@ private fun AnswerCard(answer: ChatAnswerOutput?, onOpenDay: (String) -> Unit) {
 
 /** .input: white pill, grey placeholder, black round send button. */
 @Composable
-private fun InputPill(text: TextFieldValue, onText: (TextFieldValue) -> Unit, onSend: () -> Unit, modifier: Modifier = Modifier) {
+private fun InputPill(
+  text: TextFieldValue,
+  onText: (TextFieldValue) -> Unit,
+  onSend: () -> Unit,
+  busy: Boolean,
+  onStop: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
   Row(
     modifier.fillMaxWidth().hakuShadow(HakuRadius.Pill).background(HakuColors.Surface, HakuRadius.Pill).padding(start = 20.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
     verticalAlignment = Alignment.CenterVertically,
@@ -290,9 +311,29 @@ private fun InputPill(text: TextFieldValue, onText: (TextFieldValue) -> Unit, on
       )
     }
     Box(
-      Modifier.padding(start = 8.dp).size(44.dp).clip(CircleShape).background(HakuColors.Ink).clickable(role = Role.Button, onClickLabel = "ส่ง", onClick = onSend),
+      Modifier
+        .padding(start = 8.dp)
+        .size(44.dp)
+        .clip(CircleShape)
+        .background(HakuColors.Ink)
+        .clickable(
+          role = Role.Button,
+          onClickLabel = if (busy) "หยุด" else "ส่ง",
+          onClick = if (busy) onStop else onSend,
+        ),
       contentAlignment = Alignment.Center,
-    ) { Icon(HakuIcons.Send, "ส่ง", tint = HakuColors.Surface, modifier = Modifier.size(20.dp)) }
+    ) {
+      if (busy) {
+        Box(
+          Modifier
+            .size(14.dp)
+            .background(HakuColors.Surface, RoundedCornerShape(3.dp))
+            .semantics { contentDescription = "หยุด" },
+        )
+      } else {
+        Icon(HakuIcons.Send, "ส่ง", tint = HakuColors.Surface, modifier = Modifier.size(20.dp))
+      }
+    }
   }
 }
 
