@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rendertheme xmlns="http://mapsforge.org/renderTheme"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xsi:schemaLocation="http://mapsforge.org/renderTheme renderTheme.xsd"
+             version="6"
+             map-background="#F5F4F9"
+             map-background-outside="#F5F4F9">
+
+    <!-- Land -->
+    <rule e="way" k="natural" v="land" closed="yes">
+        <area fill="#F5F4F9" />
+    </rule>
+
+    <!-- Parks and Forest -->
+    <rule e="way" k="leisure" v="park|garden|nature_reserve|recreation_ground|golf_course" closed="yes">
+        <area fill="#E4F0DF" />
+    </rule>
+    <rule e="way" k="landuse" v="forest|grass|meadow|village_green|orchard|allotments|cemetery" closed="yes">
+        <area fill="#E4F0DF" />
+    </rule>
+    <rule e="way" k="natural" v="wood|scrub|heath|grassland" closed="yes">
+        <area fill="#E4F0DF" />
+    </rule>
+
+    <!-- Water Polygons -->
+    <rule e="way" k="natural" v="water|bay" closed="yes">
+        <area fill="#CFE3F5" />
+        <caption k="name" font-size="11" fill="#5E7FA0" stroke="#FFFFFF" stroke-width="1.5" />
+    </rule>
+    <rule e="way" k="landuse" v="reservoir|basin" closed="yes">
+        <area fill="#CFE3F5" />
+        <caption k="name" font-size="11" fill="#5E7FA0" stroke="#FFFFFF" stroke-width="1.5" />
+    </rule>
+    <rule e="way" k="waterway" v="riverbank|dock" closed="yes">
+        <area fill="#CFE3F5" />
+        <caption k="name" font-size="11" fill="#5E7FA0" stroke="#FFFFFF" stroke-width="1.5" />
+    </rule>
+
+    <!-- Waterways (Linear) -->
+    <rule e="way" k="waterway" v="river|canal" closed="no">
+        <line stroke="#CFE3F5" stroke-width="1.5" />
+        <pathText k="name" font-size="11" fill="#5E7FA0" stroke="#FFFFFF" stroke-width="1.5" />
+    </rule>
+    <rule e="way" k="waterway" v="stream|drain|ditch" closed="no" zoom-min="13">
+        <line stroke="#CFE3F5" stroke-width="0.8" />
+    </rule>
+
+    <!-- Buildings (zoom 16+) -->
+    <rule e="way" k="building" v="*" zoom-min="16" closed="yes">
+        <area fill="#ECEAF2" />
+    </rule>
+
+    <!-- Railways -->
+    <rule e="way" k="railway" v="rail|light_rail|subway|tram|narrow_gauge" zoom-min="11">
+        <line stroke="#D0CEDA" stroke-width="0.8" stroke-linecap="round" />
+    </rule>
+
+    <!-- Roads: Motorway and Trunk (#C9C3DD) -->
+    <rule e="way" k="highway" v="motorway|motorway_link|trunk|trunk_link">
+        <rule e="way" k="highway" v="*" zoom-max="10">
+            <line stroke="#C9C3DD" stroke-width="1.0" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+        <rule e="way" k="highway" v="*" zoom-min="11" zoom-max="13">
+            <line stroke="#C9C3DD" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+        <rule e="way" k="highway" v="*" zoom-min="14" zoom-max="15">
+            <line stroke="#C9C3DD" stroke-width="3.0" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+        <rule e="way" k="highway" v="*" zoom-min="16" zoom-max="17">
+            <line stroke="#C9C3DD" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+        <rule e="way" k="highway" v="*" zoom-min="18">
+            <line stroke="#C9C3DD" stroke-width="6.0" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+    </rule>
+
+    <!-- Roads: Primary and Secondary (#D8D4E6) -->
+    <rule e="way" k="highway" v="primary|primary_link|secondary|secondary_link">
+        <rule e="way" k="highway" v="*" zoom-min="10" zoom-max="11">
+            <line stroke="#D8D4E6" stroke-width="1.0" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+        <rule e="way" k="highway" v="*" zoom-min="12" zoom-max="13">
+            <line stroke="#D8D4E6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+        <rule e="way" k="highway" v="*" zoom-min="14" zoom-max="15">
+            <line stroke="#D8D4E6" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+        <rule e="way" k="highway" v="*" zoom-min="16" zoom-max="17">
+            <line stroke="#D8D4E6" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+        <rule e="way" k="highway" v="*" zoom-min="18">
+            <line stroke="#D8D4E6" stroke-width="5.0" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+    </rule>
+
+    <!-- Roads: Others (#E6E4EE) - Tertiary and Unclassified -->
+    <rule e="way" k="highway" v="tertiary|tertiary_link|unclassified">
+        <rule e="way" k="highway" v="*" zoom-min="12" zoom-max="13">
+            <line stroke="#E6E4EE" stroke-width="1.0" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+        <rule e="way" k="highway" v="*" zoom-min="14" zoom-max="15">
+            <line stroke="#E6E4EE" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+        <rule e="way" k="highway" v="*" zoom-min="16" zoom-max="17">
+            <line stroke="#E6E4EE" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+        <rule e="way" k="highway" v="*" zoom-min="18">
+            <line stroke="#E6E4EE" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+    </rule>
+
+    <!-- Roads: Others (#E6E4EE) - Residential and Service (start at zoom 14) -->
+    <rule e="way" k="highway" v="residential|service|living_street">
+        <rule e="way" k="highway" v="*" zoom-min="14" zoom-max="15">
+            <line stroke="#E6E4EE" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+        <rule e="way" k="highway" v="*" zoom-min="16" zoom-max="17">
+            <line stroke="#E6E4EE" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+        <rule e="way" k="highway" v="*" zoom-min="18">
+            <line stroke="#E6E4EE" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" />
+        </rule>
+    </rule>
+
+    <!-- Roads: Others (#E6E4EE) - Paths and Tracks (start at zoom 15) -->
+    <rule e="way" k="highway" v="track|path|footway|cycleway|pedestrian" zoom-min="15">
+        <line stroke="#E6E4EE" stroke-width="1.0" stroke-linecap="round" stroke-linejoin="round" />
+    </rule>
+
+    <!-- Road Names: motorway, trunk, primary, secondary (zoom 13+) and tertiary (zoom 14+) -->
+    <rule e="way" k="highway" v="motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link" zoom-min="13">
+        <pathText k="name" font-size="11" fill="#6B6B78" stroke="#FFFFFF" stroke-width="2.0" />
+    </rule>
+    <rule e="way" k="highway" v="tertiary|tertiary_link" zoom-min="14">
+        <pathText k="name" font-size="11" fill="#6B6B78" stroke="#FFFFFF" stroke-width="2.0" />
+    </rule>
+
+    <!-- Place Names: city, town, village, suburb -->
+    <rule e="any" k="place" v="city" zoom-min="5">
+        <caption k="name" font-size="16" font-style="bold" fill="#4A4A57" stroke="#FFFFFF" stroke-width="2.5" />
+    </rule>
+    <rule e="any" k="place" v="town" zoom-min="9">
+        <caption k="name" font-size="14" font-style="bold" fill="#4A4A57" stroke="#FFFFFF" stroke-width="2.0" />
+    </rule>
+    <rule e="any" k="place" v="village" zoom-min="12">
+        <caption k="name" font-size="13" fill="#4A4A57" stroke="#FFFFFF" stroke-width="2.0" />
+    </rule>
+    <rule e="any" k="place" v="suburb" zoom-min="13">
+        <caption k="name" font-size="13" fill="#4A4A57" stroke="#FFFFFF" stroke-width="2.0" />
+    </rule>
+
+</rendertheme>
