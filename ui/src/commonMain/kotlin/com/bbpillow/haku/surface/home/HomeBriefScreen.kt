@@ -123,8 +123,8 @@ private fun StoryCard(state: HomeBriefUiState, onOpenDay: (String) -> Unit) {
         StatChip("จากบันทึก ${state.storyLineCount} รายการ")
       }
     } else if (state.storyLines.isEmpty()) {
-      val whose = if (state.period == BriefPeriod.MORNING) "ของเมื่อวาน" else "วันนี้"
-      Text("ยังไม่มีสรุป$whose", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
+      // the title above already names the day; after midnight the period alone would name the wrong one
+      Text("ยังไม่มีสรุป", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
     } else {
       state.storyLines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted) }
       Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
