@@ -46,7 +46,12 @@ object PlaceRecognizer {
   }
 
   /** Pair each DwellStart (with a position) with the next DwellEnd. An unmatched start is still ongoing and is skipped. */
-  fun pairDwells(events: List<CaptureEvent>): List<DwellRecord> {
+  fun pairDwells(events: List<CaptureEvent>): List<DwellRecord> = walkDwells(events).first
+
+  /** The DwellStart event (with a place) left open at the end of [events], or null. */
+  fun openDwell(events: List<CaptureEvent>): CaptureEvent? = walkDwells(events).second
+
+  private fun walkDwells(events: List<CaptureEvent>): Pair<List<DwellRecord>, CaptureEvent?> {
     val out = mutableListOf<DwellRecord>()
     var open: CaptureEvent? = null
     for (e in events.sortedWith(compareBy({ it.timeUtcMs }, { it.id }))) {
@@ -59,7 +64,7 @@ object PlaceRecognizer {
         else -> Unit
       }
     }
-    return out
+    return out to open
   }
 
   /** Glue jitter-split stays together, then drop stays shorter than [PlaceThresholds.MIN_DWELL_MS]. */

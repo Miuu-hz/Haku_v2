@@ -3,7 +3,9 @@ package com.bbpillow.haku.surface.timeline
 import com.bbpillow.haku.capture.OpenStay
 import com.bbpillow.haku.capture.PlaceCategory
 import com.bbpillow.haku.capture.PlaceRecognitionOutput
+import com.bbpillow.haku.capture.PlaceRecognizer
 import com.bbpillow.haku.capture.PlaceRecord
+import com.bbpillow.haku.capture.PlaceThresholds
 import com.bbpillow.haku.capture.diary.DiaryTemplates
 import kotlin.math.PI
 import kotlin.math.cos
@@ -42,7 +44,7 @@ object TimelineMap {
   /**
    * Stops for the rows at [lineTimesUtcMs], in visit order, plus the number each row time gets. A stay matches a row
    * when the row sits at its arrival or departure time (the diary writes lines at exactly those times, and an edit
-   * keeps the time). Null when fewer than two distinct places remain: one dot is not a map.
+   * keeps the time). Null only when there are zero points to draw.
    */
   fun build(
     lineTimesUtcMs: Collection<Long>,
@@ -55,9 +57,25 @@ object TimelineMap {
     val stops = recognized.visits.sortedBy { it.startUtcMs }
       .filter { it.startUtcMs in times || it.endUtcMs in times }
       .mapNotNull { v -> byId[v.placeId]?.let { v to it } }
-    if (stops.map { (_, p) -> p.lat to p.lon }.distinct().size < 2) return null
-    val xy = project(stops.map { (_, p) -> p.lat to p.lon })
-    val points = stops.mapIndexed { i, (_, p) -> TimelineMapPoint(i + 1, xy[i].first, xy[i].second, labelOf(p), categoryOf(p)) }
+    val allCoords = stops.map { (_, p) -> p.lat to p.lon } + listOfNotNull(current?.let { it.lat to it.lon })
+    if (allCoords.isEmpty()) return null
+    val xy = project(allCoords)
+    val stopPoints = stops.mapIndexed { i, (_, p) -> TimelineMapPoint(i + 1, xy[i].first, xy[i].second, labelOf(p), categoryOf(p)) }
+    val currentPoint = current?.let {
+      val nearest = recognized.places
+        .map { p -> p to PlaceRecognizer.distanceMeters(p.lat, p.lon, it.lat, it.lon) }
+        .filter { (_, d) -> d <= PlaceThresholds.PLACE_RADIUS_M }
+        .minByOrNull { (_, d) -> d }?.first
+      TimelineMapPoint(
+        number = stops.size + 1,
+        x = xy.last().first,
+        y = xy.last().second,
+        label = nearest?.let(::labelOf) ?: DiaryTemplates.UNKNOWN_PLACE,
+        category = nearest?.let(::categoryOf) ?: PlaceCategory.OTHER,
+        since = currentSince,
+      )
+    }
+    val points = if (currentPoint != null) stopPoints + currentPoint else stopPoints
     val numberAt = buildMap {
       stops.forEachIndexed { i, (v, _) ->
         if (v.startUtcMs in times) put(v.startUtcMs, i + 1)

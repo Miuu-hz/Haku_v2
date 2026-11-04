@@ -51,7 +51,16 @@ class TimelinePresenter(
 ) {
   fun load(day: String, today: String): TimelineUiState {
     val records = diary.readDay(day, tzOffsetMinutes)
-    val map = TimelineMap.build(records.map { it.atEpochMs }, diary.placesOfDay(day, tzOffsetMinutes))
+    val current = if (day == today && captureOn()) diary.openStay(day, tzOffsetMinutes) else null
+    val currentSince = current?.let {
+      val localMs = it.startUtcMs + tzOffsetMinutes * MIN_MS
+      val time = MemoryFormat.formatUtc(localMs).substring(11, 16)
+      val stayDay = MemoryFormat.dayOf(localMs)
+      if (stayDay == day) "ตั้งแต่ $time" else "ตั้งแต่ ${ThaiDateFormat.shortDate(stayDay)} $time"
+    }
+    val places = diary.placesOfDay(day, tzOffsetMinutes)
+    val map = TimelineMap.build(records.map { it.atEpochMs }, places, current, currentSince)
+    val mapEmpty = if (map != null) null else if (!captureOn()) TimelineMapEmpty.CAPTURE_OFF else TimelineMapEmpty.NO_STAYS
     return TimelineUiState(
       day = day,
       today = today,
@@ -63,6 +72,7 @@ class TimelinePresenter(
         TimelineLine(MemoryFormat.dayOf(r.atEpochMs), r.id, r.atEpochMs, time, r.text.removePrefix("$time "), r.provenance, map?.second?.get(r.atEpochMs))
       },
       map = map?.first,
+      mapEmpty = mapEmpty,
     )
   }
 

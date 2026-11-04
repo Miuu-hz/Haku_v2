@@ -118,7 +118,14 @@ class DiaryComposer(
     renderDay(day, tzOffsetMinutes, DiaryStyle()).recognized
 
   /** The stay still open at the end of the local [day]: arrived, no departure yet. Null when the user was moving or nothing is known. */
-  fun openStay(day: String, tzOffsetMinutes: Int): OpenStay? = null
+  fun openStay(day: String, tzOffsetMinutes: Int): OpenStay? {
+    val (_, end) = window(day, tzOffsetMinutes)
+    val from = end - OPEN_STAY_LOOKBACK_DAYS * DAY_MS
+    val captured = events.query(CaptureQueryInput(from, end))
+    val open = PlaceRecognizer.openDwell(captured) ?: return null
+    val place = open.place ?: return null
+    return OpenStay(open.timeUtcMs, place.lat, place.lon)
+  }
 
   /** The local day's records from the daily log, oldest first. */
   fun readDay(day: String, tzOffsetMinutes: Int): List<MemoryRecord> {
@@ -192,7 +199,8 @@ class DiaryComposer(
     return start to start + DAY_MS
   }
 
-  private companion object {
-    const val DAY_MS = 86_400_000L
+  companion object {
+    const val OPEN_STAY_LOOKBACK_DAYS = 30
+    private const val DAY_MS = 86_400_000L
   }
 }
