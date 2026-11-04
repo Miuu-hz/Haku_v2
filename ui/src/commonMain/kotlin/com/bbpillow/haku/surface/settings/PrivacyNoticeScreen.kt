@@ -26,8 +26,8 @@ import com.bbpillow.haku.surface.components.SurfaceCard
 import com.bbpillow.haku.surface.theme.HakuColors
 import com.bbpillow.haku.surface.theme.HakuRadius
 
-/** Who answers privacy questions. ponytail: placeholder until the company name and contact address are decided. */
-const val PRIVACY_CONTACT = "ผู้พัฒนา Haku · ช่องทางติดต่อ: รอประกาศก่อนเปิดทดสอบ"
+/** Who answers privacy questions. ponytail: rough draft for the closed beta; replace with the legal name and a real address. */
+const val PRIVACY_CONTACT = "ทีมพัฒนา Haku (รุ่นทดสอบ) · ติดต่อผ่านช่องทางที่ได้รับตอนเข้าร่วมทดสอบ"
 const val PRIVACY_NOTICE_VERSION = "2026-11-03"
 
 /**
