@@ -447,6 +447,12 @@ private fun MarkdownText(text: String, modifier: Modifier = Modifier) {
               .padding(10.dp),
           )
         }
+        is MdBlock.Divider -> {
+          HorizontalDivider(
+            modifier = Modifier.padding(vertical = 4.dp),
+            color = HakuColors.Line,
+          )
+        }
       }
     }
   }

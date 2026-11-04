@@ -128,12 +128,94 @@ class ChatMarkdownTest {
         is MdBlock.Paragraph -> block.spans.joinToString("") { it.text }
         is MdBlock.ListItem -> block.spans.joinToString("") { it.text }
         is MdBlock.Code -> block.text
+        is MdBlock.Divider -> ""
       }
     }
     val words = listOf("แนะนำเมนู", "วันนี้มีอาหารพิเศษ", "ต้มยำกุ้ง", "รสจัดจ้านและ", "สลัดผัก", "สดใหม่", "HAKU20", "20:00", "จัดส่งฟรีเมื่อสั่งครบ 500 บาท")
     for (word in words) {
       assertTrue(allText.contains(word), "Missing word '$word' in '$allText'")
     }
+  }
+
+  @Test
+  fun testDividerBetweenParagraphs() {
+    for (marker in listOf("***", "---", "___", "* * *")) {
+      val text = "ก่อน\n$marker\nหลัง"
+      val blocks = ChatMarkdown.parse(text)
+      assertEquals(3, blocks.size, "Failed for marker: $marker")
+      val p1 = blocks[0] as MdBlock.Paragraph
+      assertEquals("ก่อน", p1.spans.joinToString("") { it.text })
+      assertEquals(MdBlock.Divider, blocks[1])
+      val p2 = blocks[2] as MdBlock.Paragraph
+      assertEquals("หลัง", p2.spans.joinToString("") { it.text })
+    }
+  }
+
+  @Test
+  fun testBulletsBoldAndFenceNotConfusedWithDivider() {
+    val bulletBlocks = ChatMarkdown.parse("- item")
+    assertEquals(1, bulletBlocks.size)
+    val item = bulletBlocks[0] as MdBlock.ListItem
+    assertEquals("•", item.marker)
+    assertEquals(listOf(MdSpan("item")), item.spans)
+
+    val boldBlocks = ChatMarkdown.parse("**bold**")
+    assertEquals(1, boldBlocks.size)
+    val boldPara = boldBlocks[0] as MdBlock.Paragraph
+    assertEquals(listOf(MdSpan("bold", bold = true)), boldPara.spans)
+
+    val fenceText = "```\n***\n```"
+    val fenceBlocks = ChatMarkdown.parse(fenceText)
+    assertEquals(1, fenceBlocks.size)
+    assertEquals(MdBlock.Code("***"), fenceBlocks[0])
+  }
+
+  @Test
+  fun testMathDelimitersAndCommandsConverted() {
+    val math1 = ChatMarkdown.parse("""$12 \times 3 = 36$""")
+    assertEquals(1, math1.size)
+    val p1 = math1[0] as MdBlock.Paragraph
+    assertEquals(listOf(MdSpan("12 × 3 = 36")), p1.spans)
+
+    val math2 = ChatMarkdown.parse("""$$\frac{1}{2}$$""")
+    assertEquals(1, math2.size)
+    val p2 = math2[0] as MdBlock.Paragraph
+    assertEquals(listOf(MdSpan("1/2")), p2.spans)
+  }
+
+  @Test
+  fun testMoneyAndInlineCodePreserved() {
+    val money1 = ChatMarkdown.parse("ราคา $5 และ $10")
+    assertEquals(1, money1.size)
+    val p1 = money1[0] as MdBlock.Paragraph
+    assertEquals(listOf(MdSpan("ราคา $5 และ $10")), p1.spans)
+
+    val money2 = ChatMarkdown.parse("$5-$10")
+    assertEquals(1, money2.size)
+    val p2 = money2[0] as MdBlock.Paragraph
+    assertEquals(listOf(MdSpan("$5-$10")), p2.spans)
+
+    val code = ChatMarkdown.parse("`\$x = 1`")
+    assertEquals(1, code.size)
+    val p3 = code[0] as MdBlock.Paragraph
+    assertEquals(listOf(MdSpan("\$x = 1", code = true)), p3.spans)
+  }
+
+  @Test
+  fun testUnknownCommandKeptWithoutCrashing() {
+    val blocks = ChatMarkdown.parse("""$\unknown = 1$""")
+    assertEquals(1, blocks.size)
+    val p = blocks[0] as MdBlock.Paragraph
+    assertEquals(listOf(MdSpan("""\unknown = 1""")), p.spans)
+  }
+
+  @Test
+  fun testMathReplacements() {
+    val text = """$\div \cdot \pm \le \leq \ge \geq \neq \approx \% \sqrt{x} \text{hello} = 0$"""
+    val blocks = ChatMarkdown.parse(text)
+    assertEquals(1, blocks.size)
+    val p = blocks[0] as MdBlock.Paragraph
+    assertEquals(listOf(MdSpan("÷ · ± ≤ ≤ ≥ ≥ ≠ ≈ % √x hello = 0")), p.spans)
   }
 
   @Test

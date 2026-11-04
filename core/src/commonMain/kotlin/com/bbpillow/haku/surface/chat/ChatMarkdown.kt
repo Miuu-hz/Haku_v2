@@ -8,12 +8,32 @@ sealed interface MdBlock {
   /** [marker] is "•" for a bullet or "3." for a numbered item; [depth] 0 for top level, 1 for a nested one. */
   data class ListItem(val marker: String, val depth: Int, val spans: List<MdSpan>) : MdBlock
   data class Code(val text: String) : MdBlock
+  data object Divider : MdBlock
 }
 
 object ChatMarkdown {
   private val HEADING = Regex("""^#{1,3} +(.*)$""")
+  private val DIVIDER = Regex("""^\s*([-_*])(?:\s*\1){2,}\s*$""")
   private val BULLET = Regex("""^( *)([-*+]) +(.*)$""")
   private val NUMBERED = Regex("""^( *)(\d+\.) +(.*)$""")
+  private val MATH_CMD = Regex("""\\[a-zA-Z%]""")
+  private val DIGIT_OP = Regex("""\d\s*[*\/]|[*\/]\s*\d""")
+  private val MATH_REPLACEMENTS = listOf(
+    Regex("""\\frac\{([^{}]+)\}\{([^{}]+)\}""") to "$1/$2",
+    Regex("""\\sqrt\{([^{}]+)\}""") to "√$1",
+    Regex("""\\text\{([^{}]+)\}""") to "$1",
+    Regex("""\\times(?![a-zA-Z])""") to "×",
+    Regex("""\\div(?![a-zA-Z])""") to "÷",
+    Regex("""\\cdot(?![a-zA-Z])""") to "·",
+    Regex("""\\pm(?![a-zA-Z])""") to "±",
+    Regex("""\\leq(?![a-zA-Z])""") to "≤",
+    Regex("""\\le(?![a-zA-Z])""") to "≤",
+    Regex("""\\geq(?![a-zA-Z])""") to "≥",
+    Regex("""\\ge(?![a-zA-Z])""") to "≥",
+    Regex("""\\neq(?![a-zA-Z])""") to "≠",
+    Regex("""\\approx(?![a-zA-Z])""") to "≈",
+    Regex("""\\%""") to "%",
+  )
 
   fun parse(text: String): List<MdBlock> {
     if (text.isBlank()) return emptyList()
@@ -45,10 +65,15 @@ object ChatMarkdown {
       } else if (line.isBlank()) {
         flushPara()
       } else {
+        val d = DIVIDER.matches(line)
         val h = HEADING.matchEntire(line)
         val b = BULLET.matchEntire(line)
         val n = NUMBERED.matchEntire(line)
         when {
+          d -> {
+            flushPara()
+            blocks += MdBlock.Divider
+          }
           h != null -> {
             flushPara()
             blocks += MdBlock.Heading(parseSpans(h.groupValues[1]))
@@ -71,8 +96,9 @@ object ChatMarkdown {
     return blocks
   }
 
-  private fun parseSpans(text: String): List<MdSpan> {
-    if (text.isEmpty()) return emptyList()
+  private fun parseSpans(raw: String): List<MdSpan> {
+    if (raw.isEmpty()) return emptyList()
+    val text = formatMath(raw)
     val spans = mutableListOf<MdSpan>()
     val plain = StringBuilder()
     fun flushPlain() {
@@ -121,5 +147,63 @@ object ChatMarkdown {
     }
     flushPlain()
     return spans
+  }
+
+  private fun formatMath(text: String): String {
+    fun isMath(c: String, isDouble: Boolean): Boolean =
+      c.isNotEmpty() &&
+        (isDouble || (!c.startsWith(' ') && !c.endsWith(' '))) &&
+        (MATH_CMD.containsMatchIn(c) || c.any { it in "=^+_×÷" } || DIGIT_OP.containsMatchIn(c))
+
+    fun cleanMath(expr: String): String =
+      MATH_REPLACEMENTS.fold(expr) { acc, (r, rep) -> r.replace(acc, rep) }
+
+    val out = StringBuilder()
+    var i = 0
+    while (i < text.length) {
+      if (text[i] == '`') {
+        val close = text.indexOf('`', i + 1)
+        if (close != -1) {
+          out.append(text, i, close + 1)
+          i = close + 1
+          continue
+        }
+      } else if (text.startsWith("$$", i)) {
+        val close = text.indexOf("$$", i + 2)
+        if (close != -1) {
+          val inner = text.substring(i + 2, close)
+          if (isMath(inner, isDouble = true)) {
+            out.append(cleanMath(inner))
+            i = close + 2
+            continue
+          }
+        }
+      } else if (text[i] == '$') {
+        var close = -1
+        var k = i + 1
+        while (k < text.length) {
+          if (text[k] == '$') {
+            if (k + 1 < text.length && text[k + 1] == '$') {
+              k += 2
+              continue
+            }
+            close = k
+            break
+          }
+          k++
+        }
+        if (close != -1) {
+          val inner = text.substring(i + 1, close)
+          if (isMath(inner, isDouble = false)) {
+            out.append(cleanMath(inner))
+            i = close + 1
+            continue
+          }
+        }
+      }
+      out.append(text[i])
+      i++
+    }
+    return out.toString()
   }
 }
