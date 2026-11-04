@@ -107,11 +107,13 @@ class ChatPresenter(
     val citations = citations(context.items)
     val found = context.items.count { it.section in RECORD_SECTIONS } // all retrieved lines, not just the cited few
     val records = citations.filter { it.label != ContextAssembler.NOW_LABEL }
-    val route = ChatRouter.route(
+    val aboutTheChat = session != null && session.general.isNotEmpty() && !ownTime && ChatRouter.refersToChat(question)
+    val route = if (aboutTheChat) ChatRoute.GENERAL else ChatRouter.route(
       question,
       isQuestion = isQuestion(question),
-      // a NOW line means the assembler read this as a question about right now ("ตอนนี้อยู่ไหน")
-      hasTimeWord = context.items.any { it.section == ContextSection.NOW } || ownTime,
+      // a NOW line means the assembler read this as a question about right now ("ตอนนี้อยู่ไหน"). Not when the search was
+      // widened with an earlier question: that question's "ตอนนี้" says nothing about this one.
+      hasTimeWord = (topic == null && context.items.any { it.section == ContextSection.NOW }) || ownTime,
       hasWordHit = context.items.any { it.section in RECORD_SECTIONS && RetrievalTier.WORDS in it.tiers && answersWords(it, askedWords) },
       previous = session?.lastRoute,
     )
@@ -220,7 +222,7 @@ class ChatPresenter(
   }
 
   /**
-   * P3.8 past half the context, what [ChatSessionState.fitted] would forget becomes one summary at the head of the history,
+   * P3.8 past 60% of the context, what [ChatSessionState.fitted] would forget becomes one summary at the head of the history,
    * so a long chat keeps its thread. A failed summary falls back to forgetting. The summary is a stateless call: it goes
    * through the model on its own and never into the chat's conversation.
    */

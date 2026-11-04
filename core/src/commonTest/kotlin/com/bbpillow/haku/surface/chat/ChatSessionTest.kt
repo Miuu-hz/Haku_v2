@@ -86,25 +86,19 @@ class ChatSessionTest {
   }
 
   @Test
-  fun `fitted at or under half of maxTokens returns same instance, over half keeps newest within quarter`() {
+  fun `fitted at or under 60 percent returns same instance, over it keeps newest within a quarter`() {
     val ex = { i: Int -> ChatExchange("u$i", "m$i") } // 2 chars + 2 chars = 4 chars per exchange
-    // maxTokens = 40. Half = 20, Quarter = 10.
+    // maxTokens = 20 at 2 chars a token = 40 chars. 60% = 24, a quarter = 10.
 
-    // 5 exchanges * 4 chars = 20 chars (exactly half of 40)
-    val atHalf = ChatSessionState(id = 1L, general = (1..5).map { ex(it) }, turns = 5)
-    assertSame(atHalf, atHalf.fitted(40))
+    // 6 exchanges * 4 chars = 24 chars, exactly at the limit
+    val atLimit = ChatSessionState(id = 1L, general = (1..6).map { ex(it) }, turns = 6)
+    assertSame(atLimit, atLimit.fitted(20))
 
-    // 4 exchanges * 4 chars = 16 chars (under half of 40)
-    val underHalf = ChatSessionState(id = 1L, general = (1..4).map { ex(it) }, turns = 4)
-    assertSame(underHalf, underHalf.fitted(40))
-
-    // 6 exchanges * 4 chars = 24 chars (over half of 40)
-    // Quarter = 10: from newest backwards, ex(6) uses 4 <= 10, ex(5) uses 8 <= 10, ex(4) uses 12 > 10 (stops)
-    // Keeps newest: ex(5), ex(6)
-    val overHalf = ChatSessionState(id = 1L, general = (1..6).map { ex(it) }, turns = 6)
-    val fitted = overHalf.fitted(40)
-    assertEquals(listOf(ex(5), ex(6)), fitted.general)
-    assertEquals(6, fitted.turns)
+    // 7 exchanges * 4 chars = 28 chars, over it. From newest backwards: 4, 8 fit in 10, 12 does not.
+    val over = ChatSessionState(id = 1L, general = (1..7).map { ex(it) }, turns = 7)
+    val fitted = over.fitted(20)
+    assertEquals(listOf(ex(6), ex(7)), fitted.general)
+    assertEquals(7, fitted.turns)
   }
 
   @Test

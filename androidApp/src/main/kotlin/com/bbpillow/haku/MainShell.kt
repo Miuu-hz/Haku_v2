@@ -947,7 +947,7 @@ internal suspend fun askHaku(
   return answerWithoutModel(graph, question, mention) ?: graph.warmth.use { askOnce(graph, question, skills, mention, mode, session, stop, onPartial) }
 }
 
-/** Past half the context: the older part of [session] as a summary, or forgotten when there is no model to write one. */
+/** Past 60% of the context: the older part of [session] as a summary, or forgotten when there is no model to write one. */
 internal suspend fun compactChat(graph: AppGraph, session: ChatSessionState, maxTokens: Int): ChatSessionState {
   if (!session.needsFitting(maxTokens)) return session
   val forgotten = session.fitted(maxTokens)

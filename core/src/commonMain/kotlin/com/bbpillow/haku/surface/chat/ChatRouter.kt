@@ -32,6 +32,14 @@ object ChatRouter {
     return trimmed.startsWith("แล้ว") || ENDS_LIKE_FOLLOW_UP.containsMatchIn(trimmed) || FOLLOW_UP.any { it in trimmed }
   }
 
+  private val CHAT_REFERENCE = listOf(
+    "ถามอะไร", "ที่ถาม", "ถามไป", "ที่ตอบ", "ตอบว่า", "ตอบไป", "ที่คุย", "คุยกัน", "ที่บอก",
+    "เมื่อกี้ถาม", "เมื่อกี้ตอบ", "เมื่อกี้พูด", "เมื่อกี้บอก", "เมื่อกี้คุย",
+  )
+
+  /** The message asks about this conversation ("เมื่อกี้ถามอะไรไป"), which only the chat's own history can answer. */
+  fun refersToChat(question: String): Boolean = CHAT_REFERENCE.any { it in question }
+
   /**
    * @param isQuestion the message asks something (ChatPresenter.isQuestion)
    * @param hasTimeWord the message names a date or period the diary can look up, or asks about right now

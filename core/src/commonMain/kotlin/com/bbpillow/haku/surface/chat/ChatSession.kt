@@ -25,17 +25,17 @@ data class ChatSessionState(
 
   fun thread(system: String) = ChatThread(id + compactions, system, general, turns)
 
-  /** The history would crowd out the next answer. One character counts as one token, which is safe for Thai. */
-  fun needsFitting(maxTokens: Int) = general.sumOf { it.chars } > maxTokens / 2
+  /** The history would crowd out the next answer: a long one is about 1,000 tokens (measured, as below). */
+  fun needsFitting(maxTokens: Int) = general.sumOf { it.chars } > maxTokens * CHARS_PER_TOKEN * 3 / 5
 
   /**
-   * Keeps the history from overflowing the engine. Past half the context, drops down to a quarter, so the backend rebuilds
+   * Keeps the history from overflowing the engine. Past 60% of the context, drops down to a quarter, so the backend rebuilds
    * its conversation once every few turns rather than on each one. [ChatPresenter.compact] summarises what this would drop.
    */
   fun fitted(maxTokens: Int): ChatSessionState {
     if (!needsFitting(maxTokens)) return this
     var used = 0
-    return copy(general = general.asReversed().takeWhile { used += it.chars; used <= maxTokens / 4 }.asReversed())
+    return copy(general = general.asReversed().takeWhile { used += it.chars; used <= maxTokens * CHARS_PER_TOKEN / 4 }.asReversed())
   }
 
   /** An answer that only raised a card (appointment, skill) or was stopped before any text moves neither path along. */
@@ -54,6 +54,8 @@ data class ChatSessionState(
 
   companion object {
     private const val MAX_TOPIC_CHARS = 200
+    /** Thai on Gemma 4 E2B measured about 2.4 on Fold5 (5,076 characters of answers took 2,236 tokens with the prompt); rounded down to be safe. */
+    private const val CHARS_PER_TOKEN = 2
     const val IDLE_NEW_CHAT_MS = 30 * 60_000L
   }
 }

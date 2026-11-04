@@ -70,7 +70,13 @@ class LiteRtLocalModel : LocalModel {
           // As LiteRtAgentSession / Gallery: drop control tokens such as "<ctrl99>". trySend never fails: unlimited buffer below
           if (text.isNotEmpty() && !text.startsWith("<ctrl")) trySend(text)
         }
-        override fun onDone() { chat?.finish(); finished.set(true); close() }
+        override fun onDone() {
+          chat?.finish()
+          // measured characters per token decide when ChatSessionState summarises
+          if (chat != null) runCatching { Log.d(TAG, "chat tokens used: ${conv.getTokenCount()} of ${cfg.maxTokens}") }
+          finished.set(true)
+          close()
+        }
         override fun onError(throwable: Throwable) {
           finished.set(true)
           if (throwable is CancellationException) close() else close(throwable)

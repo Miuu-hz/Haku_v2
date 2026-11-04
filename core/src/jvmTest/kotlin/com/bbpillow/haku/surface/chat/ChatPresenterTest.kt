@@ -221,6 +221,22 @@ class ChatPresenterTest {
     assertTrue(out.stopped)
   }
 
+  // Found on Fold5: both went to the diary and came back "ไม่พบข้อมูล"
+  @Test fun `a question about the chat itself goes to the chat, not the diary`() {
+    val inChat = ChatSessionState(id = 1L, general = listOf(ChatExchange("สูตรต้มยำกุ้งทำยังไง", "ต้มน้ำ")), turns = 1, lastRoute = ChatRoute.GENERAL)
+    fun route(q: String, s: ChatSessionState?) = chat.retrieve(ChatQuestionInput(q, RecallRig.NOW, session = s)).route
+    assertEquals(ChatRoute.GENERAL, route("เมื่อกี้ถามสูตรอาหารอะไรไปนะ", inChat))
+    assertEquals(ChatRoute.GENERAL, route("ที่คุยกันเมื่อกี้เรื่องอะไร", inChat))
+    // it names a real day: the diary
+    assertEquals(ChatRoute.DIARY, route("เมื่อวานคุยกันเรื่องอะไร", inChat))
+  }
+
+  @Test fun `a right-now word in the earlier question does not pull a follow-up to the diary`() {
+    val session = ChatSessionState(id = 1L, lastRoute = ChatRoute.DIARY, lastDiaryQuestion = "ตอนนี้อยู่ไหน")
+    val r = chat.retrieve(ChatQuestionInput("แล้วกาแฟคืออะไร", RecallRig.NOW, session = session))
+    assertEquals(ChatRoute.GENERAL, r.route)
+  }
+
   private val longChat = ChatSessionState(
     id = 1L,
     general = listOf(ChatExchange("เรื่องเก่า", "ก".repeat(400)), ChatExchange("เรื่องกลาง", "ข".repeat(400)), ChatExchange("เรื่องใหม่", "ค".repeat(50))),
