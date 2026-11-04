@@ -32,6 +32,8 @@ class SkillTest {
     assertEquals(listOf("นัด", "ปฏิทิน"), appt.aliases)
     assertEquals(listOf(true, true, false), appt.slots.map { it.required })
     assertEquals(appt, SkillFormat.parse(SkillFormat.write(appt), SkillSource.BUILT_IN))
+    val readOnly = appt.copy(readOnly = true)
+    assertEquals(readOnly, SkillFormat.parse(SkillFormat.write(readOnly), SkillSource.BUILT_IN))
   }
 
   @Test fun rejectsGallerySkillWithoutActionAndOversizedOnes() {
