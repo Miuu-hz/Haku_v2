@@ -35,6 +35,11 @@ dependencies {
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.litertlm.android)
   implementation(libs.androidx.sqlite.bundled)
+  // ponytail: debug-only render check, moves to the version catalog if Mapsforge is chosen
+  debugImplementation("org.mapsforge:mapsforge-map-android:0.25.0")
+  debugImplementation("org.mapsforge:mapsforge-map-reader:0.25.0")
+  debugImplementation("org.mapsforge:mapsforge-themes:0.25.0")
+  debugImplementation("com.caverock:androidsvg:1.4")
   implementation(libs.sqlcipher.android) // D11: haku.db at rest
   implementation(libs.play.services.location)
   implementation(libs.okio)

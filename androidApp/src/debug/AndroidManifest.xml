@@ -30,6 +30,11 @@
       android:name=".SummarySpikeActivity"
       android:exported="true"
       android:permission="android.permission.DUMP" />
+    <!-- Offline map render check (Thai labels), reads files/map/thailand.map pushed over adb, no network -->
+    <activity
+      android:name=".MapSpikeActivity"
+      android:exported="true"
+      android:permission="android.permission.DUMP" />
     <!-- P2.2/P2.5 capture switch + dump until onboarding exists, see docs/permissions.md -->
     <receiver
       android:name=".CaptureDebugReceiver"
