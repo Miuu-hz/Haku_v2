@@ -12,7 +12,7 @@ sealed interface MdBlock {
 }
 
 object ChatMarkdown {
-  private val HEADING = Regex("""^#{1,3} +(.*)$""")
+  private val HEADING = Regex("""^#{1,3}(?: +(.*))?$""")
   private val DIVIDER = Regex("""^\s*([-_*])(?:\s*\1){2,}\s*$""")
   private val BULLET = Regex("""^( *)([-*+]) +(.*)$""")
   private val NUMBERED = Regex("""^( *)(\d+\.) +(.*)$""")
@@ -76,7 +76,8 @@ object ChatMarkdown {
           }
           h != null -> {
             flushPara()
-            blocks += MdBlock.Heading(parseSpans(h.groupValues[1]))
+            // a stream stopped right after "###" has no heading text yet: nothing to draw
+            if (h.groupValues[1].isNotBlank()) blocks += MdBlock.Heading(parseSpans(h.groupValues[1]))
           }
           b != null -> {
             flushPara()
@@ -152,7 +153,8 @@ object ChatMarkdown {
   private fun formatMath(text: String): String {
     fun isMath(c: String, isDouble: Boolean): Boolean =
       c.isNotEmpty() &&
-        (isDouble || (!c.startsWith(' ') && !c.endsWith(' '))) &&
+        // an operator right before the closing $ is two prices ("$5+$10"), not one formula
+        (isDouble || (!c.startsWith(' ') && !c.endsWith(' ') && c.last() !in "=^+_×÷")) &&
         (MATH_CMD.containsMatchIn(c) || c.any { it in "=^+_×÷" } || DIGIT_OP.containsMatchIn(c))
 
     fun cleanMath(expr: String): String =

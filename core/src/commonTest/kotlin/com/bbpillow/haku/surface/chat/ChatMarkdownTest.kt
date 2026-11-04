@@ -210,6 +210,17 @@ class ChatMarkdownTest {
   }
 
   @Test
+  fun testPricesJoinedByAnOperatorKeepTheirDollars() {
+    assertEquals(listOf<MdBlock>(MdBlock.Paragraph(listOf(MdSpan("$5+$10")))), ChatMarkdown.parse("$5+$10"))
+  }
+
+  @Test
+  fun testHeadingMarksWithoutTextDrawNothing() {
+    assertEquals(emptyList(), ChatMarkdown.parse("###"))
+    assertEquals(listOf<MdBlock>(MdBlock.Paragraph(listOf(MdSpan("ก")))), ChatMarkdown.parse("ก\n###"))
+  }
+
+  @Test
   fun testMathReplacements() {
     val text = """$\div \cdot \pm \le \leq \ge \geq \neq \approx \% \sqrt{x} \text{hello} = 0$"""
     val blocks = ChatMarkdown.parse(text)
