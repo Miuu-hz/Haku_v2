@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -43,8 +44,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
@@ -54,6 +58,7 @@ import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.bbpillow.haku.surface.components.HakuIcons
 import com.bbpillow.haku.surface.components.IconTile
@@ -64,6 +69,7 @@ import com.bbpillow.haku.surface.components.hakuShadow
 import com.bbpillow.haku.surface.theme.HakuColors
 import com.bbpillow.haku.surface.theme.HakuRadius
 import com.bbpillow.haku.surface.theme.HakuTone
+import com.bbpillow.haku.thinking.LlmDefaults
 
 /** One question and its answer; [answer] = null while Haku is still looking. */
 data class ChatTurn(val question: String, val answer: ChatAnswerOutput?)
@@ -77,7 +83,7 @@ val ChatSuggestions = listOf("ครั้งล่าสุดที่ไป�
 /**
  * Screen 3 of haku-mockup.html: black question bubbles, white answer cards whose source lines carry a date chip
  * (tap = open that day's timeline), and a pill input. [engineLabel] shows the active model's short name or
- * "ยังไม่มีโมเดล" when none is ready; tapping it opens the model manager. State-hoisted: the caller runs ChatPresenter.
+ * "ยังไม่มีโมเดล" when none is ready; tapping it opens the LLM settings page. State-hoisted: the caller runs ChatPresenter.
  */
 @Composable
 fun ChatScreen(
@@ -85,7 +91,10 @@ fun ChatScreen(
   engineLabel: String,
   onAsk: (String) -> Unit,
   onOpenDay: (String) -> Unit,
-  onOpenModels: () -> Unit = {},
+  mode: ChatMode = ChatMode.GENERAL,
+  modeOptions: List<ChatModeOption> = ChatModes.options(LlmDefaults.AGENT_MIN_CONTEXT),
+  onSelectMode: (ChatMode) -> Unit = {},
+  onOpenLlmSettings: () -> Unit = {},
   onAddAppointment: (Int) -> Unit = {},
   onDismissAppointment: (Int) -> Unit = {},
   /** Week 2: gate proposals by id (cards under skill answers) and the skills the `/` `@` popup can offer. */
@@ -118,7 +127,7 @@ fun ChatScreen(
               Modifier
                 .padding(top = 30.dp)
                 .clip(HakuRadius.Pill)
-                .clickable(role = Role.Button, onClickLabel = "AI ในเครื่อง", onClick = onOpenModels),
+                .clickable(role = Role.Button, onClickLabel = "AI ในเครื่อง", onClick = onOpenLlmSettings),
             )
           }
         }
@@ -162,6 +171,12 @@ fun ChatScreen(
       }
     }
     InputPill(draft, { draft = it }, send, Modifier.padding(top = 12.dp))
+    ModeBar(
+      mode = mode,
+      options = modeOptions,
+      onSelectMode = onSelectMode,
+      modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp),
+    )
   }
 }
 
@@ -275,5 +290,74 @@ private fun InputPill(text: TextFieldValue, onText: (TextFieldValue) -> Unit, on
       Modifier.padding(start = 8.dp).size(44.dp).clip(CircleShape).background(HakuColors.Ink).clickable(role = Role.Button, onClickLabel = "ส่ง", onClick = onSend),
       contentAlignment = Alignment.Center,
     ) { Icon(HakuIcons.Send, "ส่ง", tint = HakuColors.Surface, modifier = Modifier.size(20.dp)) }
+  }
+}
+
+private val ModeA2aColor = Color(0xFF1F6F5C)
+
+@Composable
+private fun ModeBar(
+  mode: ChatMode,
+  options: List<ChatModeOption>,
+  onSelectMode: (ChatMode) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  var disabledReason by remember { mutableStateOf<String?>(null) }
+  Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+    Row(
+      modifier = Modifier
+        .background(HakuColors.Surface.copy(alpha = 0.7f), HakuRadius.Pill)
+        .padding(4.dp),
+      horizontalArrangement = Arrangement.spacedBy(4.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      options.forEach { option ->
+        val isSelected = option.mode == mode
+        val bg = when {
+          isSelected && option.mode == ChatMode.A2A -> ModeA2aColor
+          isSelected -> HakuColors.Ink
+          else -> Color.Transparent
+        }
+        val textColor = when {
+          isSelected -> HakuColors.Surface
+          !option.enabled -> HakuColors.Muted
+          else -> HakuColors.Ink.copy(alpha = 0.75f)
+        }
+        Box(
+          modifier = Modifier
+            .height(34.dp)
+            .clip(HakuRadius.Pill)
+            .background(bg, HakuRadius.Pill)
+            .semantics { selected = isSelected }
+            .clickable(role = Role.Tab) {
+              if (option.enabled) {
+                disabledReason = null
+                onSelectMode(option.mode)
+              } else {
+                disabledReason = option.disabledReason
+              }
+            }
+            .padding(horizontal = 18.dp),
+          contentAlignment = Alignment.Center,
+        ) {
+          Text(
+            text = option.label,
+            style = MaterialTheme.typography.labelMedium.copy(
+              fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+            ),
+            color = textColor,
+          )
+        }
+      }
+    }
+    if (disabledReason != null) {
+      Text(
+        text = disabledReason!!,
+        style = MaterialTheme.typography.bodySmall,
+        color = HakuColors.Muted,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.padding(top = 4.dp),
+      )
+    }
   }
 }
