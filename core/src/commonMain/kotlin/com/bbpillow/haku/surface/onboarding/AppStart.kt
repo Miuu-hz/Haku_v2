@@ -18,9 +18,12 @@ object AppStart {
   fun shouldStartCapture(granted: Set<PermissionKind>): Boolean =
     (PermissionKind.LOCATION in granted && PermissionKind.ACTIVITY in granted) || PermissionKind.CALENDAR in granted
 
-  /** Onboarding is marked done before its last button, so MAIN also starts capture if it never got started. */
+  /**
+   * Onboarding is marked done before its last button, so MAIN also starts capture if it never got started. When it is
+   * already on, MAIN registers it again: a force stop drops the wake-ups and only boot or an update would bring them back.
+   */
   fun shouldStartCaptureOnMain(granted: Set<PermissionKind>, captureEnabled: Boolean): Boolean =
-    !captureEnabled && shouldStartCapture(granted)
+    captureEnabled || shouldStartCapture(granted)
 
   const val RELOCK_AFTER_MS = 60_000L
 

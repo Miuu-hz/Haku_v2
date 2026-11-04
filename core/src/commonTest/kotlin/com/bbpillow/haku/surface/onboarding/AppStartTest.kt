@@ -20,10 +20,10 @@ class AppStartTest {
   }
 
   @Test
-  fun mainStartsCaptureOnlyWhenPermittedAndNotYetEnabled() {
+  fun mainStartsCaptureWhenPermittedAndRegistersItAgainWhenAlreadyOn() {
     val both = setOf(PermissionKind.LOCATION, PermissionKind.ACTIVITY)
     assertTrue(AppStart.shouldStartCaptureOnMain(both, captureEnabled = false)) // swiped away before the last button
-    assertFalse(AppStart.shouldStartCaptureOnMain(both, captureEnabled = true))
+    assertTrue(AppStart.shouldStartCaptureOnMain(both, captureEnabled = true)) // a force stop dropped the wake-ups
     assertFalse(AppStart.shouldStartCaptureOnMain(setOf(PermissionKind.LOCATION), captureEnabled = false))
   }
 
@@ -47,6 +47,5 @@ class AppStartTest {
   @Test
   fun mainStartsCalendarOnlyCaptureToo() {
     assertTrue(AppStart.shouldStartCaptureOnMain(setOf(PermissionKind.CALENDAR), captureEnabled = false))
-    assertFalse(AppStart.shouldStartCaptureOnMain(setOf(PermissionKind.CALENDAR), captureEnabled = true))
   }
 }
