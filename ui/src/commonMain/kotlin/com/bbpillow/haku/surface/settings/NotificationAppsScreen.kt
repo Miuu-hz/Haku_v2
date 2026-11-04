@@ -169,6 +169,9 @@ private fun AppRow(
       colors = SwitchDefaults.colors(
         checkedTrackColor = HakuColors.Ink,
         checkedThumbColor = HakuColors.Surface,
+        uncheckedTrackColor = HakuColors.Track,
+        uncheckedThumbColor = HakuColors.Muted,
+        uncheckedBorderColor = HakuColors.Muted,
       ),
     )
   }
