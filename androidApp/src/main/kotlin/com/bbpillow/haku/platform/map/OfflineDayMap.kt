@@ -1,11 +1,14 @@
 package com.bbpillow.haku.platform.map
 
 import android.app.Application
+import android.content.Context
+import android.content.res.Resources
 import android.graphics.Bitmap as AndroidBitmap
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Color as AndroidColor
 import android.graphics.Paint as AndroidPaint
 import android.graphics.Typeface
+import android.graphics.drawable.BitmapDrawable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -44,9 +47,9 @@ import org.mapsforge.core.graphics.Bitmap as MfBitmap
 import org.mapsforge.core.graphics.Style
 import org.mapsforge.core.model.LatLong
 import org.mapsforge.map.android.graphics.AndroidGraphicFactory
-import org.mapsforge.map.android.util.AndroidUtil
 import org.mapsforge.map.android.view.MapView
 import org.mapsforge.map.layer.Layer
+import org.mapsforge.map.layer.cache.InMemoryTileCache
 import org.mapsforge.map.layer.cache.TileCache
 import org.mapsforge.map.layer.overlay.Marker
 import org.mapsforge.map.layer.overlay.Polyline
@@ -54,6 +57,8 @@ import org.mapsforge.map.layer.renderer.TileRendererLayer
 import org.mapsforge.map.reader.MapFile
 import org.mapsforge.map.rendertheme.ExternalRenderTheme
 import org.mapsforge.map.rendertheme.internal.MapsforgeThemes
+
+private const val TILE_CACHE_SIZE = 32
 
 private val StopColors = intArrayOf(
   0xFFF0705A.toInt(),
@@ -116,10 +121,11 @@ fun OfflineDayMap(
 
           val mapView = MapView(ctx)
           mapView.isClickable = false
+          mapView.mapScaleBar.isVisible = false
           try {
             mapView.mapZoomControls.isShowMapZoomControls = false
           } catch (_: Throwable) {}
-          mapView.setOnTouchListener { _, _ -> false }
+          mapView.setOnTouchListener { _, _ -> true } // a card, not a map to explore; Google Maps is the pin
 
           val mapDataStore = try {
             MapFile(mapFile)
@@ -128,13 +134,8 @@ fun OfflineDayMap(
             return@AndroidView mapView
           }
 
-          val cache = AndroidUtil.createTileCache(
-            ctx,
-            "offline-day-map",
-            mapView.model.displayModel.tileSize,
-            1f,
-            mapView.model.frameBufferModel.overdrawFactor,
-          )
+          // memory only: rendered tiles show where the user has been, so none go to storage
+          val cache = InMemoryTileCache(TILE_CACHE_SIZE)
           tileCacheRef = cache
 
           val layer = TileRendererLayer(
@@ -210,7 +211,7 @@ private fun updateMapContent(
 
   if (map.points.size >= 2) {
     val linePaint = AndroidGraphicFactory.INSTANCE.createPaint().apply {
-      color = AndroidGraphicFactory.INSTANCE.createColor(0xFF7C5CF0.toInt())
+      color = 0xFF7C5CF0.toInt()
       strokeWidth = 3f * density
       setStyle(Style.STROKE)
     }
@@ -223,7 +224,7 @@ private fun updateMapContent(
   }
 
   for (point in map.points) {
-    val markerBitmap = createMarkerBitmap(point, density)
+    val markerBitmap = createMarkerBitmap(point, density, mapView.resources)
     val marker = Marker(
       LatLong(point.lat, point.lon),
       markerBitmap,
@@ -237,7 +238,7 @@ private fun updateMapContent(
   mapView.layerManager.redrawLayers()
 }
 
-private fun createMarkerBitmap(point: TimelineMapPoint, density: Float): MfBitmap {
+private fun createMarkerBitmap(point: TimelineMapPoint, density: Float, resources: Resources): MfBitmap {
   val r = 10f * density
   val sizePx = ceil((10f + 7f) * 2f * density).toInt()
   val bitmap = AndroidBitmap.createBitmap(sizePx, sizePx, AndroidBitmap.Config.ARGB_8888)
@@ -270,5 +271,14 @@ private fun createMarkerBitmap(point: TimelineMapPoint, density: Float): MfBitma
   val textY = cy - ((textPaint.descent() + textPaint.ascent()) / 2f)
   canvas.drawText(text, cx, textY, textPaint)
 
-  return AndroidGraphicFactory.convertToBitmap(bitmap)
+  return AndroidGraphicFactory.convertToBitmap(BitmapDrawable(resources, bitmap))
+}
+
+/** The one map file on this device, when every stop of the day lies inside it. Otherwise the card keeps its plain dots. */
+object OfflineMaps {
+  fun fileFor(context: Context, map: TimelineMapState): File? {
+    val file = context.getExternalFilesDir("map")?.listFiles { f -> f.extension == "map" }?.firstOrNull() ?: return null
+    val box = runCatching { MapFile(file).let { store -> store.boundingBox().also { store.close() } } }.getOrNull() ?: return null
+    return file.takeIf { map.points.all { p -> box.contains(p.lat, p.lon) } }
+  }
 }

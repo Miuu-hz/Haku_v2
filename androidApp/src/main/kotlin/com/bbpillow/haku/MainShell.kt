@@ -40,6 +40,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
@@ -96,6 +97,10 @@ import com.bbpillow.haku.surface.settings.LlmSettingsScreen
 import com.bbpillow.haku.surface.settings.NotificationAppsScreen
 import com.bbpillow.haku.capture.notification.NotificationApps
 import com.bbpillow.haku.platform.NotificationAppsPrefs
+import com.bbpillow.haku.platform.map.GoogleMapsPin
+import com.bbpillow.haku.platform.map.OfflineDayMap
+import com.bbpillow.haku.platform.map.OfflineMaps
+import com.bbpillow.haku.surface.timeline.PlainDayMap
 import com.bbpillow.haku.surface.settings.ModelManagerPresenter
 import com.bbpillow.haku.surface.settings.ModelManagerScreen
 import com.bbpillow.haku.surface.settings.ModelManagerUiState
@@ -743,11 +748,21 @@ private fun TimelineTab(graph: AppGraph, selected: String?, onSelectDay: (String
   var state by remember { mutableStateOf<TimelineUiState?>(null) }
   LaunchedEffect(day, today) { state = graph.safeIo { compose(day); timeline.load(day, today) } }
   val s = state ?: return
+  val context = LocalContext.current
+  var mapBroken by remember { mutableStateOf(false) }
+  val mapFile by produceState<java.io.File?>(null, s.map) {
+    value = s.map?.let { m -> withContext(Dispatchers.IO) { OfflineMaps.fileFor(context, m) } }
+  }
   TimelineScreen(
     s,
     onSelectDay = onSelectDay,
     onEdit = { line, text -> scope.launch { graph.safeIo { timeline.edit(s, line, text) }?.let { state = it } } },
     onDelete = { line -> scope.launch { graph.safeIo { timeline.delete(s, line) }?.let { state = it } } },
+    mapDrawing = { m, mod ->
+      val file = mapFile
+      if (file != null && !mapBroken) OfflineDayMap(m, file, mod) { mapBroken = true } else PlainDayMap(m, mod)
+    },
+    onOpenPin = { GoogleMapsPin.open(context, it.lat, it.lon) },
     contentPadding = TabPadding,
   )
 }
