@@ -36,7 +36,11 @@ private class ReplyModel(private val reply: String) : LocalModel {
 }
 
 /** Questions in scripts/stress/questions_th.txt that are not about the user's life, so general is the right path. */
-private val STRESS_SET_ALLOWED_GENERAL = setOf("คุณชื่ออะไร", "ช่วยแนะนำตัวหน่อย")
+private val STRESS_SET_ALLOWED_GENERAL = setOf(
+  "คุณชื่ออะไร", "ช่วยแนะนำตัวหน่อย",
+  // about the user, but in English words its Thai record does not hold; the general path says there is no record rather than guess
+  "มี note หรือ intention อะไรเกี่ยวกับ flight ไปเชียงใหม่บ้าง",
+)
 
 class ChatPresenterTest {
   private val rig = RecallRig()
@@ -114,6 +118,8 @@ class ChatPresenterTest {
     val realChat = ChatPresenter(real.memory, real.index, real.pipeline, RecallRig.OFFSET_MIN)
     val p = Provenance.INFERRED_FROM_USER_DATA
     real.daily("12:00 ไปกินข้าวที่ร้านกาแฟ", "2026-09-29T05:00:00.000Z", p)
+    real.daily("12:30 มื้อเที่ยงไปกินร้านข้าวมันไก่", "2026-09-29T05:30:00.000Z", p)
+    real.daily("16:00 แวะร้านหนังสือ สยาม ได้หนังสือมาสองเล่ม", "2026-09-29T09:00:00.000Z", p)
     real.daily("09:00 ส่งใบเสนอราคาใหม่ให้ลูกค้า", "2026-09-28T02:00:00.000Z", p)
     real.daily("10:00 จองตั๋วเครื่องบินไปเชียงใหม่", "2026-09-28T03:00:00.000Z", p)
     real.daily("07:00 วิ่งที่สวนลุมพินี 3 รอบ", "2026-09-27T00:00:00.000Z", p)
@@ -123,6 +129,37 @@ class ChatPresenterTest {
     val questions = java.io.File("../scripts/stress/questions_th.txt").readLines().map { it.trim() }.filter { it.isNotEmpty() }
     val general = questions.filter { realChat.retrieve(ChatQuestionInput(it, RecallRig.NOW, DiaryStyle())).route == ChatRoute.GENERAL }
     assertEquals(emptyList(), general - STRESS_SET_ALLOWED_GENERAL)
+  }
+
+  // Found on Fold5 2026-11-04: with weeks of records nearly every question shares one word with some line.
+  @Test fun `a word shared with one record does not make a general question about the user`() = RecallRig(JdkWordSegmenter).use { real ->
+    val realChat = ChatPresenter(real.memory, real.index, real.pipeline, RecallRig.OFFSET_MIN)
+    val p = Provenance.INFERRED_FROM_USER_DATA
+    listOf(
+      "12:00 ไปกินข้าวที่ร้านกาแฟหน้าออฟฟิศ", "08:25 ซื้อกาแฟไม่หวาน", "19:00 กินต้มยำกุ้งกับเพื่อน", "07:00 วิ่งรอบสวนสามรอบ",
+      "21:00 เรียนภาษาอังกฤษออนไลน์", "10:00 คุยเรื่องทริปญี่ปุ่นกับแม่", "15:00 ฟังเพลงไทยในรถ", "18:30 ซื้อไข่ไก่ที่ตลาด",
+      "22:30 นอนเร็วกว่าเดิมสองชั่วโมง", "09:00 ประชุมเรื่องภาษีกับบัญชี", "13:00 เลี้ยงแมวที่บ้านเพื่อน", "16:00 ไปเที่ยวภูเขากับครอบครัว",
+      "11:00 จ่ายค่าน้ำ 200 บาท", "17:00 ขับรถไปกรุงเทพ 15 กิโลเมตร",
+    ).forEachIndexed { i, line -> real.daily(line, "2026-09-${10 + i}T05:00:00.000Z", p) }
+    // Written before looking at the router's cue lists. Left out: "ไปเชียงใหม่ขับรถกี่ชั่วโมง" (a dropped subject, starts with ไป)
+    // and "ออกกำลังกายตอนเช้าหรือตอนเย็นดีกว่ากัน" (ตอนเช้า reads as a time word).
+    val general = listOf(
+      "ต้มยำกุ้งภาษาอังกฤษเรียกว่าอะไร", "น้ำเดือดกี่องศา", "ใครเป็นคนแต่งเพลงชาติไทย", "แมวกินช็อกโกแลตได้ไหม", "กรุงเทพอยู่ภาคไหน",
+      "ร้อยละ 15 ของ 200 เป็นเท่าไร", "ไข่ต้มกี่นาทีถึงจะสุก", "ดื่มกาแฟตอนท้องว่างดีไหม", "โลกหมุนรอบดวงอาทิตย์กี่วัน",
+      "คนเราควรนอนวันละกี่ชั่วโมง", "ภาษี VAT ไทยกี่เปอร์เซ็นต์", "ญี่ปุ่นใช้เงินสกุลอะไร", "ร้านกาแฟเปิดกี่โมงส่วนใหญ่",
+      "ภูเขาที่สูงที่สุดในโลกชื่ออะไร", "เมืองหลวงของญี่ปุ่นคือที่ไหน",
+    )
+    fun route(q: String) = realChat.retrieve(ChatQuestionInput(q, RecallRig.NOW, DiaryStyle())).route
+    assertEquals(emptyList(), general.filter { route(it) != ChatRoute.GENERAL })
+    // the same records must still answer questions about them
+    assertEquals(ChatRoute.DIARY, route("ซื้อไข่ไก่ที่ตลาดกี่โมง"))
+    assertEquals(ChatRoute.DIARY, route("คุยเรื่องทริปญี่ปุ่นกับใคร"))
+  }
+
+  @Test fun `a particle the model repeats after its own is dropped, whichever form it is in`() {
+    assertEquals("ทานได้นะคะ", ChatPresenter.cleanAnswer("ทานได้นะคะ ค่ะ"))
+    assertEquals("ทานได้นะคะ", ChatPresenter.cleanAnswer("ทานได้นะคะ คะ"))
+    assertEquals("ได้ครับ", ChatPresenter.cleanAnswer("ได้ครับ ครับ"))
   }
 
   @Test fun `without a model the answer is the retrieved lines with date citations`() = runTest {

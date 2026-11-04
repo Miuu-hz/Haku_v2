@@ -102,6 +102,7 @@ class ChatPresenter(
     } else null
     val assembleQuestion = if (topic != null) "$topic $question" else question
     val context = assembler.assemble(AssembleInput(assembleQuestion, budgetTokens, input.nowEpochMs, tzOffsetMinutes, now = now), semantic)
+    val askedWords = assembler.contentWords(assembleQuestion).filter { it !in QUESTION_CUES && it !in FILLER_WORDS }
     val citations = citations(context.items)
     val found = context.items.count { it.section in RECORD_SECTIONS } // all retrieved lines, not just the cited few
     val records = citations.filter { it.label != ContextAssembler.NOW_LABEL }
@@ -110,7 +111,7 @@ class ChatPresenter(
       isQuestion = isQuestion(question),
       // a NOW line means the assembler read this as a question about right now ("ตอนนี้อยู่ไหน")
       hasTimeWord = context.items.any { it.section == ContextSection.NOW } || ownTime,
-      hasWordHit = context.items.any { it.section in RECORD_SECTIONS && RetrievalTier.WORDS in it.tiers },
+      hasWordHit = context.items.any { it.section in RECORD_SECTIONS && RetrievalTier.WORDS in it.tiers && answersWords(it, askedWords) },
       previous = session?.lastRoute,
     )
     if (route == ChatRoute.GENERAL) {
@@ -123,6 +124,16 @@ class ChatPresenter(
       ChatAnswerOutput(question, withParticle(ACKNOWLEDGEMENT, input.style.particle.text), emptyList(), ChatAnswerSource.RETRIEVAL)
     }
     return ChatRetrievalOutput(input, context, citations, fallback, route = route, followsUp = topic)
+  }
+
+  /**
+   * One line holds most of the question's words. A word search alone says little: with weeks of records nearly any question
+   * shares a word ("กี่วัน", "กาแฟ") with some line, and that sent general knowledge to "ไม่พบข้อมูล" (measured on Fold5).
+   */
+  // ponytail: a word count over one line; a question worded differently from its record goes general and says "no record". Compare embeddings if testers hit it.
+  private fun answersWords(item: ContextItem, words: List<String>): Boolean {
+    val line = item.text.substringAfter("] ")
+    return words.count { line.contains(it, ignoreCase = true) } * 2 > words.size
   }
 
   /** [client] = an already loaded model, or null (no model file): then the retrieval answer is returned as is. */
@@ -332,7 +343,10 @@ class ChatPresenter(
         ASK_CUES.any { it in trimmed || it in norm }
     }
 
-    private val STATEMENT_REJECT_REASONS = setOf("not-thai", "latin-word", "control-chars", "too-long")
+    /** Words a question adds around its topic and a record never holds ("ประชุมทีมขายคุยเรื่องอะไรกัน"). */
+    private val FILLER_WORDS = setOf("เรื่อง", "กัน")
+
+    private val STATEMENT_REJECT_REASONS =setOf("not-thai", "latin-word", "control-chars", "too-long")
     private val rawFactTag = Regex("""^-\s*\[(?!ตอนนี้|\d{4}-\d{2}-\d{2})[^\]]+\]\s*""")
     private val bracketTag = Regex("""\[[^\]]+\]""")
 
@@ -348,7 +362,7 @@ class ChatPresenter(
       return (q in a && (a.length - q.length) < maxExtraChars) ||
         (qClean.isNotEmpty() && qClean in aClean && (aClean.length - qClean.length) < maxExtraChars)
     }
-    private val duplicateParticle = Regex("""(ครับ|ค่ะ|คะ)(?:[\s.!…]*\1)+(?=[.!…]*$)""")
+    private val duplicateParticle = Regex("""(ครับ|ค่ะ|คะ)(?:[\s.!…]*(?:ครับ|ค่ะ|คะ))+(?=[.!…]*$)""")
 
     internal fun cleanAnswer(raw: String, question: String = ""): String {
       val q = question.trim()

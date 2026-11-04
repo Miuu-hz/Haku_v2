@@ -219,7 +219,7 @@ class ContextAssembler(
   }
 
   /** Time phrases are cut out before segmenting: "วันนี้ตอนเช้า" must not search for "นี้" or "ตอน". */
-  private fun contentWords(question: String, lang: String): List<String> {
+  internal fun contentWords(question: String, lang: String = "th"): List<String> {
     val rest = TimeWords.all.fold(question) { q, w -> q.replace(w, " ") }
     return pipeline.process(TextInput(rest, lang)).tokens.map { it.text }.filter { it !in STOP }.distinct()
   }
