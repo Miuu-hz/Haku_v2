@@ -831,6 +831,7 @@ private fun ChatTab(
       }
     },
     onStop = chatStop::stop,
+    onNewTopic = { onTurns(emptyList()); onSession(ChatSessionState(System.currentTimeMillis())) },
     onOpenDay = onOpenDay,
     mode = activeMode,
     modeOptions = ChatModes.options(contextTokens),
