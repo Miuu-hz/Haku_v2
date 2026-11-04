@@ -20,7 +20,18 @@ data class ModelConfig(
   val speculativeDecoding: Boolean = false,
 )
 
-data class GenerateInput(val prompt: String)
+/** One finished back-and-forth the model may read on the next turn. */
+data class ChatExchange(val user: String, val model: String)
+
+/**
+ * A conversation that continues across [LocalModel.generate] calls. The backend keeps its native state while [id],
+ * [system], [turnsBefore] and the size of [history] still match what it holds, and rebuilds from [history] otherwise
+ * (a reloaded engine, trimmed history, a stopped answer), so [history] is always enough to carry on.
+ */
+data class ChatThread(val id: Long, val system: String, val history: List<ChatExchange>, val turnsBefore: Int)
+
+/** [thread] = null: stateless, no history in or out (the diary path, summaries, the skill picker). */
+data class GenerateInput(val prompt: String, val thread: ChatThread? = null)
 
 /** Raw backend surface: text chunks only. Timing and metrics are added by [LocalModelClient]. */
 interface LocalModel {

@@ -30,7 +30,8 @@ import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
-data class ChatQuestionInput(val question: String, val nowEpochMs: Long, val style: DiaryStyle = DiaryStyle())
+/** [session] = what this chat has said so far; null = a one-off question that neither reads nor continues a chat. */
+data class ChatQuestionInput(val question: String, val nowEpochMs: Long, val style: DiaryStyle = DiaryStyle(), val session: ChatSessionState? = null)
 
 /** One source line behind an answer. [day] = local yyyy-MM-dd for a diary line (link to that timeline day), null for a core fact. */
 data class ChatCitation(val label: String, val day: String?, val text: String, val atEpochMs: Long, val source: MemoryRef)
@@ -63,6 +64,8 @@ data class ChatRetrievalOutput(
   val citations: List<ChatCitation>,
   val fallback: ChatAnswerOutput,
   val route: ChatRoute = ChatRoute.DIARY,
+  /** A diary follow-up: the earlier question this one leans on. It widens the search and goes in the prompt, never as a fact. */
+  val followsUp: String? = null,
 )
 
 /**

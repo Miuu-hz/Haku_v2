@@ -20,12 +20,25 @@ object ChatRouter {
 
   private val ARITHMETIC_REGEX = Regex("""\d\s*[-+*/x×]\s*\d""")
 
+  private val FOLLOW_UP = listOf(
+    "อันนั้น", "อันนี้", "เรื่องนั้น", "เรื่องนี้", "ข้อนั้น", "ข้อนี้", "ที่ว่า", "ที่บอก",
+    "ต่อสิ", "ต่อเลย", "ต่ออีก", "ขยายความ", "ยกตัวอย่าง", "อีกที", "กว่านี้",
+  )
+  private val ENDS_LIKE_FOLLOW_UP = Regex("""(ล่ะ|หละ)[\s?？]*$""")
+
+  /** The message leans on the turn before it ("แล้วอันนั้นล่ะ"), so on its own it says little about where it belongs. */
+  fun isFollowUp(question: String): Boolean {
+    val trimmed = question.trim()
+    return trimmed.startsWith("แล้ว") || ENDS_LIKE_FOLLOW_UP.containsMatchIn(trimmed) || FOLLOW_UP.any { it in trimmed }
+  }
+
   /**
    * @param isQuestion the message asks something (ChatPresenter.isQuestion)
    * @param hasTimeWord the message names a date or period the diary can look up, or asks about right now
    * @param hasWordHit the word search found a record or core fact for this message
+   * @param previous the route of the turn before, null at the start of a chat
    */
-  fun route(question: String, isQuestion: Boolean, hasTimeWord: Boolean, hasWordHit: Boolean): ChatRoute {
+  fun route(question: String, isQuestion: Boolean, hasTimeWord: Boolean, hasWordHit: Boolean, previous: ChatRoute? = null): ChatRoute {
     val trimmed = question.trim()
 
     // 1. hasTimeWord or any STRONG_LIFE cue -> DIARY
@@ -36,6 +49,12 @@ object ChatRouter {
     // 2. any KNOWLEDGE cue, or an arithmetic expression -> GENERAL
     if (KNOWLEDGE.any { trimmed.contains(it) } || ARITHMETIC_REGEX.containsMatchIn(trimmed)) {
       return ChatRoute.GENERAL
+    }
+
+    // ponytail: "แล้วทำไมถึงไป" after a diary answer has a knowledge cue and goes general; a follow-up classifier if testers hit it
+    // a follow-up stays where the chat already is
+    if (previous != null && isFollowUp(trimmed)) {
+      return previous
     }
 
     // 3. any WEAK_PRONOUN cue -> DIARY
