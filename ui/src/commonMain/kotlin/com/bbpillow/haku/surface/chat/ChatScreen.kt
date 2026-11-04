@@ -67,6 +67,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -103,6 +104,10 @@ fun ChatScreen(
   onAsk: (String) -> Unit,
   onStop: () -> Unit = {},
   onNewTopic: () -> Unit = {},
+  resumeTitle: String? = null,
+  onResume: () -> Unit = {},
+  hasHistory: Boolean = false,
+  onOpenHistory: () -> Unit = {},
   onOpenDay: (String) -> Unit,
   mode: ChatMode = ChatMode.GENERAL,
   modeOptions: List<ChatModeOption> = ChatModes.options(LlmDefaults.AGENT_MIN_CONTEXT),
@@ -163,7 +168,38 @@ fun ChatScreen(
           }
         }
         if (turns.isEmpty()) {
+          if (resumeTitle != null) {
+            item {
+              SurfaceCard(
+                Modifier.fillMaxWidth().clip(HakuRadius.Card).clickable(role = Role.Button, onClick = onResume),
+                padding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+              ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                  Text("ต่อเรื่องเมื่อกี้", style = MaterialTheme.typography.labelSmall, color = HakuColors.Muted)
+                  Text(
+                    text = resumeTitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = HakuColors.Ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                  )
+                }
+              }
+            }
+          }
           item { Suggestions { if (!busy) onAsk(it) } }
+          if (hasHistory) {
+            item {
+              Text(
+                text = "ดูแชทก่อนหน้า",
+                style = MaterialTheme.typography.labelMedium,
+                color = HakuColors.Muted,
+                modifier = Modifier
+                  .clickable(role = Role.Button, onClick = onOpenHistory)
+                  .padding(vertical = 8.dp),
+              )
+            }
+          }
         }
         items(turns.size) { i ->
           val turn = turns[i]
