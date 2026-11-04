@@ -60,6 +60,7 @@ import com.bbpillow.haku.thinking.intent.IntentService
 import com.bbpillow.haku.surface.chat.ChatPresenter
 import com.bbpillow.haku.surface.chat.NowStateBuilder
 import com.bbpillow.haku.surface.home.HomeBriefPresenter
+import com.bbpillow.haku.surface.chat.ChatHistoryStore
 import com.bbpillow.haku.surface.memory.ForgetEverything
 import com.bbpillow.haku.surface.memory.TransparencyPresenter
 import com.bbpillow.haku.surface.note.QuickNote
@@ -145,6 +146,8 @@ class AppGraph(val app: Application) {
     val connections = ConnectionStore(db)
     /** P4.1 who asked for which action and what happened (90 days), shown on the audit screen. */
     val audit = AuditStore(db)
+    /** P3.8 saved chats: 7 days unless pinned, gone with forget-everything. */
+    val chatHistory = ChatHistoryStore(db)
     val diary = DiaryComposer(events, places, memory, ledger)
     /** P2.7 evening summaries, one file per local day (written by NightlyWorker, read by Home). */
     val summaries = EveningSummaryStore(DataKeys.files, app.filesDir.resolve("summaries").path.toPath())
@@ -164,7 +167,7 @@ class AppGraph(val app: Application) {
     /** P3.5 widget / lock-screen / notification-reply notes (write-only). */
     val quickNote = QuickNote(notesWatched, tz) // notesWatched: P5.3 a quick note can fire an intention
     val transparency = TransparencyPresenter(
-      memory, ForgetEverything(events, places, ledger, summaries, memory, profile, connections, audit), connections, tz, System::currentTimeMillis,
+      memory, ForgetEverything(events, places, ledger, summaries, memory, profile, connections, audit, chatHistory), connections, tz, System::currentTimeMillis,
     )
     val onboarding = OnboardingPresenter(profile, places)
     val modelManager = ModelManagerPresenter(profile)

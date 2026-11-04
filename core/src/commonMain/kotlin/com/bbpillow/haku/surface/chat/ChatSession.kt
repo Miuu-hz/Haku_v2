@@ -15,7 +15,12 @@ data class ChatSessionState(
   val turns: Int = 0,
   val lastRoute: ChatRoute? = null,
   val lastDiaryQuestion: String? = null,
+  /** When this chat last moved on; 0 until its first answer. */
+  val lastAtMs: Long = 0,
 ) {
+  /** Quiet this long and the screen starts a new chat; the old one stays one tap away ("ต่อเรื่องเมื่อกี้"). */
+  fun isStale(nowMs: Long) = lastAtMs > 0 && nowMs - lastAtMs > IDLE_NEW_CHAT_MS
+
   fun thread(system: String) = ChatThread(id, system, general, turns)
 
   /**
@@ -43,7 +48,8 @@ data class ChatSessionState(
 
   private val ChatExchange.chars get() = user.length + model.length
 
-  private companion object {
-    const val MAX_TOPIC_CHARS = 200
+  companion object {
+    private const val MAX_TOPIC_CHARS = 200
+    const val IDLE_NEW_CHAT_MS = 30 * 60_000L
   }
 }

@@ -73,6 +73,8 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     }
     val plan = NightlyPlan.plan(NightlyPlanInput(true, config != null, now, tz, facts.lines.mapValues { it.value.size }, facts.stored, facts.dreamed))
     log("diary composed for $days; model=${config != null} summarize=${plan.summarizeDays}")
+    // the notice promises 7 days, so this cannot wait for the chat tab to be opened again
+    graph.io { chatHistory.purge(System.currentTimeMillis()) }
     embed(graph) // before summarize: the embedder must open before (or after) the LLM, never while it is open
     if (config != null && plan.summarizeDays.isNotEmpty()) summarize(graph, config, plan.summarizeDays, facts)
     dream(graph, plan.dreamDay)

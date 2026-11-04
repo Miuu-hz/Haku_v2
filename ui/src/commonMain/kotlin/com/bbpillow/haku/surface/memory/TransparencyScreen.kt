@@ -160,7 +160,7 @@ fun TransparencyScreen(
   if (forgettingAll) {
     ConfirmDialog(
       title = "ลืมทุกอย่าง?",
-      message = "ความจำ บันทึกประจำวัน สถานที่ สรุปรายวัน และข้อมูลที่จับได้ทั้งหมดจะถูกลบจากเครื่องนี้ และเรียกคืนไม่ได้ " +
+      message = "ความจำ บันทึกประจำวัน สถานที่ สรุปรายวัน ประวัติแชท และข้อมูลที่จับได้ทั้งหมดจะถูกลบจากเครื่องนี้ และเรียกคืนไม่ได้ " +
         "(การตั้งค่าที่เลือกตอนเริ่มใช้ยังอยู่) พิมพ์ \"$FORGET_PHRASE\" เพื่อยืนยัน",
       confirmText = "ลบทุกอย่าง",
       onConfirm = { if (typed.trim() == FORGET_PHRASE) { onForgetEverything(); forgettingAll = false } },

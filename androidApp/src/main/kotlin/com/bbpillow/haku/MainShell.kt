@@ -54,6 +54,8 @@ import com.bbpillow.haku.platform.LiteRtLocalModel
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.platform.signals.CalendarWriter
 import com.bbpillow.haku.skill.McpServerRecord
+import com.bbpillow.haku.language.ThaiDateFormat
+import com.bbpillow.haku.memory.MemoryFormat
 import com.bbpillow.haku.surface.chat.A2aIntroScreen
 import com.bbpillow.haku.surface.chat.AppointmentProposal
 import com.bbpillow.haku.surface.chat.AppointmentStatus
@@ -62,8 +64,11 @@ import com.bbpillow.haku.surface.chat.ChatAnswerSource
 import com.bbpillow.haku.surface.chat.ChatMode
 import com.bbpillow.haku.surface.chat.ChatModes
 import com.bbpillow.haku.surface.chat.ChatQuestionInput
+import com.bbpillow.haku.surface.chat.ChatHistoryScreen
 import com.bbpillow.haku.surface.chat.ChatScreen
 import com.bbpillow.haku.surface.chat.ChatSessionState
+import com.bbpillow.haku.surface.chat.ChatSessionSummary
+import com.bbpillow.haku.surface.chat.toSession
 import com.bbpillow.haku.surface.chat.ChatTurn
 import com.bbpillow.haku.surface.components.FloatingNav
 import com.bbpillow.haku.surface.components.FloatingNavHeight
@@ -235,7 +240,12 @@ fun MainShell(
         onSelectMode = { if (it == ChatMode.A2A) { pairingNotice = null; a2aOpen = true } else chatMode = it },
       )
       else -> if (nodeOpen) HomeNodeScreen(onBack = { nodeOpen = false }, contentPadding = TabPadding)
-      else MemoryTab(graph, { plusOpen = true }, { nodeOpen = true }, { settingsOpen = true })
+      // forget-everything takes the chat on screen too, not only the saved copy
+      else MemoryTab(graph, { plusOpen = true }, { nodeOpen = true }, { settingsOpen = true }) {
+        chatStop.discard()
+        chatTurns = emptyList()
+        chatSession = ChatSessionState(System.currentTimeMillis())
+      }
     }
     FloatingNav(NavItems, tab, { tab = it; nodeOpen = false; statsOpen = false }, Modifier.align(Alignment.BottomCenter).padding(horizontal = 20.dp, vertical = NavMargin))
   }
@@ -738,12 +748,31 @@ private fun ChatTab(
   val contextTokens = remember { graph.llmSettings.load().contextTokens }
   val activeMode = ChatModes.effective(mode, contextTokens)
   var modelLabel by remember { mutableStateOf(ModelManagerPresenter.NO_MODEL_LABEL) }
+  // the calendar insert finishes after recomposition; read the latest turns so a question asked meanwhile is kept
+  val latestTurns by rememberUpdatedState(turns)
+  val latestSession by rememberUpdatedState(session)
+  val startNewChat = { onTurns(emptyList()); onSession(ChatSessionState(System.currentTimeMillis())) }
+  var savedChats by remember { mutableStateOf(emptyList<ChatSessionSummary>()) }
+  var historyOpen by rememberSaveable { mutableStateOf(false) }
+  // re-read whenever the empty chat shows or the list closes: a chat just left must appear in "ต่อเรื่องเมื่อกี้"
+  LaunchedEffect(turns.isEmpty(), historyOpen) {
+    savedChats = graph.safeIo { chatHistory.purge(System.currentTimeMillis()); chatHistory.sessions() } ?: emptyList()
+  }
+  val openChat: (Long) -> Unit = { id ->
+    scope.launch {
+      val answers = graph.safeIo { chatHistory.answers(id) } ?: return@launch
+      onTurns(answers.map { ChatTurn(it.question, it) })
+      onSession(answers.toSession(id).copy(lastAtMs = System.currentTimeMillis()))
+      historyOpen = false
+    }
+  }
   // 5ข + P3.8: models load while the user types (unless ON_ASK), and go when the tab is left (ON_CHAT_OPEN only), the app is left, or the idle time passes
   val lifecycle = LocalLifecycleOwner.current.lifecycle
   DisposableEffect(lifecycle) {
     val observer = LifecycleEventObserver { _, e ->
       if (e == Lifecycle.Event.ON_START && graph.llmSettings.load().loadPolicy != ModelLoadPolicy.ON_ASK) graph.warmth.open()
       // no ON_STOP: AppRoot's app-level observer frees the models when the app is left, under every policy
+      if (e == Lifecycle.Event.ON_START && latestSession.isStale(System.currentTimeMillis()) && latestTurns.lastOrNull()?.answer != null) startNewChat()
     }
     lifecycle.addObserver(observer) // replays ON_START when the app is already in front
     onDispose {
@@ -764,8 +793,6 @@ private fun ChatTab(
     } ?: ModelManagerPresenter.NO_MODEL_LABEL
   }
 
-  // the calendar insert finishes after recomposition; read the latest turns so a question asked meanwhile is kept
-  val latestTurns by rememberUpdatedState(turns)
   fun updateAppointment(index: Int, transform: (AppointmentProposal) -> AppointmentProposal) {
     val turn = latestTurns.getOrNull(index) ?: return
     val answer = turn.answer ?: return
@@ -812,6 +839,29 @@ private fun ChatTab(
     mentionSkills = availableSkills(graph)
     mentionServiceNames = graph.safeIo { mcpServers.all().associate { it.host to it.name } } ?: emptyMap()
   }
+  if (historyOpen) {
+    BackHandler { historyOpen = false }
+    ChatHistoryScreen(
+      savedChats,
+      dateLabel = { at -> MemoryFormat.dayOf(at + graph.tzOffsetMinutes * 60_000L).let { "${ThaiDateFormat.shortWeekday(it)} ${ThaiDateFormat.shortDate(it)}" } },
+      onBack = { historyOpen = false },
+      onOpen = openChat,
+      onDelete = { id ->
+        scope.launch {
+          savedChats = graph.safeIo { chatHistory.delete(id); chatHistory.sessions() } ?: savedChats
+          if (session.id == id) startNewChat() // the chat on screen was just deleted: its text must not stay up
+        }
+      },
+      onTogglePin = { id ->
+        scope.launch {
+          val pinned = savedChats.firstOrNull { it.id == id }?.pinned ?: return@launch
+          savedChats = graph.safeIo { chatHistory.setPinned(id, !pinned); chatHistory.sessions() } ?: savedChats
+        }
+      },
+      contentPadding = TabPadding,
+    )
+    return
+  }
   ChatScreen(
     turns,
     engineLabel = modelLabel,
@@ -824,14 +874,21 @@ private fun ChatTab(
       fun show(turn: ChatTurn) = onTurns((if (latestTurns.size == asked.size) latestTurns else asked).dropLast(1) + turn)
       scope.launch {
         val fitted = session.fitted(contextTokens)
-        val answer = askHaku(graph, q, activeMode, fitted, chatStop) { show(ChatTurn(q, null, it)) }
+        val answer = askHaku(graph, q, activeMode, fitted, chatStop) { if (!chatStop.discarded) show(ChatTurn(q, null, it)) }
           ?: ChatAnswerOutput(q, "ค้นบันทึกไม่สำเร็จ ลองใหม่อีกครั้ง", emptyList(), ChatAnswerSource.RETRIEVAL)
-        onSession(fitted.after(answer))
+        if (chatStop.discarded) return@launch // forget-everything ran meanwhile: this answer must not bring the chat back
+        val at = System.currentTimeMillis()
+        graph.safeIo { chatHistory.append(fitted.id, at, answer) }
+        onSession(fitted.after(answer).copy(lastAtMs = at))
         show(ChatTurn(q, answer))
       }
     },
     onStop = chatStop::stop,
-    onNewTopic = { onTurns(emptyList()); onSession(ChatSessionState(System.currentTimeMillis())) },
+    onNewTopic = startNewChat,
+    resumeTitle = savedChats.firstOrNull()?.title,
+    onResume = { savedChats.firstOrNull()?.let { openChat(it.id) } },
+    hasHistory = savedChats.isNotEmpty(),
+    onOpenHistory = { historyOpen = true },
     onOpenDay = onOpenDay,
     mode = activeMode,
     modeOptions = ChatModes.options(contextTokens),
@@ -894,12 +951,17 @@ internal suspend fun askHaku(
 internal class ChatStop {
   @Volatile private var client: LocalModelClient? = null
   @Volatile private var stopped = false
+  @Volatile var discarded = false
+    private set
 
-  fun reset() { client = null; stopped = false }
+  fun reset() { client = null; stopped = false; discarded = false }
 
   fun attach(c: LocalModelClient) { client = c; if (stopped) c.cancel() }
 
   fun stop() { stopped = true; client?.cancel() }
+
+  /** Stops, and whatever was being answered is dropped rather than saved or shown. */
+  fun discard() { discarded = true; stop() }
 }
 
 /**
@@ -1061,6 +1123,7 @@ private fun MemoryTab(
   onOpenPlus: () -> Unit,
   onOpenHomeNode: () -> Unit,
   onOpenSettings: () -> Unit,
+  onForgotEverything: () -> Unit,
 ) {
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
@@ -1088,7 +1151,12 @@ private fun MemoryTab(
     s,
     onForget = { fact -> scope.launch { graph.safeIo { transparency.forget(fact) }?.let { state = it } } },
     onForgetCategory = { slug -> scope.launch { graph.safeIo { transparency.forgetCategory(slug) }?.let { state = it } } },
-    onForgetEverything = { scope.launch { graph.safeIo { transparency.forgetEverything() }?.let { state = it } } },
+    onForgetEverything = {
+      scope.launch {
+        onForgotEverything()
+        graph.safeIo { transparency.forgetEverything() }?.let { state = it }
+      }
+    },
     onExport = { picker.launch("haku-memory.md") },
     onOpenPlus = onOpenPlus,
     onOpenHomeNode = onOpenHomeNode,
