@@ -375,8 +375,8 @@ class ChatPresenter(
     const val MAX_CHAT_CHARS = 600
     const val DEFAULT_BUDGET_TOKENS = 900
     const val DEFAULT_TIMEOUT_MS = 30_000L
-    /** The longest a general answer runs; past it the user keeps what arrived. */
-    const val DEFAULT_GENERAL_TIMEOUT_MS = 120_000L
+    /** Only a backstop: the user has a stop button. A hot Fold5 took over 120 s on one long answer (about 11 pieces a second). Past this the user keeps what arrived. */
+    const val DEFAULT_GENERAL_TIMEOUT_MS = 300_000L
     const val GENERAL_LABEL = "ความรู้ทั่วไปจากโมเดล อาจผิด"
     /** The user's side of the summary exchange the model reads in place of older history. */
     const val SUMMARY_TURN = "สรุปเรื่องที่คุยกันก่อนหน้านี้ให้หน่อย"
