@@ -281,6 +281,7 @@ class KtorMcpClient(
         source = SkillSource.MCP,
         enabled = false,
         server = host,
+        readOnly = tool.annotations?.readOnlyHint == true,
       )
     }
   }

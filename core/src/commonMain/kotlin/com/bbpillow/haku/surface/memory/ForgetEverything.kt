@@ -6,6 +6,7 @@ import com.bbpillow.haku.capture.PlaceRepository
 import com.bbpillow.haku.capture.diary.DiaryLedgerRepository
 import com.bbpillow.haku.memory.MemoryRepository
 import com.bbpillow.haku.network.ConnectionRepository
+import com.bbpillow.haku.skill.ToolMemoryRepository
 import com.bbpillow.haku.surface.chat.ChatHistoryStore
 import com.bbpillow.haku.surface.onboarding.ProfileRepository
 import com.bbpillow.haku.thinking.summary.EveningSummaryRepository
@@ -30,6 +31,8 @@ class ForgetEverything(
   private val audit: AuditRepository? = null,
   /** P3.8 saved chats; null only in tests that predate it. */
   private val chats: ChatHistoryStore? = null,
+  /** Results fetched from tools: real business data. Null only in tests that predate it. */
+  private val toolMemory: ToolMemoryRepository? = null,
 ) {
   /** Returns how many capture events were erased. */
   fun run(): Int {
@@ -41,6 +44,7 @@ class ForgetEverything(
     connections.clear()
     audit?.clear()
     chats?.clear()
+    toolMemory?.clear()
     val p = profile.load()
     if (p.style.nickname.isNotEmpty()) profile.save(p.copy(style = p.style.copy(nickname = "")))
     return erased

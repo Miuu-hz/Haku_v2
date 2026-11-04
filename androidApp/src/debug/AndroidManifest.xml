@@ -3,7 +3,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
   xmlns:tools="http://schemas.android.com/tools">
 
-  <application>
+  <application android:networkSecurityConfig="@xml/debug_network">
     <!-- P3.5 open the quick note over adb: adb shell am start -n com.bbpillow.haku/.QuickNoteActivity -->
     <activity
       android:name=".QuickNoteActivity"

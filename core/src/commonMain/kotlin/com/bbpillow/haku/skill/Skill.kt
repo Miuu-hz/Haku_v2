@@ -22,6 +22,7 @@ data class SkillSlot(val name: String, val description: String, val required: Bo
  * @property action ActionGate action id run with the validated slots, e.g. `calendar.add`, or `mcp.call` for MCP.
  * @property aliases Thai words that also match a mention: "/นัด" finds add-appointment.
  * @property server MCP only: the service host the mention `@server` names; null for local skills.
+ * @property readOnly MCP only: the server marks this tool as changing nothing (`readOnlyHint`), so a kept result may answer it.
  */
 data class SkillRecord(
   val name: String,
@@ -34,6 +35,7 @@ data class SkillRecord(
   val source: SkillSource = SkillSource.BUILT_IN,
   val enabled: Boolean = true,
   val server: String? = null,
+  val readOnly: Boolean = false,
 ) {
   init {
     require(NAME_RULE.matches(name)) { "bad skill name '$name'" }

@@ -14,6 +14,7 @@ import org.json.JSONObject
  * MCP servers over adb, the same calls the Settings → ความสามารถเสริม screen and the chat card make. Logcat tag `HakuMcp`:
  * `-a com.bbpillow.haku.debug.MCP_ADD --es url https://…` describe → store (tools start disabled)
  * `-a com.bbpillow.haku.debug.MCP_LIST` servers and tools as JSON
+ * `-a com.bbpillow.haku.debug.MCP_REMOVE --es url https://…`
  * `-a com.bbpillow.haku.debug.MCP_ENABLE --es tool <skill-name> [--ez on false]`
  * `-a com.bbpillow.haku.debug.MCP_CONFIRM [--es id <proposal>]` confirms the newest pending gate card (as its confirm button)
  */
@@ -33,6 +34,15 @@ class McpDebugReceiver : BroadcastReceiver() {
             logServers(graph)
           }
           ACTION_LIST -> logServers(graph)
+          ACTION_REMOVE -> {
+            val url = intent.getStringExtra("url").orEmpty()
+            // as the Settings remove button: what the service returned goes with it
+            graph.io {
+              mcpServers.all().firstOrNull { it.url == url }?.let { toolMemory.deleteService(it.host) }
+              mcpServers.remove(url)
+            }
+            logServers(graph)
+          }
           ACTION_ENABLE -> {
             val tool = intent.getStringExtra("tool").orEmpty()
             val on = intent.getBooleanExtra("on", true)
@@ -69,7 +79,7 @@ class McpDebugReceiver : BroadcastReceiver() {
     val servers = graph.io { mcpServers.all() }
     val json = JSONArray(servers.map { s ->
       JSONObject().put("url", s.url).put("host", s.host).put("name", s.name).put("tools", JSONArray(s.tools.map { t ->
-        JSONObject().put("name", t.name).put("title", t.title).put("enabled", t.enabled).put("server", t.server)
+        JSONObject().put("name", t.name).put("title", t.title).put("enabled", t.enabled).put("readOnly", t.readOnly).put("server", t.server)
           .put("slots", JSONArray(t.slots.map { "${it.name}${if (it.required) "*" else ""}" })).put("description", t.description)
       }))
     })
@@ -80,6 +90,7 @@ class McpDebugReceiver : BroadcastReceiver() {
     const val TAG = "HakuMcp"
     const val ACTION_ADD = "com.bbpillow.haku.debug.MCP_ADD"
     const val ACTION_LIST = "com.bbpillow.haku.debug.MCP_LIST"
+    const val ACTION_REMOVE = "com.bbpillow.haku.debug.MCP_REMOVE"
     const val ACTION_ENABLE = "com.bbpillow.haku.debug.MCP_ENABLE"
     const val ACTION_CONFIRM = "com.bbpillow.haku.debug.MCP_CONFIRM"
   }

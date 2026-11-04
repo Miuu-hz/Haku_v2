@@ -24,6 +24,7 @@ import com.bbpillow.haku.memory.dream.DreamInput
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.platform.signals.CalendarReader
 import com.bbpillow.haku.platform.widget.HakuWidget
+import com.bbpillow.haku.skill.ToolMemory
 import com.bbpillow.haku.thinking.LocalModelClient
 import com.bbpillow.haku.thinking.ModelConfig
 import com.bbpillow.haku.thinking.summary.EveningSummarizer
@@ -74,7 +75,10 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     val plan = NightlyPlan.plan(NightlyPlanInput(true, config != null, now, tz, facts.lines.mapValues { it.value.size }, facts.stored, facts.dreamed))
     log("diary composed for $days; model=${config != null} summarize=${plan.summarizeDays}")
     // the notice promises 7 days, so this cannot wait for the chat tab to be opened again
-    graph.io { chatHistory.purge(System.currentTimeMillis()) }
+    graph.io {
+      chatHistory.purge(System.currentTimeMillis())
+      toolMemory.deleteFetchedBefore(System.currentTimeMillis() - ToolMemory.KEEP_RAW_MS)
+    }
     embed(graph) // before summarize: the embedder must open before (or after) the LLM, never while it is open
     if (config != null && plan.summarizeDays.isNotEmpty()) summarize(graph, config, plan.summarizeDays, facts)
     dream(graph, plan.dreamDay)

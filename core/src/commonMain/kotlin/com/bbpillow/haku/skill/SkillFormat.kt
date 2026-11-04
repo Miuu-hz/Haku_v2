@@ -34,6 +34,7 @@ object SkillFormat {
       action = key("action"),
       aliases = meta["aliases"].orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() },
       source = source,
+      readOnly = meta["readonly"] == "true",
     )
   }
 
@@ -44,6 +45,7 @@ object SkillFormat {
     appendLine("title: ${s.title}")
     if (s.aliases.isNotEmpty()) appendLine("aliases: ${s.aliases.joinToString(", ")}")
     appendLine("action: ${s.action}")
+    if (s.readOnly) appendLine("readonly: true")
     appendLine("slots: " + s.slots.joinToString("; ") { "${it.name}${if (it.required) "" else "?"}=${it.description}" })
     appendLine("---")
     append(s.instructions)

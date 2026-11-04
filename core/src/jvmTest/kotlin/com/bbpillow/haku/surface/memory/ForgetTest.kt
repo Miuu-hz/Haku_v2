@@ -65,7 +65,8 @@ class ForgetTest {
   private val at = 1_790_121_600_000L
   private val audit = com.bbpillow.haku.action.AuditStore(db)
   private val chats = com.bbpillow.haku.surface.chat.ChatHistoryStore(db)
-  private val forgetAll = ForgetEverything(events, places, ledger, summaries, memory, profile, connections, audit, chats)
+  private val toolMemory = com.bbpillow.haku.skill.ToolMemoryStore(db)
+  private val forgetAll = ForgetEverything(events, places, ledger, summaries, memory, profile, connections, audit, chats, toolMemory)
   private val presenter = TransparencyPresenter(memory, forgetAll, connections, tz) { at }
 
   @AfterTest fun close() = db.close()
@@ -141,6 +142,12 @@ class ForgetTest {
     forgetAll.run()
     assertEquals(emptyList(), chats.sessions())
     assertEquals(emptyList(), chats.answers(1L))
+  }
+
+  @Test fun forgetEverythingErasesResultsKeptFromTools() {
+    toolMemory.put(com.bbpillow.haku.skill.ToolResultRecord("k", "erp.example", "sales", emptyMap(), "ยอด 100", at, at + 1))
+    forgetAll.run()
+    assertNull(toolMemory.find("k"))
   }
 
   @Test fun forgetEverythingOnAnEmptyAppIsHarmless() {

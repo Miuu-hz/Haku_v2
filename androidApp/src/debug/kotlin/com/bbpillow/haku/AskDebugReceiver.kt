@@ -93,6 +93,7 @@ class AskDebugReceiver : BroadcastReceiver() {
               .put("first", app.graph.llmMetrics.value.firstTokenMillis).put("pieces", streamedPieces).put("stopped", a?.stopped).put("text", a?.text)
               .put("source", a?.source?.name).put("citations", a?.citations?.size).put("appointment", a?.appointment?.let { "${it.title} ${it.dayLabel} ${it.timeLabel}" })
               .put("card", p?.let { "${it.request.action} | ${it.request.title} | ${it.request.detail} | ${it.request.origin} | ${it.status}" })
+              .put("fromMemory", a?.toolSource?.fromMemory)
               .toString())
           } catch (t: Throwable) {
             Log.e(TAG, "ask full failed", t)

@@ -6,6 +6,9 @@ import com.bbpillow.haku.skill.SkillRecord
 import com.bbpillow.haku.skill.BuiltInSkills
 import com.bbpillow.haku.skill.McpResultSummary
 import com.bbpillow.haku.skill.SkillActions
+import com.bbpillow.haku.skill.SkillCall
+import com.bbpillow.haku.skill.ToolMemory
+import com.bbpillow.haku.skill.ToolResultRecord
 import com.bbpillow.haku.platform.agent.SkillTool
 import com.bbpillow.haku.platform.agent.LiteRtAgentSession
 import com.bbpillow.haku.thinking.AgentConfig
@@ -478,6 +481,7 @@ private fun ExtensionsTab(graph: AppGraph, onBack: () -> Unit) {
     onRemoveServer = { url ->
       scope.launch {
         graph.safeIo {
+          mcpServers.all().firstOrNull { it.url == url }?.let { toolMemory.deleteService(it.host) }
           mcpServers.remove(url)
           mcpServers.all()
         }?.let { servers = it }
@@ -912,7 +916,10 @@ private fun ChatTab(
       fun show(turn: ChatTurn) = onTurns((if (latestTurns.size == asked.size) latestTurns else asked).dropLast(1) + turn)
       scope.launch {
         val fitted = compactChat(graph, session, contextTokens)
-        val answer = askHaku(graph, q, activeMode, fitted, chatStop) { if (!chatStop.discarded) show(ChatTurn(q, null, it)) }
+        val answer = askHaku(
+          graph, q, activeMode, fitted, chatStop,
+          onProgress = { if (!chatStop.discarded) show(ChatTurn(q, null, progress = it)) },
+        ) { if (!chatStop.discarded) show(ChatTurn(q, null, it)) }
           ?: ChatAnswerOutput(q, "ค้นบันทึกไม่สำเร็จ ลองใหม่อีกครั้ง", emptyList(), ChatAnswerSource.RETRIEVAL)
         if (chatStop.discarded) return@launch // forget-everything ran meanwhile: this answer must not bring the chat back
         val at = System.currentTimeMillis()
@@ -951,15 +958,33 @@ private fun ChatTab(
       scope.launch {
         val record = graph.confirmAction(id) ?: return@launch
         if (record.request.action != SkillActions.MCP_ACTION || record.status != ActionStatus.DONE) return@launch
+        // re-read each time: the summary takes seconds and a question asked meanwhile must be kept
+        fun update(change: (ChatAnswerOutput) -> ChatAnswerOutput) {
+          val i = latestTurns.indexOfFirst { it.answer?.actionId == id }.takeIf { it >= 0 } ?: return
+          val turn = latestTurns[i]
+          onTurns(latestTurns.toMutableList().also { it[i] = turn.copy(answer = turn.answer?.let(change)) })
+        }
         val question = latestTurns.firstOrNull { it.answer?.actionId == id }?.answer?.question ?: return@launch
+        update { it.copy(text = "กำลังสรุปผล…", toolSource = null) }
         val text = summarizeMcpResult(graph, question, record)
-        // re-read: the summary takes seconds and a question asked meanwhile must be kept
-        val i = latestTurns.indexOfFirst { it.answer?.actionId == id }.takeIf { it >= 0 } ?: return@launch
-        val turn = latestTurns[i]
-        onTurns(latestTurns.toMutableList().also { it[i] = turn.copy(answer = turn.answer?.copy(text = text)) })
+        val source = graph.toolSourceAfterRun(record)
+        update { it.copy(text = text, toolSource = source) }
       }
     },
     onDismissAction = { id -> graph.actionGate.dismiss(id) },
+    onRefreshTool = { turn ->
+      val key = turn.answer?.toolSource?.key ?: return@ChatScreen
+      scope.launch {
+        val card = proposeToolRefresh(graph, key)
+        val i = latestTurns.indexOfFirst { it === turn }.takeIf { it >= 0 } ?: return@launch
+        val answer = turn.answer ?: return@launch
+        // the old answer and its chip stay until the card is confirmed: dismissing it loses nothing
+        val updated = if (card != null) answer.copy(actionId = card.id) else answer.copy(text = answer.text + "\n\nดึงใหม่ไม่ได้ตอนนี้ เครื่องมือนี้อาจถูกปิดอยู่")
+        onTurns(latestTurns.toMutableList().also { it[i] = turn.copy(answer = updated) })
+      }
+    },
+    tzOffsetMinutes = graph.tzOffsetMinutes,
+    nowUtcMs = System::currentTimeMillis,
     mentionSkills = mentionSkills,
     mentionServiceNames = mentionServiceNames,
     contentPadding = TabPadding,
@@ -978,11 +1003,12 @@ internal suspend fun askHaku(
   mode: ChatMode = ChatMode.AGENT,
   session: ChatSessionState? = null,
   stop: ChatStop? = null,
+  onProgress: (String) -> Unit = {},
   onPartial: (String) -> Unit = {},
 ): ChatAnswerOutput? {
   val skills = availableSkills(graph)
   val mention = MentionParser.parse(question, skills)
-  return answerWithoutModel(graph, question, mention) ?: graph.warmth.use { askOnce(graph, question, skills, mention, mode, session, stop, onPartial) }
+  return answerWithoutModel(graph, question, mention) ?: graph.warmth.use { askOnce(graph, question, skills, mention, mode, session, stop, onProgress, onPartial) }
 }
 
 /** Past 60% of the context: the older part of [session] as a summary, or forgotten when there is no model to write one. */
@@ -1051,16 +1077,17 @@ private suspend fun askOnce(
   mode: ChatMode,
   session: ChatSessionState?,
   stop: ChatStop?,
+  onProgress: (String) -> Unit,
   onPartial: (String) -> Unit,
 ): ChatAnswerOutput? {
   // "@ปฏิทิน …" / "@host …" (popup pick) = use exactly that, no picker; the gate card still asks before anything runs
   when (mention) {
-    is Mention.Skill -> return runSkill(graph, question, mention.rest.ifBlank { question }, listOf(mention.skill), chosen = true)
-    is Mention.Service -> return runSkill(graph, question, mention.rest.ifBlank { question }, mention.tools.take(MAX_SERVICE_TOOLS), chosen = true)
+    is Mention.Skill -> return runSkill(graph, question, mention.rest.ifBlank { question }, listOf(mention.skill), chosen = true, onProgress = onProgress)
+    is Mention.Service -> return runSkill(graph, question, mention.rest.ifBlank { question }, mention.tools.take(MAX_SERVICE_TOOLS), chosen = true, onProgress = onProgress)
     is Mention.NotFound, null -> Unit
   }
   if (ChatModes.picksToolsByItself(mode)) {
-    graph.pickSkill(question, skills)?.let { if (BuildConfig.DEBUG) Log.d("HakuSkill", "picked ${it.name}"); return runSkill(graph, question, question, listOf(it)) }
+    graph.pickSkill(question, skills)?.let { if (BuildConfig.DEBUG) Log.d("HakuSkill", "picked ${it.name}"); return runSkill(graph, question, question, listOf(it), onProgress = onProgress) }
   }
   val semantic = graph.questionSemantic(question) // words-only while the embedder is cold or absent
   val (presenter, retrieval) = graph.safeIo { composeRecent(System.currentTimeMillis()); chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style, session), semantic) } ?: return null
@@ -1107,13 +1134,32 @@ private const val MAX_SERVICE_TOOLS = 3
 
 /**
  * One skill turn: the model gets only [skills] as tools (built from their slots) and the skills' short instructions.
- * A call becomes a gate card under the answer; nothing runs or leaves the phone until the user confirms it.
+ * A call becomes a gate card under the answer; nothing runs or leaves the phone until the user confirms it. A read-only
+ * call the user already confirmed answers from what was kept instead: no card, nothing leaves.
  */
-private suspend fun runSkill(graph: AppGraph, question: String, text: String, skills: List<SkillRecord>, chosen: Boolean = false): ChatAnswerOutput {
+private suspend fun runSkill(
+  graph: AppGraph,
+  question: String,
+  text: String,
+  skills: List<SkillRecord>,
+  chosen: Boolean = false,
+  onProgress: (String) -> Unit = {},
+): ChatAnswerOutput {
   fun answer(t: String, actionId: String? = null) = ChatAnswerOutput(question, t, emptyList(), ChatAnswerSource.MODEL, actionId = actionId)
   val config = modelConfigOrNull(graph) ?: return answer("ต้องมี AI ในเครื่องก่อน จึงจะใช้ ${skills.joinToString { it.title }} ได้")
   var proposal: ActionProposalRecord? = null
-  val tools = skills.map { s -> SkillTool(s, graph.actionGate, graph.tzOffsetMinutes) { proposal = it } }
+  var kept: Pair<SkillRecord, ToolResultRecord>? = null
+  onProgress("กำลังใช้ ${skills.joinToString { it.title }}")
+  val tools = skills.map { s ->
+    SkillTool(
+      s, graph.actionGate, graph.tzOffsetMinutes,
+      recalled = { request ->
+        val found = graph.safeIo { ToolMemory.recall(s, request, toolMemory, System.currentTimeMillis()) }
+        found?.let { kept = s to it }
+        found != null
+      },
+    ) { proposal = it }
+  }
   val session = LiteRtAgentSession(emptyList(), tools)
   // the user's ending (onboarding) as in chat; without it the model falls back to a generic ผม/ดิฉัน … ครับ/ค่ะ
   val particle = graph.safeIo { profile.load().style.particle } ?: EndingParticle.NONE
@@ -1121,7 +1167,7 @@ private suspend fun runSkill(graph: AppGraph, question: String, text: String, sk
     (if (chosen) "ผู้ใช้เลือกเครื่องมือนี้เอง ต้องเรียก tool ถ้าข้อมูลไม่พอให้ถามสั้นๆ ว่าขาดอะไร\n" else "") +
     SummaryPromptBuilder.particleRule(particle) +
     skills.joinToString("") { "\n${it.title}: ${it.instructions}" }
-  return try {
+  val direct = try {
     session.start(AgentConfig(config, system))
     val out = session.execute(AgentInput(text))
     val p = proposal
@@ -1138,33 +1184,51 @@ private suspend fun runSkill(graph: AppGraph, question: String, text: String, sk
   } finally {
     withContext(NonCancellable) { runCatching { session.close() } }
   }
+  val (skill, record) = kept ?: return direct
+  // the model may have asked for a second call beside the kept one: this answer has no place for its card
+  proposal?.takeIf { it.status == ActionStatus.PENDING }?.let { graph.actionGate.dismiss(it.id) }
+  onProgress("เจอในความจำ กำลังสรุป")
+  return answer(summarizeToolText(graph, question, skill.title, record.text)).copy(toolSource = ToolMemory.sourceOf(record, fromMemory = true))
+}
+
+/** "ดึงใหม่": the kept call goes back through the gate, so the user sees the card before anything leaves. Null = it cannot run now. */
+private suspend fun proposeToolRefresh(graph: AppGraph, key: String): ActionProposalRecord? {
+  val (record, tool) = graph.safeIo { toolMemory.find(key)?.let { it to mcpTool(it.service, it.tool) } } ?: return null
+  if (tool == null || !tool.enabled) return null
+  val call = SkillActions.prepare(tool, record.arguments, System.currentTimeMillis(), graph.tzOffsetMinutes) as? SkillCall.Propose ?: return null
+  return (graph.actionGate.submit(call.request) as? ActionDecision.AwaitingUser)?.proposal
 }
 
 /**
- * Task T: the confirmed `mcp.call` result → a short Thai answer for the bubble. The result is untrusted external text,
- * so this is a plain generate with no tools; no model, a failure or a blank reply give [McpResultSummary.FALLBACK].
+ * Task T: the confirmed `mcp.call` result → a short Thai answer for the bubble.
  * internal: the debug McpDebugReceiver MCP_CONFIRM drives it over adb.
  */
 internal suspend fun summarizeMcpResult(graph: AppGraph, question: String, record: ActionProposalRecord): String {
-  val particle = graph.safeIo { profile.load().style.particle } ?: EndingParticle.NONE
   val raw = record.message?.takeIf { it.isNotBlank() } ?: return McpResultSummary.FALLBACK
+  return graph.warmth.use { summarizeToolText(graph, question, record.request.title, raw) }
+}
+
+/**
+ * The result is untrusted external text, so this is a plain generate with no tools; no model, a failure or a blank reply
+ * give [McpResultSummary.FALLBACK]. The caller holds [AppGraph.warmth].
+ */
+private suspend fun summarizeToolText(graph: AppGraph, question: String, title: String, raw: String): String {
+  val particle = graph.safeIo { profile.load().style.particle } ?: EndingParticle.NONE
   val config = modelConfigOrNull(graph) ?: return McpResultSummary.FALLBACK
-  val prompt = McpResultSummary.prompt(question, record.request.title, raw, particle)
-  return graph.warmth.use {
-    val model = LiteRtLocalModel()
-    try {
-      val client = LocalModelClient(model)
-      client.load(config)
-      val out = client.generate(GenerateInput(prompt)).filterIsInstance<GenerateEvent.Finished>().first().output.text
-      McpResultSummary.finish(out, particle)
-    } catch (e: CancellationException) {
-      throw e
-    } catch (e: Exception) {
-      Log.e("HakuShell", "mcp summary failed, showing the fallback line", e)
-      McpResultSummary.FALLBACK
-    } finally {
-      withContext(NonCancellable) { runCatching { model.unload() } }
-    }
+  val prompt = McpResultSummary.prompt(question, title, raw, particle)
+  val model = LiteRtLocalModel()
+  return try {
+    val client = LocalModelClient(model)
+    client.load(config)
+    val out = client.generate(GenerateInput(prompt)).filterIsInstance<GenerateEvent.Finished>().first().output.text
+    McpResultSummary.finish(out, particle)
+  } catch (e: CancellationException) {
+    throw e
+  } catch (e: Exception) {
+    Log.e("HakuShell", "mcp summary failed, showing the fallback line", e)
+    McpResultSummary.FALLBACK
+  } finally {
+    withContext(NonCancellable) { runCatching { model.unload() } }
   }
 }
 

@@ -57,16 +57,13 @@ class ToolMemoryStore(private val db: SQLiteConnection) : ToolMemoryRepository {
     )
   }
 
-  override fun expireAll(nowUtcMs: Long) {
-    exec(
-      "UPDATE tool_results SET fresh_until_ms = ? WHERE fresh_until_ms > ?",
-      listOf(nowUtcMs, nowUtcMs),
-    )
-  }
-
   override fun deleteFetchedBefore(cutoffUtcMs: Long): Int = inTransaction {
     exec("DELETE FROM tool_results WHERE fetched_ms < ?", listOf(cutoffUtcMs))
     changes().toInt()
+  }
+
+  override fun deleteService(service: String) {
+    exec("DELETE FROM tool_results WHERE service = ? COLLATE NOCASE", listOf(service))
   }
 
   override fun clear() = inTransaction {

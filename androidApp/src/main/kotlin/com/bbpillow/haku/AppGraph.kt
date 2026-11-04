@@ -13,6 +13,11 @@ import com.bbpillow.haku.platform.mcp.KtorMcpClient
 import com.bbpillow.haku.platform.mcp.McpActionHandler
 import com.bbpillow.haku.platform.signals.CalendarActionHandler
 import com.bbpillow.haku.skill.McpServerStore
+import com.bbpillow.haku.skill.SkillActions
+import com.bbpillow.haku.skill.SkillRecord
+import com.bbpillow.haku.skill.ToolMemory
+import com.bbpillow.haku.skill.ToolMemoryStore
+import com.bbpillow.haku.skill.ToolSource
 import java.util.UUID
 import kotlinx.coroutines.launch
 import android.app.ActivityManager
@@ -148,6 +153,13 @@ class AppGraph(val app: Application) {
     val audit = AuditStore(db)
     /** P3.8 saved chats: 7 days unless pinned, gone with forget-everything. */
     val chatHistory = ChatHistoryStore(db)
+    /** Results of read-only tools the user confirmed: 30 days, gone with their service and with forget-everything. */
+    val toolMemory = ToolMemoryStore(db)
+
+    /** The enabled-or-not tool a call names, from the servers as stored now. */
+    fun mcpTool(service: String, tool: String): SkillRecord? =
+      mcpServers.all().firstOrNull { it.host.equals(service, ignoreCase = true) }?.tools?.firstOrNull { it.name == tool }
+
     val diary = DiaryComposer(events, places, memory, ledger)
     /** P2.7 evening summaries, one file per local day (written by NightlyWorker, read by Home). */
     val summaries = EveningSummaryStore(DataKeys.files, app.filesDir.resolve("summaries").path.toPath())
@@ -167,7 +179,7 @@ class AppGraph(val app: Application) {
     /** P3.5 widget / lock-screen / notification-reply notes (write-only). */
     val quickNote = QuickNote(notesWatched, tz) // notesWatched: P5.3 a quick note can fire an intention
     val transparency = TransparencyPresenter(
-      memory, ForgetEverything(events, places, ledger, summaries, memory, profile, connections, audit, chatHistory), connections, tz, System::currentTimeMillis,
+      memory, ForgetEverything(events, places, ledger, summaries, memory, profile, connections, audit, chatHistory, toolMemory), connections, tz, System::currentTimeMillis,
     )
     val onboarding = OnboardingPresenter(profile, places)
     val modelManager = ModelManagerPresenter(profile)
@@ -252,9 +264,27 @@ class AppGraph(val app: Application) {
    */
   suspend fun confirmAction(id: String): ActionProposalRecord? = actionGate.confirm(id)?.also { record ->
     if (record.status != ActionStatus.DONE) return@also
+    rememberToolResult(record)
     val appointment = CalendarAddArgs.toProposal(record) ?: return@also // not a calendar.add
     val note = "นัด ${appointment.title} ${appointment.dayLabel} ${appointment.timeLabel}"
     if (safeIo { quickNote.save(QuickNoteInput(note, System.currentTimeMillis())) } != null) HakuWidget.refresh(app)
+  }
+
+  private suspend fun rememberToolResult(record: ActionProposalRecord) {
+    val request = record.request
+    if (request.action != SkillActions.MCP_ACTION) return
+    val text = record.message ?: return
+    safeIo {
+      mcpTool(request.arguments[SkillActions.KEY_SERVER].orEmpty(), request.arguments[SkillActions.KEY_TOOL].orEmpty())
+        ?.let { ToolMemory.remember(it, request, text, toolMemory, System.currentTimeMillis(), tz) }
+    }
+  }
+
+  /** The chip for a call that just ran, when its result was kept. A tool that may change something has none. */
+  suspend fun toolSourceAfterRun(record: ActionProposalRecord): ToolSource? = safeIo {
+    ToolMemory.keyOf(record.request)?.let(toolMemory::find)
+      ?.takeIf { it.fetchedUtcMs >= record.createdUtcMs }
+      ?.let { ToolMemory.sourceOf(it, fromMemory = false) }
   }
 
   /** Runs [block] on the DB thread, one at a time with capture. */

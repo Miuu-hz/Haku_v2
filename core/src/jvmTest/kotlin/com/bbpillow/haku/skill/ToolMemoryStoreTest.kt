@@ -2,6 +2,8 @@ package com.bbpillow.haku.skill
 
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import com.bbpillow.haku.action.ActionOrigin
+import com.bbpillow.haku.action.ActionRequestInput
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -9,6 +11,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+
+private const val BANGKOK = 420
 
 class ToolMemoryStoreTest {
   private val opened = mutableListOf<SQLiteConnection>()
@@ -120,45 +124,64 @@ class ToolMemoryStoreTest {
     assertFalse(ToolMemory.isFresh(record, nowUtcMs = 5001L))
   }
 
-  @Test fun expireAllMakesFreshRecordStaleKeepsTextAndDoesNotMoveAlreadyStaleRecordForward() {
-    val db = openDb()
-    val store = ToolMemoryStore(db)
-    val now = 3000L
+  @Test fun deleteServiceRemovesOnlyThatServiceWhateverItsCase() {
+    val store = ToolMemoryStore(openDb())
+    store.put(ToolResultRecord("k1", "erp.example", "t", emptyMap(), "a", 1000L, 2000L))
+    store.put(ToolResultRecord("k2", "other.example", "t", emptyMap(), "b", 1000L, 2000L))
+    store.deleteService("ERP.example")
+    assertNull(store.find("k1"))
+    assertNotNull(store.find("k2"))
+  }
 
-    val freshRecord = ToolResultRecord(
-      key = "fresh_key",
-      service = "srv",
-      tool = "tool",
-      arguments = mapOf("q" to "สด"),
-      text = "ข้อความสด \"มีค่า\"",
-      fetchedUtcMs = 1000L,
-      freshUntilUtcMs = 5000L,
-    )
-    val staleRecord = ToolResultRecord(
-      key = "stale_key",
-      service = "srv",
-      tool = "tool",
-      arguments = mapOf("q" to "เก่า"),
-      text = "ข้อความเก่า \"เดิม\"",
-      fetchedUtcMs = 500L,
-      freshUntilUtcMs = 1000L,
-    )
-    store.put(freshRecord)
-    store.put(staleRecord)
+  private val readOnlySkill = SkillRecord("sales", "ยอดขาย", "d", "i", emptyList(), SkillActions.MCP_ACTION, source = SkillSource.MCP, server = "erp.example", readOnly = true)
+  private fun request(shop: String = "A") = ActionRequestInput(
+    SkillActions.MCP_ACTION,
+    mapOf("shop" to shop, SkillActions.KEY_SERVER to "erp.example", SkillActions.KEY_TOOL to "sales"),
+    "t", "d", ActionOrigin.MCP,
+  )
+  private val at = 1_790_121_600_000L // 00:00 UTC, 07:00 in Bangkok
 
-    store.expireAll(now)
+  @Test fun aRememberedResultAnswersTheSameCallUntilItGoesStale() {
+    val store = ToolMemoryStore(openDb())
+    val kept = assertNotNull(ToolMemory.remember(readOnlySkill, request(), "ยอด 100", store, at, BANGKOK))
+    assertEquals(mapOf("shop" to "A"), kept.arguments, "routing keys are not arguments")
+    assertEquals(kept, ToolMemory.recall(readOnlySkill, request(), store, at + 1))
+    assertNull(ToolMemory.recall(readOnlySkill, request(shop = "B"), store, at + 1), "shop A must never answer shop B")
+    assertNull(ToolMemory.recall(readOnlySkill, request(), store, kept.freshUntilUtcMs), "stale")
+  }
 
-    val updatedFresh = store.find("fresh_key")
-    assertNotNull(updatedFresh)
-    assertEquals(now, updatedFresh.freshUntilUtcMs)
-    assertEquals("ข้อความสด \"มีค่า\"", updatedFresh.text)
-    assertFalse(ToolMemory.isFresh(updatedFresh, now))
+  @Test fun aToolThatMayChangeSomethingIsNeverKeptNorAnsweredFromMemory() {
+    val store = ToolMemoryStore(openDb())
+    val writes = readOnlySkill.copy(readOnly = false)
+    assertNull(ToolMemory.remember(writes, request(), "สร้างใบสั่งซื้อแล้ว", store, at, BANGKOK))
+    assertNull(store.find(assertNotNull(ToolMemory.keyOf(request()))))
+    // even a record left from when the server called it read-only
+    ToolMemory.remember(readOnlySkill, request(), "ยอด 100", store, at, BANGKOK)
+    assertNull(ToolMemory.recall(writes, request(), store, at + 1))
+  }
 
-    val updatedStale = store.find("stale_key")
-    assertNotNull(updatedStale)
-    assertEquals(1000L, updatedStale.freshUntilUtcMs)
-    assertEquals("ข้อความเก่า \"เดิม\"", updatedStale.text)
-    assertFalse(ToolMemory.isFresh(updatedStale, now))
+  @Test fun aBlankResultOrAnotherActionIsNotKept() {
+    val store = ToolMemoryStore(openDb())
+    assertNull(ToolMemory.remember(readOnlySkill, request(), "  ", store, at, BANGKOK))
+    assertNull(ToolMemory.remember(readOnlySkill, request().copy(action = "calendar.add"), "x", store, at, BANGKOK))
+  }
+
+  @Test fun rememberRemovesWhatPassedThirtyDays() {
+    val store = ToolMemoryStore(openDb())
+    store.put(ToolResultRecord("old", "erp.example", "t", emptyMap(), "x", at - ToolMemory.KEEP_RAW_MS - 1, 0L))
+    store.put(ToolResultRecord("kept", "erp.example", "t", emptyMap(), "y", at - ToolMemory.KEEP_RAW_MS, 0L))
+    ToolMemory.remember(readOnlySkill, request(), "ยอด 100", store, at, BANGKOK)
+    assertNull(store.find("old"))
+    assertNotNull(store.find("kept"))
+  }
+
+  @Test fun freshUntilIsTheNextFourAmLocal() {
+    val hour = 3_600_000L
+    val fourAmBangkok = at - 3 * hour // 07:00 minus three hours
+    assertEquals(fourAmBangkok + 24 * hour, ToolMemory.freshUntil(at, BANGKOK), "morning: tomorrow 04:00")
+    assertEquals(fourAmBangkok, ToolMemory.freshUntil(fourAmBangkok - 1, BANGKOK), "03:59 stays fresh a moment")
+    assertEquals(fourAmBangkok + 24 * hour, ToolMemory.freshUntil(fourAmBangkok, BANGKOK), "04:00 exactly: the next one")
+    assertEquals(fourAmBangkok, ToolMemory.freshUntil(fourAmBangkok - 5 * hour, BANGKOK), "23:00: this coming night")
   }
 
   @Test fun deleteFetchedBeforeRemovesOnlyOlderRowsWithCorrectCountAtExactBoundary() {
