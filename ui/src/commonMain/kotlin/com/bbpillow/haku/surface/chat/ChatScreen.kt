@@ -7,8 +7,11 @@ import com.bbpillow.haku.skill.MentionParser
 import com.bbpillow.haku.skill.SkillRecord
 import com.bbpillow.haku.surface.action.ActionCalendarIcon
 import com.bbpillow.haku.surface.action.ActionCard
+import com.bbpillow.haku.memory.MemoryFormat
+import com.bbpillow.haku.skill.ToolSource
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.DragInteraction
@@ -16,6 +19,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -52,7 +57,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -85,7 +92,7 @@ import com.bbpillow.haku.surface.theme.HakuTone
 import com.bbpillow.haku.thinking.LlmDefaults
 
 /** One question and its answer; [answer] = null while Haku is still looking, [partial] is the text so far while [answer] == null. */
-data class ChatTurn(val question: String, val answer: ChatAnswerOutput?, val partial: String = "")
+data class ChatTurn(val question: String, val answer: ChatAnswerOutput?, val partial: String = "", val progress: String = "")
 
 private val UserBubble = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)
 private val AnswerBubble = RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp)
@@ -124,6 +131,9 @@ fun ChatScreen(
   mentionSkills: List<SkillRecord> = emptyList(),
   /** MCP server host -> display name, for the `@` popup rows. */
   mentionServiceNames: Map<String, String> = emptyMap(),
+  onRefreshTool: (ChatTurn) -> Unit = {},
+  tzOffsetMinutes: Int = 0,
+  nowUtcMs: () -> Long = { 0L },
   modifier: Modifier = Modifier,
   contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
 ) {
@@ -142,41 +152,40 @@ fun ChatScreen(
   LaunchedEffect(turns.size) {
     if (turns.isNotEmpty()) {
       following = true
-      list.animateScrollToItem(turns.size)
+      list.animateScrollToItem(turns.lastIndex)
     }
   }
   LaunchedEffect(turns.lastOrNull()?.partial, turns.lastOrNull()?.answer) {
-    if (turns.isNotEmpty() && following) list.scrollToItem(turns.size, Int.MAX_VALUE)
+    if (turns.isNotEmpty() && following) list.scrollToItem(turns.lastIndex, Int.MAX_VALUE)
   }
 
   // Keyboard open: lift the input above it; the nav padding counts as already-consumed space so there is no double gap.
   Column(modifier.fillMaxSize().padding(contentPadding).consumeWindowInsets(contentPadding).imePadding()) {
+    Row(
+      modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      ScreenTitle("ถาม Haku", Modifier.weight(1f), eyebrow = "ถามได้ทุกเรื่อง เรื่องของคุณตอบจากบันทึก")
+      if (turns.isNotEmpty() && !busy) {
+        StatChip(
+          "เรื่องใหม่",
+          Modifier
+            .padding(top = 30.dp)
+            .clip(HakuRadius.Pill)
+            .clickable(role = Role.Button, onClickLabel = "เริ่มเรื่องใหม่", onClick = onNewTopic),
+        )
+      }
+      StatChip(
+        engineLabel,
+        Modifier
+          .padding(top = 30.dp)
+          .clip(HakuRadius.Pill)
+          .clickable(role = Role.Button, onClickLabel = "AI ในเครื่อง", onClick = onOpenLlmSettings),
+      )
+    }
     Box(Modifier.weight(1f).fillMaxWidth()) {
       LazyColumn(Modifier.fillMaxSize(), state = list, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-          Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-          ) {
-            ScreenTitle("ถาม Haku", Modifier.weight(1f), eyebrow = "ถามได้ทุกเรื่อง เรื่องของคุณตอบจากบันทึก")
-            if (turns.isNotEmpty() && !busy) {
-              StatChip(
-                "เรื่องใหม่",
-                Modifier
-                  .padding(top = 30.dp)
-                  .clip(HakuRadius.Pill)
-                  .clickable(role = Role.Button, onClickLabel = "เริ่มเรื่องใหม่", onClick = onNewTopic),
-              )
-            }
-            StatChip(
-              engineLabel,
-              Modifier
-                .padding(top = 30.dp)
-                .clip(HakuRadius.Pill)
-                .clickable(role = Role.Button, onClickLabel = "AI ในเครื่อง", onClick = onOpenLlmSettings),
-            )
-          }
-        }
         if (turns.isEmpty()) {
           if (resumeTitle != null) {
             item {
@@ -232,6 +241,21 @@ fun ChatScreen(
                   .padding(horizontal = 16.dp, vertical = 11.dp),
               )
             }
+            if (turn.answer == null && turn.progress.isNotBlank()) {
+              Row(
+                modifier = Modifier
+                  .padding(start = 4.dp)
+                  .semantics { liveRegion = LiveRegionMode.Polite },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+              ) {
+                Text(
+                  text = turn.progress,
+                  style = MaterialTheme.typography.labelSmall,
+                  color = HakuColors.Muted,
+                )
+              }
+            }
             val appointment = turn.answer?.appointment
             if (appointment != null) {
               if (turn.answer?.text?.isNotBlank() == true) {
@@ -247,6 +271,15 @@ fun ChatScreen(
               turn.answer?.actionId?.let(actions::get)?.let { p ->
                 ActionCard(p, onConfirm = { onConfirmAction(p.id) }, onDismiss = { onDismissAction(p.id) })
               }
+            }
+            turn.answer?.toolSource?.let { toolSource ->
+              ToolSourceRow(
+                source = toolSource,
+                onRefresh = { onRefreshTool(turn) },
+                showRefresh = !busy,
+                tzOffsetMinutes = tzOffsetMinutes,
+                nowUtcMs = nowUtcMs,
+              )
             }
             if (i == turns.lastIndex && turn.answer != null && turn.answer.appointment == null && turn.answer.actionId == null) {
               Text(
@@ -606,6 +639,75 @@ private fun ModeBar(
         textAlign = TextAlign.Center,
         modifier = Modifier.padding(top = 4.dp),
       )
+    }
+  }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ToolSourceRow(
+  source: ToolSource,
+  onRefresh: () -> Unit,
+  showRefresh: Boolean,
+  tzOffsetMinutes: Int,
+  nowUtcMs: () -> Long,
+  modifier: Modifier = Modifier,
+) {
+  val isFresh = nowUtcMs() < source.freshUntilUtcMs
+  val timeMs = source.fetchedUtcMs + tzOffsetMinutes * 60_000L
+  val hhmm = MemoryFormat.formatUtc(timeMs).substring(11, 16)
+  val text = if (source.fromMemory) {
+    "จากความจำ · ดึงจาก ${source.service} เมื่อ $hhmm" + if (isFresh) " · สดถึงคืนนี้" else ""
+  } else {
+    "ดึงจาก ${source.service} เมื่อ $hhmm"
+  }
+
+  FlowRow(
+    modifier = modifier.fillMaxWidth(),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    verticalArrangement = Arrangement.spacedBy(4.dp),
+  ) {
+    Box(
+      modifier = Modifier.heightIn(min = 48.dp),
+      contentAlignment = Alignment.CenterStart,
+    ) {
+      Box(
+        modifier = Modifier
+          .clip(HakuRadius.Pill)
+          .background(HakuColors.Lilac, HakuRadius.Pill)
+          .padding(horizontal = 12.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+      ) {
+        Text(
+          text = text,
+          style = MaterialTheme.typography.labelSmall,
+          color = HakuColors.Ink,
+        )
+      }
+    }
+    if (showRefresh) {
+      Box(
+        modifier = Modifier
+          .widthIn(min = 48.dp)
+          .heightIn(min = 48.dp)
+          .clip(HakuRadius.Pill)
+          .clickable(role = Role.Button, onClickLabel = "ดึงใหม่", onClick = onRefresh),
+        contentAlignment = Alignment.Center,
+      ) {
+        Box(
+          modifier = Modifier
+            .clip(HakuRadius.Pill)
+            .border(1.dp, HakuColors.Line, HakuRadius.Pill)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+          contentAlignment = Alignment.Center,
+        ) {
+          Text(
+            text = "ดึงใหม่",
+            style = MaterialTheme.typography.labelSmall,
+            color = HakuColors.Ink,
+          )
+        }
+      }
     }
   }
 }
