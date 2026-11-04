@@ -35,6 +35,13 @@ private class ReplyModel(private val reply: String) : LocalModel {
   override suspend fun unload() {}
 }
 
+private class ChunkModel(private vararg val chunks: String) : LocalModel {
+  override suspend fun load(config: ModelConfig) {}
+  override fun generate(input: GenerateInput): Flow<String> = flow { chunks.forEach { emit(it) } }
+  override fun cancel() {}
+  override suspend fun unload() {}
+}
+
 /** Questions in scripts/stress/questions_th.txt that are not about the user's life, so general is the right path. */
 private val STRESS_SET_ALLOWED_GENERAL = setOf(
   "คุณชื่ออะไร", "ช่วยแนะนำตัวหน่อย",
@@ -154,6 +161,64 @@ class ChatPresenterTest {
     // the same records must still answer questions about them
     assertEquals(ChatRoute.DIARY, route("ซื้อไข่ไก่ที่ตลาดกี่โมง"))
     assertEquals(ChatRoute.DIARY, route("คุยเรื่องทริปญี่ปุ่นกับใคร"))
+  }
+
+  @Test fun `a general answer streams as it arrives and ends with the whole text`() = runTest {
+    val partials = mutableListOf<String>()
+    val out = chat.answer(ask("สูตรต้มยำกุ้งทำยังไง"), LocalModelClient(ChunkModel("ต้มน้ำ", " ใส่กุ้ง")), partials::add)
+    assertEquals(listOf("ต้มน้ำ", "ต้มน้ำ ใส่กุ้ง"), partials)
+    assertEquals("ต้มน้ำ ใส่กุ้ง", out.text)
+    assertFalse(out.stopped)
+  }
+
+  @Test fun `a diary answer never streams its unchecked text`() = runTest {
+    seed()
+    val partials = mutableListOf<String>()
+    chat.answer(ask(coffee), LocalModelClient(ChunkModel("ไปร้านกาแฟ", " 12:00")), partials::add)
+    assertEquals(emptyList(), partials)
+  }
+
+  @Test fun `stopping a general answer keeps what arrived and it stays in the chat`() = runTest {
+    val client = LocalModelClient(ChunkModel("ต้มน้ำ", " ใส่กุ้ง", " แล้วชิม"))
+    val out = chat.answer(ask("สูตรต้มยำกุ้งทำยังไง"), client) { if (" ใส่กุ้ง" in it) client.cancel() }
+    assertEquals("ต้มน้ำ ใส่กุ้ง", out.text)
+    assertEquals(ChatAnswerSource.GENERAL, out.source)
+    assertTrue(out.stopped)
+    val session = ChatSessionState(id = 1L).after(out)
+    assertEquals("ต้มน้ำ ใส่กุ้ง", session.general.single().model)
+  }
+
+  @Test fun `stopping before any text says so and leaves the chat as it was`() = runTest {
+    val client = LocalModelClient(ChunkModel("ต้มน้ำ"))
+    client.cancel()
+    val out = chat.answer(ask("สูตรต้มยำกุ้งทำยังไง"), client)
+    assertEquals(ChatPresenter.STOPPED_NOTICE, out.text)
+    assertTrue(out.stopped)
+    val session = ChatSessionState(id = 1L, lastRoute = ChatRoute.GENERAL)
+    assertEquals(session, session.after(out))
+  }
+
+  @Test fun `stopping a diary answer gives the checked retrieval answer`() = runTest {
+    seed()
+    val client = LocalModelClient(ChunkModel("ไปร้านกาแฟ"))
+    client.cancel()
+    val r = ask(coffee)
+    assertEquals(r.fallback.text, chat.answer(r, client).text)
+  }
+
+  @Test fun `a general answer past the time limit keeps what arrived`() = runTest {
+    val limited = ChatPresenter(rig.memory, rig.index, rig.pipeline, RecallRig.OFFSET_MIN, generalTimeoutMillis = 1_000L)
+    val hanging = object : LocalModel {
+      override suspend fun load(config: ModelConfig) {}
+      override fun generate(input: GenerateInput): Flow<String> = flow { emit("ต้มน้ำ"); kotlinx.coroutines.awaitCancellation() }
+      override fun cancel() {}
+      override suspend fun unload() {}
+    }
+    val q = "สูตรต้มยำกุ้งทำยังไง"
+    val out = limited.answer(limited.retrieve(ChatQuestionInput(q, RecallRig.NOW)), LocalModelClient(hanging))
+    assertEquals("ต้มน้ำ", out.text)
+    assertEquals(ChatAnswerSource.GENERAL, out.source)
+    assertTrue(out.stopped)
   }
 
   // Found on Fold5: "สวัสดี" came back as just "ค่ะ"

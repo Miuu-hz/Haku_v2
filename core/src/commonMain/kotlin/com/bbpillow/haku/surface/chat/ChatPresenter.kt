@@ -13,6 +13,7 @@ import com.bbpillow.haku.memory.MemoryRepository
 import com.bbpillow.haku.memory.index.SearchRepository
 import com.bbpillow.haku.thinking.GenerateEvent
 import com.bbpillow.haku.thinking.GenerateInput
+import com.bbpillow.haku.thinking.GenerateOutput
 import com.bbpillow.haku.thinking.LocalModelClient
 import com.bbpillow.haku.thinking.context.AssembleInput
 import com.bbpillow.haku.thinking.context.AssembledContext
@@ -26,8 +27,6 @@ import com.bbpillow.haku.thinking.context.TimeWords
 import com.bbpillow.haku.thinking.summary.SummaryCheckInput
 import com.bbpillow.haku.thinking.summary.SummaryChecker
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** [session] = what this chat has said so far; null = a one-off question that neither reads nor continues a chat. */
@@ -55,6 +54,8 @@ data class ChatAnswerOutput(
   val appointment: AppointmentProposal? = null,
   /** Week 2: a skill/MCP call put an ActionGate card up; the UI shows that proposal under the answer. */
   val actionId: String? = null,
+  /** The answer ended early (the user pressed stop, or the time limit): [text] is what had arrived so far. */
+  val stopped: Boolean = false,
 )
 
 /** What [ChatPresenter.retrieve] found: the model context, its citations and the no-model answer. */
@@ -76,7 +77,6 @@ data class ChatRetrievalOutput(
  * P3.8: [ChatRouter] sends general knowledge down a second path: no records in the prompt, no fact check, a longer
  * answer, and [ChatAnswerSource.GENERAL] so the UI says it may be wrong.
  */
-// ponytail: whole answer at once, no token streaming or per-message processing level yet (P3.3 list); add with the chat engine.
 class ChatPresenter(
   private val memory: MemoryRepository,
   search: SearchRepository,
@@ -136,8 +136,12 @@ class ChatPresenter(
     return words.count { line.contains(it, ignoreCase = true) } * 2 > words.size
   }
 
-  /** [client] = an already loaded model, or null (no model file): then the retrieval answer is returned as is. */
-  suspend fun answer(retrieval: ChatRetrievalOutput, client: LocalModelClient?): ChatAnswerOutput {
+  /**
+   * [client] = an already loaded model, or null (no model file): then the retrieval answer is returned as is.
+   * [onPartial] gets the general path's text so far as it arrives, and [LocalModelClient.cancel] ends it with what came.
+   * The diary path is not streamed: its text is unchecked until complete, and an invented time must never be on screen.
+   */
+  suspend fun answer(retrieval: ChatRetrievalOutput, client: LocalModelClient?, onPartial: (String) -> Unit = {}): ChatAnswerOutput {
     val fallback = retrieval.fallback
     if (client == null) return fallback
     val general = retrieval.route == ChatRoute.GENERAL
@@ -154,15 +158,34 @@ class ChatPresenter(
       else prompt(retrieval)
       GenerateInput(prompt)
     }
-    val raw = try {
+    val streamed = StringBuilder()
+    val output = try {
       withTimeoutOrNull(if (general) generalTimeoutMillis else timeoutMillis) {
-        client.generate(generateInput).filterIsInstance<GenerateEvent.Finished>().first().output
-      }?.takeIf { !it.metrics.cancelled }?.text?.trim()
+        var finished: GenerateOutput? = null
+        client.generate(generateInput).collect { event ->
+          when (event) {
+            is GenerateEvent.Token -> if (general) { streamed.append(event.text); onPartial(streamed.toString()) }
+            is GenerateEvent.Finished -> finished = event.output
+          }
+        }
+        finished
+      }
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
-      return fallback.copy(rejectedReasons = listOf("model-error: ${e::class.simpleName}"))
-    } ?: return fallback.copy(rejectedReasons = listOf("timeout"))
+      if (streamed.isEmpty()) return fallback.copy(rejectedReasons = listOf("model-error: ${e::class.simpleName}"))
+      null // a general answer that broke off keeps what the user already read
+    }
+    val stopped = output?.metrics?.cancelled == true
+    if (general && (output == null || stopped)) {
+      val sofar = cleanAnswer(streamed.toString().trim(), retrieval.input.question)
+      return when {
+        sofar.isNotBlank() -> fallback.copy(text = sofar, source = ChatAnswerSource.GENERAL, stopped = true)
+        stopped -> fallback.copy(text = STOPPED_NOTICE, stopped = true)
+        else -> fallback.copy(rejectedReasons = listOf("timeout"))
+      }
+    }
+    val raw = output?.takeIf { !stopped }?.text?.trim() ?: return fallback.copy(rejectedReasons = listOf("timeout"))
     if (general) {
       // ponytail: no fact check, there are no records to check against; the label on the answer carries the risk
       val answer = cleanAnswer(raw, retrieval.input.question)
@@ -319,9 +342,11 @@ class ChatPresenter(
     const val MAX_CHAT_CHARS = 600
     const val DEFAULT_BUDGET_TOKENS = 900
     const val DEFAULT_TIMEOUT_MS = 30_000L
-    // ponytail: a long answer still arrives whole, so this is the user's wait; shorten once answers stream
+    /** The longest a general answer runs; past it the user keeps what arrived. */
     const val DEFAULT_GENERAL_TIMEOUT_MS = 120_000L
     const val GENERAL_LABEL = "ความรู้ทั่วไปจากโมเดล อาจผิด"
+    const val STOPPED_LABEL = "หยุดตอบแล้ว"
+    const val STOPPED_NOTICE = "หยุดแล้ว ยังไม่ได้ตอบ"
     const val GENERAL_UNAVAILABLE = "ตอนนี้ตอบเรื่องทั่วไปไม่ได้ ตรวจโมเดลได้ในตั้งค่า AI ในเครื่อง แล้วลองอีกครั้ง"
     const val ACKNOWLEDGEMENT = "รับทราบแล้ว" // neutral: the statement may be good news or bad
     const val ECHO_MAX_EXTRA_CHARS = 16

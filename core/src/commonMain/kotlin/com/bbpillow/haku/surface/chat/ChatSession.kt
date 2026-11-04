@@ -29,9 +29,10 @@ data class ChatSessionState(
     return copy(general = general.asReversed().takeWhile { used += it.chars; used <= maxTokens / 4 }.asReversed())
   }
 
-  /** An answer that only raised a card (appointment, skill) moves neither path along. */
+  /** An answer that only raised a card (appointment, skill) or was stopped before any text moves neither path along. */
   fun after(answer: ChatAnswerOutput): ChatSessionState = when {
     answer.appointment != null || answer.actionId != null -> this
+    answer.stopped && answer.source != ChatAnswerSource.GENERAL -> this
     answer.source == ChatAnswerSource.GENERAL ->
       copy(general = general + ChatExchange(answer.question, answer.text), turns = turns + 1, lastRoute = ChatRoute.GENERAL)
     else -> {
