@@ -9,7 +9,7 @@ import kotlinx.coroutines.launch
 
 /**
  * P5.8 [เพิ่ม] / [ไม่ใช่] on [AppointmentOfferNotifier]'s heads-up, through [AppointmentOfferHooks] to the action gate.
- * Only the user's tap on [เพิ่ม] can lead to a calendar write; an id the gate no longer knows (process died) = expired.
+ * Only the user's tap on [เพิ่ม] can lead to a calendar write; an offer no longer kept = expired.
  */
 class AppointmentOfferReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {

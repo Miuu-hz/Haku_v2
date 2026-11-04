@@ -207,10 +207,9 @@ private fun TaskRowItem(
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
       )
-      if (row.dueText != null) {
-        val dueLabel = if (row.isOverdue) "เลย ${row.dueText}" else row.dueText
+      row.dueText?.let { due ->
         Text(
-          text = dueLabel,
+          text = if (row.isOverdue) "เลย $due" else due,
           style = MaterialTheme.typography.labelSmall,
           color = if (row.isOverdue) HakuColors.Coral else boxColor,
         )

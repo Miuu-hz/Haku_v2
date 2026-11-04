@@ -47,7 +47,6 @@ import com.bbpillow.haku.surface.components.HakuIcons
 import com.bbpillow.haku.surface.components.SurfaceCard
 import com.bbpillow.haku.surface.theme.HakuColors
 import com.bbpillow.haku.surface.theme.HakuRadius
-import com.bbpillow.haku.task.TaskDraft
 import com.bbpillow.haku.task.TaskRules
 
 @Composable
@@ -323,7 +322,6 @@ private fun DueDatePickerDialog(
       CapsuleButton(text = "ยกเลิก", onClick = onDismiss, outline = true)
     },
     shape = HakuRadius.Card,
-    containerColor = HakuColors.Surface,
   ) {
     DatePicker(state = datePickerState)
   }

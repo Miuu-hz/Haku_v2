@@ -114,6 +114,10 @@ import com.bbpillow.haku.surface.settings.SettingsScreen
 import com.bbpillow.haku.surface.settings.SettingsUiState
 import com.bbpillow.haku.surface.stats.StatsScreen
 import com.bbpillow.haku.surface.stats.StatsUiState
+import com.bbpillow.haku.surface.tasks.TaskDraft
+import com.bbpillow.haku.surface.tasks.TaskEditScreen
+import com.bbpillow.haku.surface.tasks.TasksScreen
+import com.bbpillow.haku.surface.tasks.TasksUiState
 import com.bbpillow.haku.surface.timeline.TimelineScreen
 import com.bbpillow.haku.surface.timeline.TimelineUiState
 import com.bbpillow.haku.thinking.GenerateEvent
@@ -144,6 +148,9 @@ private const val TAB_HOME = 0
 private const val TAB_TIMELINE = 1
 private const val TAB_CHAT = 2
 private const val PAIRING_NOT_READY = "รุ่นทดสอบนี้ยังจับคู่กับคอมไม่ได้ จะเปิดให้ใช้ในรุ่นถัดไป"
+private const val OFFER_NOT_POSSIBLE = "เพิ่มนัดนี้ไม่ได้ ข้อเสนออาจหมดอายุ หรือคำสั่งถูกหยุดอยู่"
+private const val CALENDAR_PERMISSION_NEEDED = "ต้องอนุญาตปฏิทินก่อนจึงจะเพิ่มนัดได้"
+private const val NEW_TASK = "new"
 
 private const val DAY_MS = 86_400_000L
 
@@ -171,6 +178,7 @@ fun MainShell(
   val settingsPage = rememberSaveable { mutableStateOf(SettingsPage.MAIN) }
   var modelsOpen by rememberSaveable { mutableStateOf(false) }
   var statsOpen by rememberSaveable { mutableStateOf(false) }
+  var tasksOpen by rememberSaveable { mutableStateOf(false) }
   var chatMode by rememberSaveable { mutableStateOf(ChatMode.GENERAL) }
   var a2aOpen by rememberSaveable { mutableStateOf(false) }
   var pairingNotice by rememberSaveable { mutableStateOf<String?>(null) }
@@ -201,6 +209,7 @@ fun MainShell(
   BackHandler(enabled = !plusOpen && !modelsOpen && !settingsOpen && a2aOpen) { a2aOpen = false }
   BackHandler(enabled = !plusOpen && !modelsOpen && !settingsOpen && nodeOpen && tab == NavItems.lastIndex) { nodeOpen = false }
   BackHandler(enabled = !plusOpen && !modelsOpen && !settingsOpen && statsOpen && tab == TAB_HOME) { statsOpen = false }
+  BackHandler(enabled = !plusOpen && !modelsOpen && !settingsOpen && tasksOpen && tab == TAB_HOME) { tasksOpen = false }
   Box(Modifier.fillMaxSize()) {
     if (plusOpen) {
       PlusTab(graph, activity) { plusOpen = false }
@@ -234,8 +243,11 @@ fun MainShell(
     }
     val openDay = { d: String -> day = d; tab = TAB_TIMELINE }
     when (tab) {
-      TAB_HOME -> if (statsOpen) StatsTab(graph, { plusOpen = true }) { statsOpen = false }
-      else HomeTab(graph, CaptureController.isEnabled(activity), openDay, { plusOpen = true }) { statsOpen = true }
+      TAB_HOME -> when {
+        statsOpen -> StatsTab(graph, { plusOpen = true }) { statsOpen = false }
+        tasksOpen -> TasksTab(graph) { tasksOpen = false }
+        else -> HomeTab(graph, CaptureController.isEnabled(activity), openDay, { plusOpen = true }, { statsOpen = true }) { tasksOpen = true }
+      }
       TAB_TIMELINE -> TimelineTab(graph, day) { day = it }
       TAB_CHAT -> ChatTab(
         graph,
@@ -704,11 +716,38 @@ private fun ModelManagerTab(
 }
 
 @Composable
-private fun HomeTab(graph: AppGraph, isCapturing: Boolean, onOpenDay: (String) -> Unit, onOpenPlus: () -> Unit, onOpenStats: () -> Unit) {
+private fun HomeTab(
+  graph: AppGraph,
+  isCapturing: Boolean,
+  onOpenDay: (String) -> Unit,
+  onOpenPlus: () -> Unit,
+  onOpenStats: () -> Unit,
+  onOpenTasks: () -> Unit,
+) {
   var state by remember { mutableStateOf<HomeBriefUiState?>(null) }
+  var decisionMessage by remember { mutableStateOf<String?>(null) }
+  var modelLine by remember { mutableStateOf<String?>(null) }
+  val offersVersion by graph.offersVersion.collectAsState()
+  val context = LocalContext.current
+  // graph.scope: a calendar write that has started must finish even if the user leaves this tab
+  val confirm = { id: String ->
+    graph.scope.launch { decisionMessage = graph.confirmOffer(id)?.message ?: OFFER_NOT_POSSIBLE }
+    Unit
+  }
+  var waitingForPermission by remember { mutableStateOf<String?>(null) }
+  val calendarPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+    val id = waitingForPermission ?: return@rememberLauncherForActivityResult
+    waitingForPermission = null
+    if (CalendarWriter.canWrite(context)) confirm(id) else decisionMessage = CALENDAR_PERMISSION_NEEDED
+  }
+  LaunchedEffect(Unit) {
+    val installed = withContext(Dispatchers.IO) { graph.installedModels() }
+    val label = graph.safeIo { modelManager.activeModelLabel(installed) } ?: ModelManagerPresenter.NO_MODEL_LABEL
+    modelLine = (if (label == ModelManagerPresenter.NO_MODEL_LABEL) label else "$label พร้อม") + " · ย่อยความจำตอนชาร์จ"
+  }
   // reload when the plan changes (file read at start, a purchase, a restore)
   val entitlements by graph.billing.entitlements.collectAsState()
-  LaunchedEffect(entitlements.plan) {
+  LaunchedEffect(entitlements.plan, offersVersion) {
     val now = System.currentTimeMillis()
     state = graph.safeIo {
       // the brief reads yesterday in the morning and today later on; write both before reading
@@ -728,6 +767,74 @@ private fun HomeTab(graph: AppGraph, isCapturing: Boolean, onOpenDay: (String) -
     contentPadding = TabPadding,
     onOpenPlus = onOpenPlus,
     onOpenStats = onOpenStats,
+    modelLine = modelLine,
+    onOpenTasks = onOpenTasks,
+    onConfirmDecision = { id ->
+      decisionMessage = null
+      if (CalendarWriter.canWrite(context)) {
+        confirm(id)
+      } else {
+        waitingForPermission = id
+        calendarPermission.launch(arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR))
+      }
+    },
+    onDismissDecision = { id ->
+      decisionMessage = null
+      graph.scope.launch { graph.dismissOffer(id) }
+    },
+    decisionMessage = decisionMessage,
+  )
+}
+
+/** The four boxes, and the add/edit form over them. */
+@Composable
+private fun TasksTab(graph: AppGraph, onBack: () -> Unit) {
+  var state by remember { mutableStateOf<TasksUiState?>(null) }
+  var reload by remember { mutableIntStateOf(0) }
+  var editing by rememberSaveable { mutableStateOf<String?>(null) } // a task id, or NEW_TASK
+  val scope = rememberCoroutineScope()
+  LaunchedEffect(reload) { state = graph.safeIo { tasksPresenter.load() } }
+  BackHandler(enabled = editing != null) { editing = null }
+  val id = editing
+  if (id != null) {
+    TaskEditTab(graph, id, onClosed = { editing = null; reload++ }, onBack = { editing = null })
+    return
+  }
+  val s = state ?: return
+  TasksScreen(
+    state = s,
+    onToggleDone = { task -> scope.launch { graph.safeIo { tasksPresenter.toggleDone(task) }; reload++ } },
+    onOpenTask = { editing = it },
+    onAdd = { editing = NEW_TASK },
+    onBack = onBack,
+    contentPadding = TabPadding,
+  )
+}
+
+@Composable
+private fun TaskEditTab(graph: AppGraph, id: String, onClosed: () -> Unit, onBack: () -> Unit) {
+  val isNew = id == NEW_TASK
+  var initial by remember(id) { mutableStateOf<TaskDraft?>(null) }
+  var ready by remember(id) { mutableStateOf(isNew) }
+  LaunchedEffect(id) {
+    if (!isNew) {
+      initial = graph.safeIo { tasksPresenter.draftOf(id) }
+      ready = true
+    }
+  }
+  if (!ready) return
+  val scope = rememberCoroutineScope()
+  val now = System.currentTimeMillis()
+  TaskEditScreen(
+    initial = initial,
+    todayDay = graph.today(now),
+    tomorrowDay = graph.today(now + DAY_MS),
+    onSave = { draft ->
+      scope.launch { if (graph.safeIo { tasksPresenter.save(id.takeUnless { isNew }, draft) } == true) onClosed() }
+    },
+    onDelete = if (isNew) null else ({ scope.launch { graph.safeIo { tasksPresenter.delete(id) }; onClosed() } }),
+    onBack = onBack,
+    contentPadding = TabPadding,
   )
 }
 

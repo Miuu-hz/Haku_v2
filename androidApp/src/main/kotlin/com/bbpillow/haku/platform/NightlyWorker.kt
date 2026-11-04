@@ -25,6 +25,7 @@ import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.platform.signals.CalendarReader
 import com.bbpillow.haku.platform.widget.HakuWidget
 import com.bbpillow.haku.skill.ToolMemory
+import com.bbpillow.haku.task.TaskRules
 import com.bbpillow.haku.thinking.LocalModelClient
 import com.bbpillow.haku.thinking.ModelConfig
 import com.bbpillow.haku.thinking.summary.EveningSummarizer
@@ -78,6 +79,8 @@ class NightlyWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     graph.io {
       chatHistory.purge(System.currentTimeMillis())
       toolMemory.deleteFetchedBefore(System.currentTimeMillis() - ToolMemory.KEEP_RAW_MS)
+      pendingOffers.deleteExpired(System.currentTimeMillis())
+      tasks.deleteDoneBefore(System.currentTimeMillis() - TaskRules.KEEP_DONE_MS)
     }
     embed(graph) // before summarize: the embedder must open before (or after) the LLM, never while it is open
     if (config != null && plan.summarizeDays.isNotEmpty()) summarize(graph, config, plan.summarizeDays, facts)

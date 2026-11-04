@@ -26,7 +26,7 @@ class ProcessTextActivity : Activity() {
       Toast.makeText(this, "ไม่พบนัดในข้อความนี้", Toast.LENGTH_SHORT).show()
     } else {
       // wiring: Claude (onOffer is set from the Application, see AppointmentOfferHooks)
-      AppointmentOfferHooks.onOffer?.invoke(offer)
+      AppointmentOfferHooks.onOffer?.invoke(offer, null)
     }
     finish()
   }

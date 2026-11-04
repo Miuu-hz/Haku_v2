@@ -36,7 +36,8 @@ class HakuNotificationListener : NotificationListenerService() {
     val event = NotificationTextEvent(sbn.packageName, postedUtcMs, "$title\n$body") // first line = sender, see the rule
     val tzOffsetMinutes = TimeZone.getDefault().getOffset(postedUtcMs) / 60_000
     // wiring: Claude (onOffer is set from the Application, see AppointmentOfferHooks)
-    rule.offer(event, tzOffsetMinutes)?.let { AppointmentOfferHooks.onOffer?.invoke(it) }
+    val appName = NotificationApps.ALL.firstOrNull { it.packageName == sbn.packageName }?.name
+    rule.offer(event, tzOffsetMinutes)?.let { AppointmentOfferHooks.onOffer?.invoke(it, appName) }
   }
 
   private companion object {

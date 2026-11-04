@@ -20,7 +20,7 @@ class HakuApplication : Application() {
     super.onCreate()
     graph = AppGraph(this)
     // P5.8 chat notifications / selected text -> the action gate -> heads-up offer; the user's tap confirms.
-    AppointmentOfferHooks.onOffer = { request ->
+    AppointmentOfferHooks.onOffer = { request, appName ->
       graph.scope.launch {
         // as the chat card: an overlap goes on the heads-up as "ชนกับ …" (warning is the card's conflict line)
         val args = CalendarAddArgs.parse(request.arguments)?.takeIf { request.action == CalendarAddArgs.ACTION && request.warning == null }
@@ -28,11 +28,14 @@ class HakuApplication : Application() {
           withContext(Dispatchers.IO) { runCatching { CalendarWriter.conflictLine(this@HakuApplication, it.startUtcMs, it.endUtcMs, graph.tzOffsetMinutes, it.allDay) }.getOrNull() }
         }
         val checked = if (conflict != null) request.copy(warning = conflict) else request
-        (graph.actionGate.submit(checked) as? ActionDecision.AwaitingUser)?.let { AppointmentOfferNotifier.post(this@HakuApplication, it.proposal) }
+        (graph.actionGate.submit(checked) as? ActionDecision.AwaitingUser)?.let {
+          graph.keepOffer(it.proposal, appName) // kept even when notifications are off: Home still asks
+          AppointmentOfferNotifier.post(this@HakuApplication, it.proposal)
+        }
       }
     }
-    AppointmentOfferHooks.confirm = { id -> graph.confirmAction(id) } // also writes the "นัด …" diary line, as the chat card
-    AppointmentOfferHooks.dismiss = { id -> graph.actionGate.dismiss(id) }
+    AppointmentOfferHooks.confirm = { id -> graph.confirmOffer(id) } // also writes the "นัด …" diary line, as the chat card
+    AppointmentOfferHooks.dismiss = { id -> graph.scope.launch { graph.dismissOffer(id) } }
     // No-op until capture was explicitly started once (end of onboarding, CaptureController.start).
     CaptureController.resumeIfEnabled(this)
   }

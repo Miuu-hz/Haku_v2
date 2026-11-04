@@ -36,7 +36,19 @@ import com.bbpillow.haku.skill.SkillSlot
 import com.bbpillow.haku.skill.SkillSource
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.android.Android
+import io.ktor.client.call.HttpClientCall
+import io.ktor.client.plugins.HttpSend
+import io.ktor.client.plugins.plugin
 import io.ktor.client.plugins.sse.SSE
+import io.ktor.client.request.HttpRequestBuilder
+import io.ktor.client.request.HttpResponseData
+import io.ktor.http.Headers
+import io.ktor.http.HttpMethod
+import io.ktor.http.HttpProtocolVersion
+import io.ktor.http.HttpStatusCode
+import io.ktor.utils.io.InternalAPI
+import io.ktor.util.date.GMTDate
+import io.ktor.utils.io.ByteReadChannel
 import io.ktor.client.request.bearerAuth
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpClientTransport
@@ -75,7 +87,7 @@ class KtorMcpClient(
       // read timeout: an SSE tool answer can stay silent until the server finishes (DeepWiki ask ~16 s)
       socketTimeout = CALL_TIMEOUT_MS
     }
-  }
+  }.apply { plugin(HttpSend).intercept { request -> if (request.method == HttpMethod.Get) noPushStream(request) else execute(request) } }
 
   // Maps (serverUrl, sanitizedSkillName) -> original MCP tool name for servers that use underscores/caps.
   private val rawToolNames = ConcurrentHashMap<Pair<String, String>, String>()
@@ -191,6 +203,25 @@ class KtorMcpClient(
     client = httpClient,
     url = url,
     requestBuilder = { apiKey?.let { bearerAuth(it) } },
+  )
+
+  /**
+   * After connecting, the SDK opens a GET stream for what a server may push, and waits for its headers. Behind Cloudflare a
+   * quiet stream sends none, so the connect hangs (seen with a real server). Haku asks and waits for one answer per call and
+   * needs no pushes, so every GET gets the 405 a server without that stream would send; the SDK carries on from there.
+   */
+  @OptIn(InternalAPI::class)
+  private fun noPushStream(request: HttpRequestBuilder): HttpClientCall = HttpClientCall(
+    httpClient,
+    request.build(),
+    HttpResponseData(
+      HttpStatusCode.MethodNotAllowed,
+      GMTDate(),
+      Headers.Empty,
+      HttpProtocolVersion.HTTP_1_1,
+      ByteReadChannel.Empty,
+      request.executionContext,
+    ),
   )
 
   private fun newSdkClient(): Client =

@@ -20,7 +20,8 @@ import com.bbpillow.haku.surface.chat.AppointmentCommand
 
 /**
  * P5.8 heads-up "เพิ่มนัดนี้ลงปฏิทินไหม" with [เพิ่ม] [ไม่ใช่] (as [IntentNotifier]: private on the lock screen, because the
- * title came from a chat). The buttons carry only the proposal id; the gate holds the request in RAM.
+ * title came from a chat). The buttons carry only the proposal id; the request is in the gate, and in the kept offer once
+ * the process has died.
  */
 object AppointmentOfferNotifier {
   private const val CHANNEL_ID = "appointment-offers"
@@ -36,7 +37,7 @@ object AppointmentOfferNotifier {
 
   fun notificationId(proposalId: String): Int = NOTIFICATION_BASE_ID + (proposalId.hashCode() and 0xFFF)
 
-  /** Returns false when notifications are not allowed (the offer is then dropped; nothing is kept). */
+  /** Returns false when notifications are not allowed; the kept offer still waits on Home. */
   @SuppressLint("MissingPermission") // checked in canPost
   fun post(context: Context, proposal: ActionProposalRecord): Boolean {
     if (!canPost(context)) return false
@@ -67,7 +68,7 @@ object AppointmentOfferNotifier {
     NotificationManagerCompat.from(context).notify(notificationId(proposalId), notification)
   }
 
-  /** The id is unknown to the gate (process died since the offer): same slot, no buttons. */
+  /** The offer is gone (its appointment ended, or it was already decided): same slot, no buttons. */
   fun showExpired(context: Context, proposalId: String) = showResult(context, proposalId, EXPIRED_TEXT)
 
   fun cancel(context: Context, proposalId: String) = NotificationManagerCompat.from(context).cancel(notificationId(proposalId))

@@ -50,9 +50,9 @@ fun HomeBriefScreen(
   onReadLearning: (LearningCard) -> Unit,
   onDismissLearning: (LearningCard) -> Unit,
   modifier: Modifier = Modifier,
-  /** The weekly card's Haku Plus chip (P9.4). */
+  /** The header's Haku Plus chip (P9.4). */
   onOpenPlus: () -> Unit = {},
-  /** The weekly card opens the stats screen (P2.8: week/month/year + comparison). */
+  /** The stats row opens the stats screen (P2.8: week/month/year + comparison). */
   onOpenStats: () -> Unit = {},
   contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
   /** e.g. "Gemma E2B พร้อม · ย่อยความจำตอนชาร์จ"; null = line hidden. */
@@ -75,8 +75,9 @@ fun HomeBriefScreen(
     }
     item { HomeTasksCard(state.taskCounts, onOpenTasks) }
     state.appointments?.let { today -> item { AppointmentsCard(today) } }
-    if (state.stats != null) {
-      item { StatsRow(state.stats, onOpenStats) }
+    val stats = state.stats
+    if (stats != null) {
+      item { StatsRow(stats, onOpenStats) }
     } else if (state.weekly != null) {
       item {
         StatChip(
@@ -181,13 +182,7 @@ private fun DecisionRowItem(
           verticalAlignment = Alignment.Top,
         ) {
           IconTile(HakuIcons.Calendar, HakuTone.Blue, size = 36.dp)
-          Column(modifier = Modifier.weight(1f)) {
-            Text(row.heading, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Text(row.detail, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
-            row.warning?.let {
-              Text(it, style = MaterialTheme.typography.bodySmall, color = HakuColors.Coral)
-            }
-          }
+          DecisionText(row, Modifier.weight(1f))
         }
         Row(
           modifier = Modifier.padding(start = 48.dp),
@@ -204,19 +199,22 @@ private fun DecisionRowItem(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
       ) {
         IconTile(HakuIcons.Calendar, HakuTone.Blue, size = 36.dp)
-        Column(modifier = Modifier.weight(1f)) {
-          Text(row.heading, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-          Text(row.detail, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
-          row.warning?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall, color = HakuColors.Coral)
-          }
-        }
+        DecisionText(row, Modifier.weight(1f))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
           CapsuleButton("เพิ่ม", onConfirm)
           CapsuleButton("ไม่ใช่", onDismiss, outline = true)
         }
       }
     }
+  }
+}
+
+@Composable
+private fun DecisionText(row: HomeDecisionRow, modifier: Modifier) {
+  Column(modifier) {
+    Text(row.heading, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+    Text(row.detail, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
+    row.warning?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = HakuColors.Coral) }
   }
 }
 

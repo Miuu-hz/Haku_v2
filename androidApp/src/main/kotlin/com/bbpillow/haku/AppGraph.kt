@@ -1,10 +1,13 @@
 package com.bbpillow.haku
 
+import com.bbpillow.haku.action.ActionDecision
 import com.bbpillow.haku.action.ActionProposalRecord
 import com.bbpillow.haku.action.ActionStatus
 import com.bbpillow.haku.action.AuditStore
 import com.bbpillow.haku.action.CalendarAddArgs
 import com.bbpillow.haku.action.DefaultActionGate
+import com.bbpillow.haku.action.PendingOfferStore
+import com.bbpillow.haku.action.PendingOffers
 import com.bbpillow.haku.memory.index.MemoryIndexer
 import com.bbpillow.haku.memory.index.RebuildReport
 import com.bbpillow.haku.platform.widget.HakuWidget
@@ -60,6 +63,7 @@ import com.bbpillow.haku.platform.ModelDownloader
 import com.bbpillow.haku.platform.ModelImporter
 import com.bbpillow.haku.platform.billing.PlayBilling
 import com.bbpillow.haku.platform.capture.CaptureController
+import com.bbpillow.haku.platform.notify.AppointmentOfferNotifier
 import com.bbpillow.haku.platform.notify.IntentNotifier
 import com.bbpillow.haku.surface.chat.AppointmentCommand
 import com.bbpillow.haku.surface.chat.IntentCommand
@@ -82,7 +86,9 @@ import com.bbpillow.haku.surface.settings.InstalledModelRecord
 import com.bbpillow.haku.surface.settings.LlmMetrics
 import com.bbpillow.haku.surface.settings.LlmSettingsPresenter
 import com.bbpillow.haku.surface.settings.ModelManagerPresenter
+import com.bbpillow.haku.surface.tasks.TasksPresenter
 import com.bbpillow.haku.surface.timeline.TimelinePresenter
+import com.bbpillow.haku.task.TaskStore
 import com.bbpillow.haku.thinking.LlmDefaults
 import com.bbpillow.haku.thinking.LlmSettings
 import com.bbpillow.haku.thinking.ModelLoadPolicy
@@ -161,6 +167,11 @@ class AppGraph(val app: Application) {
     val chatHistory = ChatHistoryStore(db)
     /** Results of read-only tools the user confirmed: 30 days, gone with their service and with forget-everything. */
     val toolMemory = ToolMemoryStore(db)
+    /** Appointments found in notifications, waiting for a tap: title, times and app name only, gone once decided or over. */
+    val pendingOffers = PendingOfferStore(db)
+    /** P3.7 the user's tasks: done ones go after 30 days, all of them with forget-everything. */
+    val tasks = TaskStore(db)
+    val tasksPresenter = TasksPresenter(tasks, tz, System::currentTimeMillis) { UUID.randomUUID().toString() }
 
     /** The enabled-or-not tool a call names, from the servers as stored now. */
     fun mcpTool(service: String, tool: String): SkillRecord? =
@@ -169,7 +180,7 @@ class AppGraph(val app: Application) {
     val diary = DiaryComposer(events, places, memory, ledger)
     /** P2.7 evening summaries, one file per local day (written by NightlyWorker, read by Home). */
     val summaries = EveningSummaryStore(DataKeys.files, app.filesDir.resolve("summaries").path.toPath())
-    val home = HomeBriefPresenter(diary, events, places, tz, summaries, StatsSummarizer(entitlements))
+    val home = HomeBriefPresenter(diary, events, places, tz, summaries, StatsSummarizer(entitlements), pendingOffers, tasks)
     /** P5.3 standing intentions (INTENTIONS.md): chat adds them, capture and typed notes fire them. */
     val intents = IntentService(memory, places, pipeline)
     val intentCommand = IntentCommand(intents)
@@ -185,7 +196,7 @@ class AppGraph(val app: Application) {
     /** P3.5 widget / lock-screen / notification-reply notes (write-only). */
     val quickNote = QuickNote(notesWatched, tz) // notesWatched: P5.3 a quick note can fire an intention
     val transparency = TransparencyPresenter(
-      memory, ForgetEverything(events, places, ledger, summaries, memory, profile, connections, audit, chatHistory, toolMemory), connections, tz, System::currentTimeMillis,
+      memory, ForgetEverything(events, places, ledger, summaries, memory, profile, connections, audit, chatHistory, toolMemory, pendingOffers, tasks), connections, tz, System::currentTimeMillis,
     )
     val onboarding = OnboardingPresenter(profile, places)
     val modelManager = ModelManagerPresenter(profile)
@@ -274,6 +285,46 @@ class AppGraph(val app: Application) {
     val appointment = CalendarAddArgs.toProposal(record) ?: return@also // not a calendar.add
     val note = "นัด ${appointment.title} ${appointment.dayLabel} ${appointment.timeLabel}"
     if (safeIo { quickNote.save(QuickNoteInput(note, System.currentTimeMillis())) } != null) HakuWidget.refresh(app)
+  }
+
+  /** Goes up whenever a kept offer changes, so an open Home screen reloads. */
+  val offersVersion = MutableStateFlow(0)
+
+  /** One decision at a time: a double tap after the process died must not submit the same appointment twice. */
+  private val offerLock = Mutex()
+
+  /** Keeps an offer so the Home card and the heads-up buttons still work after the process dies. */
+  suspend fun keepOffer(proposal: ActionProposalRecord, appName: String?) {
+    safeIo { PendingOffers.of(proposal, appName, System.currentTimeMillis())?.let(pendingOffers::put) }
+    offersVersion.update { it + 1 }
+  }
+
+  /**
+   * The user's tap on [เพิ่ม], from Home or the heads-up. A proposal the gate no longer holds is submitted again from the
+   * kept row, so only this tap can write to the calendar. Null = expired, or the gate refused (stopped, rate limit).
+   */
+  suspend fun confirmOffer(id: String): ActionProposalRecord? = offerLock.withLock {
+    val offer = safeIo { pendingOffers.find(id) }
+    val known = confirmAction(id)
+    val record = if (offer != null && (known == null || known.status == ActionStatus.DISMISSED)) {
+      (actionGate.submit(PendingOffers.toRequest(offer)) as? ActionDecision.AwaitingUser)?.let { confirmAction(it.proposal.id) }
+    } else {
+      known
+    }
+    if (record?.status == ActionStatus.DONE) forgetOffer(id)
+    record
+  }
+
+  /** The user's tap on [ไม่ใช่], from Home or the heads-up. */
+  suspend fun dismissOffer(id: String) = offerLock.withLock {
+    actionGate.dismiss(id)
+    forgetOffer(id)
+  }
+
+  private suspend fun forgetOffer(id: String) {
+    safeIo { pendingOffers.delete(id) }
+    offersVersion.update { it + 1 }
+    AppointmentOfferNotifier.cancel(app, id)
   }
 
   /**
