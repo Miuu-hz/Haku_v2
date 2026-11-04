@@ -69,7 +69,7 @@ object DailyBrief {
     val appointments = home.appointments?.takeIf { kind == BriefKind.MORNING }?.let { a ->
       val next = a.rows.firstOrNull { it.isNext }
       val total = a.rows.size + a.moreCount
-      "วันนี้มีนัด $total นัด" + (next?.let { " ถัดไป ${it.timeText.substringBefore('–')} ${it.title}" } ?: "")
+      "วันนี้มีนัด $total นัด" + (next?.let { " ถัดไป ${it.timeText} ${it.title}" } ?: "")
     }
     if (story == null && appointments == null) return null
     val text = when (kind) {

@@ -292,8 +292,10 @@ class ModelManagerPresenter(
     const val FOOTER_NOTE = "โมเดลทำงานในเครื่องนี้ทั้งหมด ข้อมูลของคุณไม่ถูกส่งออกไปไหน · ดาวน์โหลดจาก Hugging Face ครั้งเดียว"
     const val LITERTLM_SUFFIX = ".litertlm"
 
+    /** An imported copy of a catalog model keeps the catalog's name; anything else is named after its file. */
     fun displayNameOf(fileName: String): String =
-      if (fileName.endsWith(LITERTLM_SUFFIX, ignoreCase = true) && fileName.length > LITERTLM_SUFFIX.length) {
+      ModelChoice.entries.firstOrNull { it.fileName.equals(fileName, ignoreCase = true) }?.title
+        ?: if (fileName.endsWith(LITERTLM_SUFFIX, ignoreCase = true) && fileName.length > LITERTLM_SUFFIX.length) {
         fileName.dropLast(LITERTLM_SUFFIX.length)
       } else {
         fileName.substringBeforeLast('.').ifBlank { fileName }

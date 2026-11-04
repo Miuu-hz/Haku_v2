@@ -1,18 +1,26 @@
 package com.bbpillow.haku.surface.tasks
 
+import com.bbpillow.haku.capture.CaptureEventRepository
+import com.bbpillow.haku.capture.appointmentTitle
+import com.bbpillow.haku.capture.appointmentsOfDay
 import com.bbpillow.haku.language.ThaiDateFormat
+import com.bbpillow.haku.memory.MemoryFormat
 import com.bbpillow.haku.task.TaskQuadrant
 import com.bbpillow.haku.task.TaskRecord
 import com.bbpillow.haku.task.TaskRepository
 import com.bbpillow.haku.task.TaskRules
 
-/** One row in a box. [dueText] is Thai: "วันนี้", "พรุ่งนี้", "6 พ.ย."; null = no due day. */
+/**
+ * One row in a box. [dueText] is Thai: "วันนี้", "พรุ่งนี้", "6 พ.ย."; null = no due day.
+ * [fromCalendar] = today's appointment: read-only here, it is changed in the calendar.
+ */
 data class TaskRowUi(
   val id: String,
   val title: String,
   val dueText: String?,
   val isOverdue: Boolean,
   val isDone: Boolean,
+  val fromCalendar: Boolean = false,
 )
 
 data class TaskQuadrantUi(val quadrant: TaskQuadrant, val label: String, val rows: List<TaskRowUi>)
@@ -26,13 +34,15 @@ data class TaskDraft(val title: String, val dueDay: String?, val important: Bool
 /**
  * The Tasks screen. Stateless; call on the DB thread like every store user.
  * A box lists open tasks soonest due first (no due day last, then oldest first), then tasks finished today, struck through.
- * Tasks finished before today are not listed.
+ * Tasks finished before today are not listed. Today's appointments still ahead lead the urgent box.
  */
 class TasksPresenter(
   private val tasks: TaskRepository,
   private val tzOffsetMinutes: Int,
   private val clock: () -> Long,
   private val newId: () -> String,
+  /** Null only in tests that predate it. */
+  private val events: CaptureEventRepository? = null,
 ) {
   fun load(): TasksUiState {
     val now = clock()
@@ -66,11 +76,21 @@ class TasksPresenter(
       TaskQuadrantUi(
         quadrant = quadrant,
         label = TaskRules.label(quadrant),
-        rows = openRows + doneRows,
+        rows = (if (quadrant == TaskQuadrant.URGENT) appointmentRows(todayDay, now) else emptyList()) + openRows + doneRows,
       )
     }
 
     return TasksUiState(quadrantsUi)
+  }
+
+  private fun appointmentRows(todayDay: String, now: Long): List<TaskRowUi> {
+    val dayStart = TaskRules.dueOfDay(todayDay, tzOffsetMinutes) + 1L - DAY_MS
+    return events?.appointmentsOfDay(dayStart).orEmpty()
+      .filter { (it.endUtcMs ?: it.timeUtcMs) > now }
+      .map {
+        val time = MemoryFormat.formatUtc(it.timeUtcMs + tzOffsetMinutes * MIN_MS).substring(11, 16)
+        TaskRowUi(it.id, it.appointmentTitle(), "วันนี้ $time", isOverdue = false, isDone = false, fromCalendar = true)
+      }
   }
 
   /** The form's values for an existing task, or null. */
@@ -153,5 +173,10 @@ class TasksPresenter(
       isOverdue = isOverdue,
       isDone = isDone,
     )
+  }
+
+  private companion object {
+    const val MIN_MS = 60_000L
+    const val DAY_MS = 86_400_000L
   }
 }

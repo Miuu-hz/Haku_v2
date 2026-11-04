@@ -5,6 +5,7 @@ import com.bbpillow.haku.action.PendingOfferRecord
 import com.bbpillow.haku.action.PendingOfferRepository
 import com.bbpillow.haku.capture.CaptureEvent
 import com.bbpillow.haku.capture.CaptureSource
+import com.bbpillow.haku.capture.EventPlace
 import com.bbpillow.haku.capture.PlaceCategory
 import com.bbpillow.haku.capture.PlaceRecognitionInput
 import com.bbpillow.haku.capture.PlaceRecognizer
@@ -163,7 +164,7 @@ class HomeBriefPresenterTest {
     assertEquals(BriefPeriod.MORNING, s.period)
     assertEquals("เมื่อวานของคุณ", s.storyTitle)
     assertEquals(tuesday, s.storyDay)
-    assertTrue(s.greeting.startsWith("อรุณสวัสดิ์"))
+    assertTrue(s.greeting.startsWith("สวัสดีตอนเช้า"))
     assertEquals(8, s.storyLineCount)
   }
 
@@ -267,7 +268,7 @@ class HomeBriefPresenterTest {
     )
     val today = assertNotNull(presenter(events = events, compose = false).load(at(1, 12)).appointments)
     assertEquals(listOf("standup", "ทำฟัน", "นัดไม่มีชื่อ"), today.rows.map { it.title })
-    assertEquals(listOf("09:00–10:00", "14:00–15:00", "18:00"), today.rows.map { it.timeText })
+    assertEquals(listOf("09:00", "14:00", "18:00"), today.rows.map { it.timeText })
     assertEquals(listOf(true, false, false), today.rows.map { it.isPast })
     assertEquals(listOf(false, true, false), today.rows.map { it.isNext })
     assertEquals(0, today.moreCount)
@@ -317,7 +318,7 @@ class HomeBriefPresenterTest {
     )
     val rows = assertNotNull(presenter(events = events, compose = false).load(at(1, 12)).appointments).rows
     assertEquals(listOf("midnight", "lastMinute"), rows.map { it.title })
-    assertEquals(listOf("00:00–00:30", "23:59"), rows.map { it.timeText })
+    assertEquals(listOf("00:00", "23:59"), rows.map { it.timeText })
   }
 
   @Test fun decisionsUseAppNameOrSelectedTextWording() {
@@ -365,6 +366,53 @@ class HomeBriefPresenterTest {
 
     val withOffer = presenter(emptyList(), FakeEvents(emptyList()), compose = false, offers = FakePendingOffers(listOf(offer("o1", "Sync")))).load(at(1, 20))
     assertFalse(withOffer.isDayOne)
+  }
+
+  @Test fun greetingFollowsTheClockIncludingBeforeDawn() {
+    val p = presenter()
+    assertEquals("สวัสดีตอนเช้า", p.load(at(2, 3)).greeting)
+    assertEquals("สวัสดีตอนเช้า", p.load(at(2, 10, 59)).greeting)
+    assertEquals("สวัสดีตอนกลางวัน", p.load(at(2, 11)).greeting)
+    assertEquals("สวัสดีตอนกลางวัน", p.load(at(2, 16, 59)).greeting)
+    assertEquals("สวัสดีตอนเย็น", p.load(at(2, 17)).greeting)
+    assertEquals("สวัสดีตอนเย็น", p.load(at(2, 23, 59)).greeting)
+  }
+
+  private val home = PlaceRecord("home", 16.0, 102.0, "บ้าน", PlaceCategory.HOME, confirmed = true)
+  private fun stillAt(place: PlaceRecord, since: Long) =
+    FakeEvents(listOf(CaptureEvent("start", since, CaptureSource.DwellStart, place = EventPlace(place.lat, place.lon))))
+
+  @Test fun aDayInOnePlaceHasNumbersAndALineThoughTheStayIsStillOpen() {
+    val s = presenter(listOf(home), stillAt(home, at(0, 19)), compose = false).load(at(2, 8))
+    val stats = assertNotNull(s.stats)
+    assertEquals(1, stats.placeCount)
+    assertEquals(0, stats.outOfHomeMinutes)
+    assertEquals(listOf("อยู่ที่บ้านทั้งวัน"), s.storyLines)
+    assertEquals(0, s.storyLineCount) // not a diary line
+    assertFalse(s.isDayOne)
+  }
+
+  @Test fun todayInOnePlaceIsWordedAsStillGoingAndAnUnconfirmedPlaceIsNotNamed() {
+    val atHome = presenter(listOf(home), stillAt(home, at(0, 19)), compose = false).load(at(1, 20))
+    assertEquals(listOf("อยู่ที่บ้านมาตลอดวัน"), atHome.storyLines)
+    val guess = home.copy(label = "ร้านลับ", confirmed = false)
+    assertEquals(listOf("อยู่ที่เดิมทั้งวัน"), presenter(listOf(guess), stillAt(guess, at(0, 19)), compose = false).load(at(2, 8)).storyLines)
+  }
+
+  @Test fun aStayThatBeganMidDayIsNotCalledAllDay() {
+    val s = presenter(listOf(home), stillAt(home, at(1, 12)), compose = false).load(at(2, 8))
+    assertEquals(1, assertNotNull(s.stats).placeCount)
+    assertTrue(s.storyLines.isEmpty())
+  }
+
+  @Test fun appointmentsStillAheadTodayCountAsUrgentWork() {
+    val events = withAppointments(appt("over", at(1, 9), at(1, 10)), appt("now", at(1, 11), at(1, 13)), appt("later", at(1, 15), null))
+    val tomorrow = appt("tomorrow", at(2, 9), null)
+    events.append(tomorrow)
+    val tasks = FakeTasks(listOf(task("t1", dueUtcMs = at(1, 12) + 1000L)))
+    val counts = presenter(events = events, compose = false, tasks = tasks).load(at(1, 12)).taskCounts
+    assertEquals(3, counts.urgent) // the task, "now", "later"
+    assertEquals(3, counts.total)
   }
 
   @Test fun headlineShowsRemainingAppointmentsOrPeriodHeadline() {

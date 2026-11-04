@@ -171,7 +171,7 @@ class AppGraph(val app: Application) {
     val pendingOffers = PendingOfferStore(db)
     /** P3.7 the user's tasks: done ones go after 30 days, all of them with forget-everything. */
     val tasks = TaskStore(db)
-    val tasksPresenter = TasksPresenter(tasks, tz, System::currentTimeMillis) { UUID.randomUUID().toString() }
+    val tasksPresenter = TasksPresenter(tasks, tz, System::currentTimeMillis, { UUID.randomUUID().toString() }, events)
 
     /** The enabled-or-not tool a call names, from the servers as stored now. */
     fun mcpTool(service: String, tool: String): SkillRecord? =

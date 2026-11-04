@@ -4,12 +4,16 @@ import com.bbpillow.haku.action.PendingOfferRepository
 import com.bbpillow.haku.capture.CaptureEvent
 import com.bbpillow.haku.capture.CaptureEventRepository
 import com.bbpillow.haku.capture.CaptureQueryInput
-import com.bbpillow.haku.capture.CaptureSource
-import com.bbpillow.haku.capture.CaptureTypes
+import com.bbpillow.haku.capture.CaptureRecorder
+import com.bbpillow.haku.capture.DwellRecord
 import com.bbpillow.haku.capture.PlaceCategory
 import com.bbpillow.haku.capture.PlaceRecognitionInput
 import com.bbpillow.haku.capture.PlaceRecognizer
+import com.bbpillow.haku.capture.PlaceRecord
 import com.bbpillow.haku.capture.PlaceRepository
+import com.bbpillow.haku.capture.PlaceVisitRecord
+import com.bbpillow.haku.capture.appointmentTitle
+import com.bbpillow.haku.capture.appointmentsOfDay
 import com.bbpillow.haku.capture.diary.DiaryComposer
 import com.bbpillow.haku.capture.diary.DiaryStyle
 import com.bbpillow.haku.capture.stats.PeriodKind
@@ -44,7 +48,7 @@ data class HomeStats(
  */
 data class WeeklyCard(val lines: List<String>, val comparisonLocked: Boolean)
 
-/** One appointment row: local `HH:MM` or `HH:MM–HH:MM`. [isPast] = already ended; [isNext] = the first one not ended. */
+/** One appointment row: local start `HH:MM`. [isPast] = already ended; [isNext] = the first one not ended. */
 data class AppointmentRow(val title: String, val timeText: String, val isPast: Boolean, val isNext: Boolean)
 
 /** "วันนี้มีนัด" card: at most [HomeBriefPresenter.APPOINTMENT_ROWS] rows; [moreCount] = today's appointments not shown. */
@@ -78,11 +82,11 @@ data class HomeBriefUiState(
   val weekly: WeeklyCard? = null,
   val learning: LearningCard? = null,
   val isDayOne: Boolean = false,
-  /** Null when today has no appointment (the card is hidden, never a zero). */
+  /** Null when today has no appointment; the card then says so. */
   val appointments: TodayAppointments? = null,
   /** Offers waiting for the user's tap, soonest first. The card is hidden when empty. */
   val decisions: List<HomeDecisionRow> = emptyList(),
-  /** Open tasks per box. All zero still draws the card: it is the way into the Tasks screen. */
+  /** Open tasks per box, plus today's appointments still ahead under urgent. All zero still draws the card. */
   val taskCounts: TaskCounts = TaskCounts(),
 )
 
@@ -111,21 +115,27 @@ class HomeBriefPresenter(
     val storyDay = if (period == BriefPeriod.MORNING || hour < MORNING_START_HOUR) plusDays(today, -1) else today
     val lines = diary.readDay(storyDay, tzOffsetMinutes)
     val storyStart = dayStartUtc(storyDay)
-    val stats = statsFor(storyStart, minOf(storyStart + DAY_MS, nowUtcMs))
+    val storyEnd = minOf(storyStart + DAY_MS, nowUtcMs)
+    val known = places.list()
+    val visits = visitsIn(storyStart, storyEnd, nowUtcMs, known)
+    val stats = statsOf(visits, known)
+    val stayedLine = if (lines.isEmpty()) stayedLine(visits, known, storyStart, storyEnd, storyDay == today) else null
+
+    val todayEvents = events.appointmentsOfDay(dayStartUtc(today))
+    val left = todayEvents.count { (it.endUtcMs ?: it.timeUtcMs) > nowUtcMs }
+    val all = todayEvents.size
 
     offers?.deleteExpired(nowUtcMs)
     val decisions = offers?.active(nowUtcMs).orEmpty().map {
       val heading = if (it.appName != null) "เจอนัดจาก ${it.appName}" else "เจอนัดจากข้อความที่เลือก"
       HomeDecisionRow(it.id, heading, "${it.title} · ${it.detail}", it.warning)
     }
-    val taskCounts = TaskRules.counts(tasks?.all().orEmpty(), nowUtcMs)
+    // an appointment still ahead today is work due today: urgent by the task rule, and the user has not marked it important
+    val taskCounts = TaskRules.counts(tasks?.all().orEmpty(), nowUtcMs).let { it.copy(urgent = it.urgent + left) }
     val isDayOne = lines.isEmpty() && stats == null && diary.readDay(today, tzOffsetMinutes).isEmpty() &&
       events.query(CaptureQueryInput(dayStartUtc(today) - DAY_MS, nowUtcMs)).isEmpty() &&
       decisions.isEmpty() && taskCounts.total == 0
 
-    val todayEvents = todayAppointments(today)
-    val left = todayEvents.count { (it.endUtcMs ?: it.timeUtcMs) > nowUtcMs }
-    val all = todayEvents.size
     val headline = when {
       isDayOne -> "Haku กำลังเรียนรู้วันของคุณ"
       left == 0 && period == BriefPeriod.MORNING -> "เมื่อวานเป็นยังไงบ้าง"
@@ -135,10 +145,11 @@ class HomeBriefPresenter(
       else -> "วันนี้เหลืออีก $left นัด"
     }
     val name = style.addressName?.let { " $it" }.orEmpty()
-    val greeting = when (period) {
-      BriefPeriod.MORNING -> "อรุณสวัสดิ์$name"
-      BriefPeriod.MIDDAY -> "สวัสดีตอนบ่าย$name"
-      BriefPeriod.EVENING -> "สวัสดีตอนเย็น$name"
+    // by the clock alone: before dawn the brief still looks back at the day that ended, but the greeting is for a new morning
+    val greeting = when {
+      hour < MIDDAY_START_HOUR -> "สวัสดีตอนเช้า$name"
+      hour < EVENING_START_HOUR -> "สวัสดีตอนกลางวัน$name"
+      else -> "สวัสดีตอนเย็น$name"
     }
     val storyTitle = when {
       storyDay != today -> "เมื่อวานของคุณ"
@@ -152,7 +163,7 @@ class HomeBriefPresenter(
       storyTitle = storyTitle,
       storyDay = storyDay,
       storyHeader = ThaiDateFormat.dayHeader(storyDay),
-      storyLines = lines.take(STORY_LINES).map { it.text },
+      storyLines = stayedLine?.let(::listOf) ?: lines.take(STORY_LINES).map { it.text },
       storyLineCount = lines.size,
       stats = stats,
       // a summary with no diary line left behind it (all deleted) is not shown
@@ -165,12 +176,6 @@ class HomeBriefPresenter(
     )
   }
 
-  private fun todayAppointments(today: String): List<CaptureEvent> {
-    val start = dayStartUtc(today)
-    return events.query(CaptureQueryInput(start, start + DAY_MS, setOf(CaptureTypes.CALENDAR)))
-      .filter { it.source is CaptureSource.CalendarEntry }
-  }
-
   /**
    * Calendar rows starting on the local [today] (deleted ones are gone from the store), in start order. When there are
    * more than [APPOINTMENT_ROWS], past ones drop first so the next appointment stays on screen.
@@ -181,9 +186,7 @@ class HomeBriefPresenter(
     val nextIdx = all.indexOfFirst { (it.endUtcMs ?: it.timeUtcMs) > nowUtcMs }.takeIf { it >= 0 } ?: all.size
     val from = minOf(nextIdx, all.size - APPOINTMENT_ROWS).coerceAtLeast(0)
     val rows = all.drop(from).take(APPOINTMENT_ROWS).mapIndexed { i, e ->
-      val title = (e.source as CaptureSource.CalendarEntry).title.trim().ifEmpty { UNTITLED_APPOINTMENT }
-      val time = hhmm(e.timeUtcMs) + (e.endUtcMs?.let { "–" + hhmm(it) } ?: "")
-      AppointmentRow(title, time, isPast = from + i < nextIdx, isNext = from + i == nextIdx)
+      AppointmentRow(e.appointmentTitle(), hhmm(e.timeUtcMs), isPast = from + i < nextIdx, isNext = from + i == nextIdx)
     }
     return TodayAppointments(rows, all.size - rows.size)
   }
@@ -191,19 +194,37 @@ class HomeBriefPresenter(
   private fun hhmm(utcMs: Long) = MemoryFormat.formatUtc(utcMs + tzOffsetMinutes * MIN_MS).substring(11, 16)
 
   /**
-   * Stays in [from, to): number of places, and time away from the confirmed home within the span the stays cover.
-   * Null when no stay touched the window.
-   * ponytail: time between the first and last stay counts as "out" unless at home, so a phone left off at home reads as out; ceiling accepted until P2 capture gaps are marked.
+   * Stays cut to [from, to). A stay still open now counts up to now, or a day spent in one place would have no numbers.
+   * ponytail: an open stay whose end was never seen (capture turned off, phone dead) reads as ongoing for up to
+   * [CaptureRecorder.LOOKBACK_MS], the same limit the recorder itself uses; ceiling accepted until capture gaps are marked.
    */
-  private fun statsFor(from: Long, to: Long): HomeStats? {
-    if (to <= from) return null
-    val known = places.list()
+  private fun visitsIn(from: Long, to: Long, nowUtcMs: Long, known: List<PlaceRecord>): List<PlaceVisitRecord> {
+    if (to <= from) return emptyList()
+    val captured = events.query(CaptureQueryInput(from - CaptureRecorder.LOOKBACK_MS, nowUtcMs + 1))
+    val open = PlaceRecognizer.openDwell(captured)?.let { start ->
+      start.place?.let { DwellRecord(start.timeUtcMs, nowUtcMs, it.lat, it.lon) }
+    }
     val recognized = PlaceRecognizer.recognize(
-      PlaceRecognitionInput(PlaceRecognizer.pairDwells(events.query(CaptureQueryInput(from - DAY_MS, to))), known, tzOffsetMinutes),
+      PlaceRecognitionInput(PlaceRecognizer.pairDwells(captured) + listOfNotNull(open), known, tzOffsetMinutes),
     )
-    val visits = recognized.visits
+    return recognized.visits
       .map { it.copy(startUtcMs = maxOf(it.startUtcMs, from), endUtcMs = minOf(it.endUtcMs, to)) }
       .filter { it.endUtcMs > it.startUtcMs }
+  }
+
+  /** Stands in for the diary on a day with no line because nothing changed: one place from [from] to [to]. */
+  private fun stayedLine(visits: List<PlaceVisitRecord>, known: List<PlaceRecord>, from: Long, to: Long, isToday: Boolean): String? {
+    val placeId = visits.map { it.placeId }.distinct().singleOrNull() ?: return null
+    if (visits.minOf { it.startUtcMs } != from || visits.maxOf { it.endUtcMs } != to) return null
+    val where = known.firstOrNull { it.id == placeId && it.confirmed }?.label?.removePrefix("ที่") ?: "เดิม"
+    return "อยู่ที่$where" + if (isToday) "มาตลอดวัน" else "ทั้งวัน"
+  }
+
+  /**
+   * Number of places, and time away from the confirmed home within the span the stays cover. Null without a stay.
+   * ponytail: time between the first and last stay counts as "out" unless at home, so a phone left off at home reads as out; ceiling accepted until P2 capture gaps are marked.
+   */
+  private fun statsOf(visits: List<PlaceVisitRecord>, known: List<PlaceRecord>): HomeStats? {
     if (visits.isEmpty()) return null
 
     val homeIds = known.filter { it.confirmed && it.category == PlaceCategory.HOME }.map { it.id }.toSet()
@@ -250,7 +271,6 @@ class HomeBriefPresenter(
     const val EVENING_START_HOUR = 17
     const val STORY_LINES = 3
     const val APPOINTMENT_ROWS = 4
-    private const val UNTITLED_APPOINTMENT = "นัดไม่มีชื่อ"
     private const val MIN_MS = 60_000L
     private const val HOUR_MS = 3_600_000L
     private const val DAY_MS = 86_400_000L

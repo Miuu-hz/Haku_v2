@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -29,11 +32,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.bbpillow.haku.surface.components.CapsuleButton
 import com.bbpillow.haku.surface.components.HakuIcons
-import com.bbpillow.haku.surface.components.HighlightCard
 import com.bbpillow.haku.surface.components.IconTile
 import com.bbpillow.haku.surface.components.PastelBoard
 import com.bbpillow.haku.surface.components.StatChip
 import com.bbpillow.haku.surface.components.SurfaceCard
+import com.bbpillow.haku.surface.components.ToneChip
+import com.bbpillow.haku.surface.components.hakuShadow
 import com.bbpillow.haku.surface.tasks.taskQuadrantColor
 import com.bbpillow.haku.surface.theme.HakuColors
 import com.bbpillow.haku.surface.theme.HakuRadius
@@ -74,21 +78,12 @@ fun HomeBriefScreen(
       item { DecisionsCard(state.decisions, decisionMessage, onConfirmDecision, onDismissDecision) }
     }
     item { HomeTasksCard(state.taskCounts, onOpenTasks) }
-    state.appointments?.let { today -> item { AppointmentsCard(today) } }
-    val stats = state.stats
-    if (stats != null) {
-      item { StatsRow(stats, onOpenStats) }
-    } else if (state.weekly != null) {
-      item {
-        StatChip(
-          text = "ดูสถิติ",
-          modifier = Modifier.clip(HakuRadius.Pill).clickable(role = Role.Button, onClick = onOpenStats),
-        )
-      }
-    }
+    item { AppointmentsCard(state.appointments) }
+    item { StatsRow(state.stats ?: HomeStats(placeCount = 0), onOpenStats) }
     state.learning?.let { card -> item { LearningBoard(card, onReadLearning, onDismissLearning) } }
     modelLine?.let { line -> item { ModelLineStatus(line) } }
-    item { CaptureStatus(isCapturing) }
+    // the design has no capture line; it stays only for the case the user must act on
+    if (!isCapturing) item { CaptureStatus(isCapturing = false) }
   }
 }
 
@@ -103,8 +98,10 @@ private fun HomeHeader(greeting: String, headline: String, onOpenPlus: () -> Uni
       Text(greeting, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
       Text(headline, style = MaterialTheme.typography.headlineMedium, color = HakuColors.Ink)
     }
-    StatChip(
+    ToneChip(
       text = "Haku Plus",
+      background = HakuColors.Surface,
+      textColor = HakuColors.Ink,
       modifier = Modifier.clip(HakuRadius.Pill).clickable(role = Role.Button, onClick = onOpenPlus),
     )
   }
@@ -112,24 +109,29 @@ private fun HomeHeader(greeting: String, headline: String, onOpenPlus: () -> Uni
 
 @Composable
 private fun StoryCard(state: HomeBriefUiState, onOpenDay: (String) -> Unit) {
-  HighlightCard(Modifier.fillMaxWidth().clip(HakuRadius.Card).clickable(role = Role.Button) { onOpenDay(state.storyDay) }) {
+  Column(
+    Modifier
+      .fillMaxWidth()
+      .hakuShadow()
+      .clip(HakuRadius.Card)
+      .background(Brush.linearGradient(listOf(HakuColors.StoryTint, HakuColors.Surface)))
+      .clickable(role = Role.Button) { onOpenDay(state.storyDay) }
+      .padding(horizontal = 18.dp, vertical = 16.dp),
+  ) {
     Text(state.storyTitle, style = MaterialTheme.typography.titleSmall)
     Text(state.storyHeader, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
     Spacer(Modifier.height(6.dp))
     val summary = state.storySummary
-    if (summary != null) {
-      Text(summary, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
-      Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        StatChip("จากบันทึก ${state.storyLineCount} รายการ")
-      }
-    } else if (state.storyLines.isEmpty()) {
+    when {
+      summary != null -> Text(summary, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Body)
       // the title above already names the day; after midnight the period alone would name the wrong one
-      Text("ยังไม่มีสรุป", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
-    } else {
-      state.storyLines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted) }
-      Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        StatChip("บันทึก ${state.storyLineCount} รายการ")
-        if (state.storyLineCount > state.storyLines.size) StatChip("ดูทั้งหมด")
+      state.storyLines.isEmpty() -> Text("ยังไม่มีสรุป", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Body)
+      else -> state.storyLines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Body) }
+    }
+    if (state.storyLineCount > 0) {
+      Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        ToneChip("จากบันทึก ${state.storyLineCount} รายการ", HakuColors.ChipBlue, HakuColors.ChipBlueInk)
+        ToneChip("ดูทั้งหมด", HakuColors.ChipNeutral, HakuColors.Body)
       }
     }
   }
@@ -149,7 +151,7 @@ private fun DecisionsCard(
     ) {
       Text("รอคุณตัดสิน", style = MaterialTheme.typography.titleSmall)
       Spacer(Modifier.weight(1f))
-      StatChip("${decisions.size}")
+      ToneChip("${decisions.size}", HakuColors.ChipNeutral, HakuColors.Body)
     }
     Spacer(Modifier.height(8.dp))
     decisions.forEach { row ->
@@ -235,33 +237,29 @@ private fun HomeTasksCard(taskCounts: TaskCounts, onOpenTasks: () -> Unit) {
       Icon(HakuIcons.Chevron, contentDescription = null, tint = HakuColors.Muted, modifier = Modifier.size(16.dp))
     }
     Spacer(Modifier.height(8.dp))
-    if (taskCounts.total == 0) {
-      Text("ยังไม่มีงาน แตะเพื่อเพิ่ม", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
-    } else {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-      ) {
-        val boxes = listOf(
-          TaskQuadrant.IMPORTANT_URGENT to taskCounts.importantUrgent,
-          TaskQuadrant.IMPORTANT to taskCounts.important,
-          TaskQuadrant.URGENT to taskCounts.urgent,
-          TaskQuadrant.SOMEDAY to taskCounts.someday,
-        )
-        boxes.forEach { (quadrant, count) ->
-          Column(modifier = Modifier.weight(1f)) {
-            Text(
-              text = "$count",
-              style = MaterialTheme.typography.titleLarge,
-              fontWeight = FontWeight.Bold,
-              color = taskQuadrantColor(quadrant),
-            )
-            Text(
-              text = TaskRules.label(quadrant),
-              style = MaterialTheme.typography.labelSmall,
-              color = HakuColors.Muted,
-            )
-          }
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      val boxes = listOf(
+        TaskQuadrant.IMPORTANT_URGENT to taskCounts.importantUrgent,
+        TaskQuadrant.IMPORTANT to taskCounts.important,
+        TaskQuadrant.URGENT to taskCounts.urgent,
+        TaskQuadrant.SOMEDAY to taskCounts.someday,
+      )
+      boxes.forEach { (quadrant, count) ->
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = "$count",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = taskQuadrantColor(quadrant),
+          )
+          Text(
+            text = TaskRules.label(quadrant),
+            style = MaterialTheme.typography.labelSmall,
+            color = HakuColors.Muted,
+          )
         }
       }
     }
@@ -270,8 +268,12 @@ private fun HomeTasksCard(taskCounts: TaskCounts, onOpenTasks: () -> Unit) {
 
 /** Today's calendar: past rows muted, the next one in violet with a chip, the rest as "อีก N นัด". */
 @Composable
-private fun AppointmentsCard(today: TodayAppointments) {
+private fun AppointmentsCard(today: TodayAppointments?) {
   SurfaceCard(Modifier.fillMaxWidth()) {
+    if (today == null) {
+      Text("วันนี้ไม่มีนัด", style = MaterialTheme.typography.titleSmall)
+      return@SurfaceCard
+    }
     Text("วันนี้มีนัด", style = MaterialTheme.typography.titleSmall)
     Spacer(Modifier.height(6.dp))
     today.rows.forEach { row ->
@@ -283,45 +285,45 @@ private fun AppointmentsCard(today: TodayAppointments) {
       Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(row.timeText, style = MaterialTheme.typography.bodySmall, color = color)
         Text(row.title, style = if (row.isNext) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium, color = color, modifier = Modifier.weight(1f))
-        if (row.isNext) StatChip("ถัดไป")
+        if (row.isNext) ToneChip("ถัดไป", HakuColors.ChipViolet, HakuColors.ChipVioletInk)
       }
     }
-    if (today.moreCount > 0) StatChip("อีก ${today.moreCount} นัด", Modifier.padding(top = 8.dp))
+    if (today.moreCount > 0) ToneChip("อีก ${today.moreCount} นัด", HakuColors.ChipNeutral, HakuColors.Body, Modifier.padding(top = 8.dp))
   }
 }
 
-/** Number tiles for measured stats. Whole row is tappable to open stats. */
+/**
+ * Number tiles, always all three (the user's call: only "รอคุณตัดสิน" may hide). A number not measured reads 0.
+ * ponytail: steps stay 0 until a step source exists. Whole row is tappable to open stats.
+ */
 @Composable
 private fun StatsRow(stats: HomeStats, onOpenStats: () -> Unit) {
   Row(
     modifier = Modifier
       .fillMaxWidth()
+      .height(IntrinsicSize.Min) // Thai and digits have different line heights: keep the tiles level
       .clip(HakuRadius.Card)
       .clickable(role = Role.Button, onClick = onOpenStats),
     horizontalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    stats.outOfHomeMinutes?.let { minutes ->
-      StatNumberTile(
-        value = durationText(minutes),
-        label = "เวลานอกบ้าน",
-        background = HakuColors.Surface,
-        modifier = Modifier.weight(1f),
-      )
-    }
+    StatNumberTile(
+      value = durationText(stats.outOfHomeMinutes ?: 0),
+      label = "เวลานอกบ้าน",
+      background = HakuColors.Surface,
+      modifier = Modifier.weight(1f).fillMaxHeight(),
+    )
     StatNumberTile(
       value = "${stats.placeCount}",
       label = "สถานที่",
-      background = HakuColors.Sky,
-      modifier = Modifier.weight(1f),
+      background = HakuColors.StatSky,
+      modifier = Modifier.weight(1f).fillMaxHeight(),
     )
-    stats.steps?.let { steps ->
-      StatNumberTile(
-        value = formatThousands(steps),
-        label = "ก้าว",
-        background = HakuColors.Butter,
-        modifier = Modifier.weight(1f),
-      )
-    }
+    StatNumberTile(
+      value = formatThousands(stats.steps ?: 0),
+      label = "ก้าว",
+      background = HakuColors.Butter,
+      modifier = Modifier.weight(1f).fillMaxHeight(),
+    )
   }
 }
 

@@ -1,5 +1,8 @@
 package com.bbpillow.haku.surface.tasks
 
+import com.bbpillow.haku.capture.CaptureEvent
+import com.bbpillow.haku.capture.CaptureSource
+import com.bbpillow.haku.capture.diary.FakeEvents
 import com.bbpillow.haku.memory.MemoryFormat
 import com.bbpillow.haku.task.TaskQuadrant
 import com.bbpillow.haku.task.TaskRecord
@@ -36,6 +39,26 @@ class TasksPresenterTest {
 
   private fun createPresenter(repo: TaskRepository, clock: () -> Long = { fixedNow }) =
     TasksPresenter(repo, tzOffsetMinutes, clock, ::nextId)
+
+  @Test fun todaysAppointmentsAheadLeadTheUrgentBoxReadOnly() {
+    val hour = 3_600_000L
+    val over = CaptureEvent("over", fixedNow - 2 * hour, CaptureSource.CalendarEntry("จบแล้ว"), endUtcMs = fixedNow - hour)
+    val later = CaptureEvent("later", fixedNow + 3 * hour, CaptureSource.CalendarEntry(" หมอฟัน "), endUtcMs = fixedNow + 4 * hour)
+    val tomorrow = CaptureEvent("tomorrow", fixedNow + 24 * hour, CaptureSource.CalendarEntry("พรุ่งนี้"))
+    val repo = InMemoryTaskRepository()
+    val presenter = TasksPresenter(repo, tzOffsetMinutes, { fixedNow }, ::nextId, FakeEvents(listOf(over, later, tomorrow)))
+    assertTrue(presenter.save(null, TaskDraft("งานเร่ง", TaskRules.dayOf(fixedNow, tzOffsetMinutes), important = false)))
+
+    val rows = presenter.load().quadrants.first { it.quadrant == TaskQuadrant.URGENT }.rows
+    assertEquals(listOf("หมอฟัน", "งานเร่ง"), rows.map { it.title })
+    assertEquals(listOf(true, false), rows.map { it.fromCalendar })
+    assertEquals("วันนี้ 13:00", rows.first().dueText)
+    assertTrue(presenter.load().quadrants.filter { it.quadrant != TaskQuadrant.URGENT }.all { it.rows.isEmpty() })
+
+    presenter.toggleDone("later") // not a task: nothing to change
+    assertEquals(1, repo.all().size)
+    assertNull(presenter.draftOf("later"))
+  }
 
   @Test fun fourBoxesAlwaysPresentInOrderEvenWhenEmpty() {
     val repo = InMemoryTaskRepository()

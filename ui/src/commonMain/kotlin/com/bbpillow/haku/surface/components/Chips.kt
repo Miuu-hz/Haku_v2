@@ -18,6 +18,19 @@ import androidx.compose.ui.unit.dp
 import com.bbpillow.haku.surface.theme.HakuColors
 import com.bbpillow.haku.surface.theme.HakuRadius
 
+/** A borderless pill in a set tone, as the Home design draws them. */
+@Composable
+fun ToneChip(text: String, background: Color, textColor: Color, modifier: Modifier = Modifier) {
+  Text(
+    text,
+    style = MaterialTheme.typography.labelSmall,
+    color = textColor,
+    modifier = modifier
+      .background(background, HakuRadius.Pill)
+      .padding(horizontal = 12.dp, vertical = 5.dp),
+  )
+}
+
 /** .chip: small grey pill (counts, dates, status); dark = .chip.dark. */
 @Composable
 fun StatChip(text: String, modifier: Modifier = Modifier, dark: Boolean = false) {

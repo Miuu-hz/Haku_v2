@@ -95,7 +95,7 @@ fun TasksScreen(
     }
 
     Text(
-      text = "เร่งด่วน = กำหนดส่งใน 48 ชม. หรือเลยแล้ว · ความสำคัญแตะเปลี่ยนได้ในงาน",
+      text = "เร่งด่วน = กำหนดส่งใน 48 ชม. หรือเลยแล้ว · นัดวันนี้มาจากปฏิทิน แก้ในปฏิทิน · ความสำคัญแตะเปลี่ยนได้ในงาน",
       style = MaterialTheme.typography.bodySmall,
       color = HakuColors.Muted,
       modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
@@ -170,23 +170,29 @@ private fun TaskRowItem(
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(8.dp),
   ) {
-    Box(
-      modifier = Modifier
-        .size(44.dp)
-        .clip(CircleShape)
-        .clickable(role = Role.Button, onClick = { onToggleDone(row.id) })
-        .semantics { contentDescription = desc },
-      contentAlignment = Alignment.Center,
-    ) {
+    if (row.fromCalendar) {
+      Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+        Icon(HakuIcons.Calendar, contentDescription = "นัดจากปฏิทิน", tint = boxColor, modifier = Modifier.size(20.dp))
+      }
+    } else {
       Box(
         modifier = Modifier
-          .size(24.dp)
-          .background(if (row.isDone) boxColor else Color.Transparent, CircleShape)
-          .border(2.dp, boxColor, CircleShape),
+          .size(44.dp)
+          .clip(CircleShape)
+          .clickable(role = Role.Button, onClick = { onToggleDone(row.id) })
+          .semantics { contentDescription = desc },
         contentAlignment = Alignment.Center,
       ) {
-        if (row.isDone) {
-          Icon(HakuIcons.Check, contentDescription = null, tint = HakuColors.Surface, modifier = Modifier.size(14.dp))
+        Box(
+          modifier = Modifier
+            .size(24.dp)
+            .background(if (row.isDone) boxColor else Color.Transparent, CircleShape)
+            .border(2.dp, boxColor, CircleShape),
+          contentAlignment = Alignment.Center,
+        ) {
+          if (row.isDone) {
+            Icon(HakuIcons.Check, contentDescription = null, tint = HakuColors.Surface, modifier = Modifier.size(14.dp))
+          }
         }
       }
     }
@@ -195,7 +201,7 @@ private fun TaskRowItem(
       modifier = Modifier
         .weight(1f)
         .clip(HakuRadius.Small)
-        .clickable(role = Role.Button, onClick = { onOpenTask(row.id) })
+        .then(if (row.fromCalendar) Modifier else Modifier.clickable(role = Role.Button, onClick = { onOpenTask(row.id) }))
         .padding(vertical = 4.dp),
     ) {
       Text(

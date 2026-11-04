@@ -10,7 +10,10 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.work.WorkManager
 import com.bbpillow.haku.capture.CaptureQueryInput
 import com.bbpillow.haku.capture.CaptureSource
+import com.bbpillow.haku.capture.PlaceCategory
 import com.bbpillow.haku.capture.PlaceNames
+import com.bbpillow.haku.capture.PlaceRecognizer
+import com.bbpillow.haku.capture.PlaceRecord
 import com.bbpillow.haku.platform.NotificationAppsPrefs
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.surface.onboarding.ActiveModel
@@ -97,6 +100,26 @@ class PipelineReportReceiver : BroadcastReceiver() {
         put("places_confirmed", known.count { it.confirmed })
         put("places_auto_named", known.count { it.autoName != null })
         put("places_fallback_named", known.count { it.autoName?.let(PlaceNames::isFallback) == true })
+      }
+    })
+
+    // why Home says "out" during an open stay. A category and a rounded distance only: never names or coordinates
+    root.put("open_stay_place", safeSection {
+      val now = System.currentTimeMillis()
+      val (open, known) = app.graph.io {
+        PlaceRecognizer.openDwell(events.query(CaptureQueryInput(now - 7 * 86_400_000L, now + 1))) to places.list()
+      }
+      val at = open?.place
+      val homes = known.filter { it.confirmed && it.category == PlaceCategory.HOME }
+      fun metersTo(p: PlaceRecord) = PlaceRecognizer.distanceMeters(at!!.lat, at.lon, p.lat, p.lon)
+      val nearest = if (at == null) null else known.minByOrNull { metersTo(it) }
+      JSONObject().apply {
+        put("open", at != null)
+        put("confirmed_homes", homes.size)
+        put("home_distance_m_rounded_50", if (at == null) JSONObject.NULL else homes.minOfOrNull { (metersTo(it) / 50).toInt() * 50 } ?: JSONObject.NULL)
+        put("nearest_place_m_rounded_50", nearest?.let { (metersTo(it) / 50).toInt() * 50 } ?: JSONObject.NULL)
+        put("nearest_place_category", nearest?.category?.name ?: JSONObject.NULL)
+        put("nearest_place_confirmed", nearest?.confirmed ?: JSONObject.NULL)
       }
     })
 

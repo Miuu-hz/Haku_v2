@@ -135,7 +135,7 @@ private fun fakeHome(period: BriefPeriod?): HomeBriefUiState {
   val day = if (morning) "2026-09-23" else FAKE_TODAY
   return HomeBriefUiState(
     period = period,
-    greeting = if (morning) "อรุณสวัสดิ์ มิ้นท์" else "สวัสดีตอนเย็น มิ้นท์",
+    greeting = if (morning) "สวัสดีตอนเช้า มิ้นท์" else "สวัสดีตอนเย็น มิ้นท์",
     headline = if (morning) "เมื่อวานเป็นยังไงบ้าง" else "วันนี้เป็นยังไงบ้าง",
     storyTitle = if (morning) "เมื่อวาน" else "เรื่องของวันนี้",
     storyDay = day,

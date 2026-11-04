@@ -38,6 +38,16 @@ object HakuColors {
   val Track = Color(0xFFEEEFF5) // donut track
   val Shadow = Color(0xFF1E1E46) // rgba(30,30,70) used by every card shadow
 
+  // Home design (Home.dc.html)
+  val Body = Color(0xFF3F3F4B)
+  val ChipNeutral = Color(0xFFF1F0F5)
+  val ChipBlue = Color(0xFFE8F0FE)
+  val ChipBlueInk = Color(0xFF27509F)
+  val ChipViolet = Color(0xFFEFEAFD)
+  val ChipVioletInk = Color(0xFF4E35B5)
+  val StatSky = Color(0xFFE1EBFD)
+  val StoryTint = Color(0xFFF1ECFF)
+
   /** --grad: blue → violet, left to right. */
   val Gradient = Brush.horizontalGradient(listOf(Blue, Violet))
 }

@@ -60,12 +60,12 @@ class DailyBriefTest {
     assertNull(DailyBrief.compose(BriefKind.MORNING, home(emptyList()), DiaryStyle()))
     assertNull(DailyBrief.compose(BriefKind.EVENING, home(emptyList()), DiaryStyle()))
     // appointments are a morning thing; an evening with no diary line still says nothing
-    val appts = TodayAppointments(listOf(AppointmentRow("ประชุม", "09:00–10:00", isPast = false, isNext = true)), 0)
+    val appts = TodayAppointments(listOf(AppointmentRow("ประชุม", "09:00", isPast = false, isNext = true)), 0)
     assertNull(DailyBrief.compose(BriefKind.EVENING, home(emptyList(), appointments = appts), DiaryStyle()))
   }
 
   @Test fun morningTellsTodaysAppointmentsAndYesterdaysSummary() {
-    val appts = TodayAppointments(listOf(AppointmentRow("ประชุม", "09:00–10:00", isPast = false, isNext = true)), 2)
+    val appts = TodayAppointments(listOf(AppointmentRow("ประชุม", "09:00", isPast = false, isNext = true)), 2)
     val out = assertNotNull(DailyBrief.compose(BriefKind.MORNING, home(listOf("08:30 ออกจากบ้าน"), "เมื่อวานไปทำงาน", appts), DiaryStyle()))
     assertEquals("อรุณสวัสดิ์", out.title)
     assertEquals("วันนี้มีนัด 3 นัด ถัดไป 09:00 ประชุม\nเมื่อวาน: เมื่อวานไปทำงาน", out.text)

@@ -743,11 +743,19 @@ private fun HomeTab(
   LaunchedEffect(Unit) {
     val installed = withContext(Dispatchers.IO) { graph.installedModels() }
     val label = graph.safeIo { modelManager.activeModelLabel(installed) } ?: ModelManagerPresenter.NO_MODEL_LABEL
-    modelLine = (if (label == ModelManagerPresenter.NO_MODEL_LABEL) label else "$label พร้อม") + " · ย่อยความจำตอนชาร์จ"
+    modelLine = (if (label == ModelManagerPresenter.NO_MODEL_LABEL) label else "$label พร้อม") + " · ย่อยความจำคืนนี้ตอนชาร์จ"
+  }
+  // back in the foreground: the greeting, the next appointment and the counts all follow the clock
+  var resumes by remember { mutableIntStateOf(0) }
+  val lifecycle = LocalLifecycleOwner.current.lifecycle
+  DisposableEffect(lifecycle) {
+    val observer = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_RESUME) resumes++ }
+    lifecycle.addObserver(observer)
+    onDispose { lifecycle.removeObserver(observer) }
   }
   // reload when the plan changes (file read at start, a purchase, a restore)
   val entitlements by graph.billing.entitlements.collectAsState()
-  LaunchedEffect(entitlements.plan, offersVersion) {
+  LaunchedEffect(entitlements.plan, offersVersion, resumes) {
     val now = System.currentTimeMillis()
     state = graph.safeIo {
       // the brief reads yesterday in the morning and today later on; write both before reading
