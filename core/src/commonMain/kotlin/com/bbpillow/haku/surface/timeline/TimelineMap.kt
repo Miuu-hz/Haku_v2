@@ -1,5 +1,6 @@
 package com.bbpillow.haku.surface.timeline
 
+import com.bbpillow.haku.capture.OpenStay
 import com.bbpillow.haku.capture.PlaceCategory
 import com.bbpillow.haku.capture.PlaceRecognitionOutput
 import com.bbpillow.haku.capture.PlaceRecord
@@ -11,9 +12,20 @@ import kotlin.math.cos
  * One stop on the day's mini map. [x]/[y] are 0..1 of the card (y down, north up), already fitted with uniform scale
  * for a card of [TimelineMap.ASPECT]. [number] is the same number the matching timeline rows show.
  */
-data class TimelineMapPoint(val number: Int, val x: Double, val y: Double, val label: String, val category: PlaceCategory)
+data class TimelineMapPoint(
+  val number: Int,
+  val x: Double,
+  val y: Double,
+  val label: String,
+  val category: PlaceCategory,
+  /** Non-null marks where the user is right now, worded for display ("ตั้งแต่ 19:12"). This stop has no timeline row yet. */
+  val since: String? = null,
+)
 
 data class TimelineMapState(val points: List<TimelineMapPoint>)
+
+/** Why the day has no map card to draw. */
+enum class TimelineMapEmpty { CAPTURE_OFF, NO_STAYS }
 
 /**
  * The day's mini map (P3.2), tile-free: coordinates never leave the device and no map SDK is involved, so all we have
@@ -32,7 +44,12 @@ object TimelineMap {
    * when the row sits at its arrival or departure time (the diary writes lines at exactly those times, and an edit
    * keeps the time). Null when fewer than two distinct places remain: one dot is not a map.
    */
-  fun build(lineTimesUtcMs: Collection<Long>, recognized: PlaceRecognitionOutput): Pair<TimelineMapState, Map<Long, Int>>? {
+  fun build(
+    lineTimesUtcMs: Collection<Long>,
+    recognized: PlaceRecognitionOutput,
+    current: OpenStay? = null,
+    currentSince: String? = null,
+  ): Pair<TimelineMapState, Map<Long, Int>>? {
     val times = lineTimesUtcMs.toSet()
     val byId = recognized.places.associateBy { it.id }
     val stops = recognized.visits.sortedBy { it.startUtcMs }

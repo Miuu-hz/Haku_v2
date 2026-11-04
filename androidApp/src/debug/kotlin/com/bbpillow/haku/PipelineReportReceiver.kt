@@ -9,10 +9,12 @@ import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.WorkManager
 import com.bbpillow.haku.capture.CaptureQueryInput
+import com.bbpillow.haku.capture.CaptureSource
 import com.bbpillow.haku.capture.PlaceNames
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.surface.onboarding.ActiveModel
 import com.bbpillow.haku.surface.onboarding.ModelChoice
+import com.bbpillow.haku.surface.timeline.TimelineMap
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
@@ -111,6 +113,43 @@ class PipelineReportReceiver : BroadcastReceiver() {
       }
     })
 
+    // why the Timeline map shows or not, per local day. Counts only: never names or coordinates (they are the user's places)
+    root.put("timeline_map", safeSection {
+      val now = System.currentTimeMillis()
+      val tz = app.graph.tzOffsetMinutes
+      val days = JSONObject()
+      app.graph.io {
+        (0 until MAP_PROBE_DAYS).map { app.graph.today(now - it * 86_400_000L) }.forEach { day ->
+          val rowTimes = diary.readDay(day, tz).map { it.atEpochMs }.toSet()
+          val seen = diary.placesOfDay(day, tz)
+          val byId = seen.places.associateBy { it.id }
+          val matched = seen.visits.filter { it.startUtcMs in rowTimes || it.endUtcMs in rowTimes }
+          days.put(day, JSONObject().apply {
+            put("rows", rowTimes.size)
+            put("stays_seen", seen.visits.size)
+            put("stays_matched", matched.size)
+            put("distinct_places", matched.mapNotNull { byId[it.placeId] }.map { it.lat to it.lon }.distinct().size)
+            put("map_shown", TimelineMap.build(rowTimes, seen) != null)
+          })
+        }
+      }
+      val recent = app.graph.io { events.query(CaptureQueryInput(now - 7 * 86_400_000L, now)) }
+      val lastDwell = recent
+        .filter { it.source == CaptureSource.DwellStart || it.source == CaptureSource.DwellEnd }
+        .maxByOrNull { it.timeUtcMs }
+      val sourcesSinceDwell = JSONObject()
+      lastDwell?.let { d ->
+        recent.filter { it.timeUtcMs > d.timeUtcMs }.groupingBy { it.source::class.simpleName.orEmpty() }.eachCount() // type only: a calendar source holds its title
+          .forEach { (source, count) -> sourcesSinceDwell.put(source, count) }
+      }
+      JSONObject().apply {
+        put("days", days)
+        put("events_since_last_dwell", sourcesSinceDwell)
+        put("open_stay", lastDwell?.source == CaptureSource.DwellStart)
+        put("last_dwell_hours_ago", lastDwell?.let { (now - it.timeUtcMs) / 3_600_000L } ?: JSONObject.NULL)
+      }
+    })
+
     // ponytail: SearchIndexStore is private in AppGraph.Data; no public read API
     root.put("search_index", safeSection {
       JSONObject().apply {
@@ -185,5 +224,6 @@ class PipelineReportReceiver : BroadcastReceiver() {
   companion object {
     const val ACTION = "com.bbpillow.haku.debug.PIPELINE_REPORT"
     const val TAG = "HakuPipeline"
+    private const val MAP_PROBE_DAYS = 7
   }
 }

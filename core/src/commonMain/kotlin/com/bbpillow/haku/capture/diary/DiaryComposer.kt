@@ -4,6 +4,7 @@ import com.bbpillow.haku.capture.CaptureEvent
 import com.bbpillow.haku.capture.CaptureEventRepository
 import com.bbpillow.haku.capture.CaptureQueryInput
 import com.bbpillow.haku.capture.CaptureSource
+import com.bbpillow.haku.capture.OpenStay
 import com.bbpillow.haku.capture.PlaceRecognitionInput
 import com.bbpillow.haku.capture.PlaceRecognitionOutput
 import com.bbpillow.haku.capture.PlaceRecognizer
@@ -115,6 +116,9 @@ class DiaryComposer(
   /** The stays and places the diary sees for the local day (timeline mini map, P3.2). Read-only; deleted events are gone. */
   fun placesOfDay(day: String, tzOffsetMinutes: Int): PlaceRecognitionOutput =
     renderDay(day, tzOffsetMinutes, DiaryStyle()).recognized
+
+  /** The stay still open at the end of the local [day]: arrived, no departure yet. Null when the user was moving or nothing is known. */
+  fun openStay(day: String, tzOffsetMinutes: Int): OpenStay? = null
 
   /** The local day's records from the daily log, oldest first. */
   fun readDay(day: String, tzOffsetMinutes: Int): List<MemoryRecord> {

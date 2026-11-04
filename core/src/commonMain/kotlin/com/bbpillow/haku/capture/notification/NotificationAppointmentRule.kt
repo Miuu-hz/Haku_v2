@@ -104,36 +104,10 @@ class NotificationAppointmentRule(private val nowUtcMs: () -> Long) {
     /** How many recent offer keys the re-post guard remembers. */
     const val RECENT_OFFER_MAX = 20
 
-    /**
-     * The only apps whose notifications are ever read (LINE, Messenger, WhatsApp, Telegram, Google Messages, Samsung Messages,
-     * Instagram, X, LinkedIn, Discord, Slack, Microsoft Teams, Viber, KakaoTalk, WeChat).
-     */
-    val CHAT_APPS: Set<String> = setOf(
-      "jp.naver.line.android",
-      "com.facebook.orca",
-      "com.whatsapp",
-      "org.telegram.messenger",
-      "com.google.android.apps.messaging",
-      "com.samsung.android.messaging",
-      "com.instagram.android",
-      "com.twitter.android",
-      "com.linkedin.android",
-      "com.discord",
-      "com.Slack",
-      "com.microsoft.teams",
-      "com.viber.voip",
-      "com.kakao.talk",
-      "com.tencent.mm",
-    )
+    /** The only apps whose notifications could ever be read; each still needs the user's own switch ([NotificationAppsRepository]). */
+    val CHAT_APPS: Set<String> = NotificationApps.ALL.map { it.packageName }.toSet()
 
     /** Social apps that also post likes, follows and posts: only their real messages may become offers. */
-    val MESSAGE_ONLY_APPS: Set<String> = setOf(
-      "com.instagram.android",
-      "com.twitter.android",
-      "com.linkedin.android",
-      "com.discord",
-      "com.Slack",
-      "com.microsoft.teams",
-    )
+    val MESSAGE_ONLY_APPS: Set<String> = NotificationApps.ALL.filter { it.messageOnly }.map { it.packageName }.toSet()
   }
 }

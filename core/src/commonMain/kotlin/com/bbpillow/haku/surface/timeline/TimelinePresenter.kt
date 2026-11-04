@@ -30,8 +30,10 @@ data class TimelineUiState(
   val header: String,
   val dates: List<TimelineDate>,
   val lines: List<TimelineLine>,
-  /** Null hides the mini map (fewer than two places). */
+  /** Null means nothing to draw; [mapEmpty] says why. */
   val map: TimelineMapState? = null,
+  /** Non-null exactly when [map] is null. */
+  val mapEmpty: TimelineMapEmpty? = null,
 )
 
 /**
@@ -45,6 +47,7 @@ class TimelinePresenter(
   private val memory: MemoryRepository,
   private val summaries: EveningSummaryRepository,
   private val tzOffsetMinutes: Int,
+  private val captureOn: () -> Boolean = { true },
 ) {
   fun load(day: String, today: String): TimelineUiState {
     val records = diary.readDay(day, tzOffsetMinutes)
