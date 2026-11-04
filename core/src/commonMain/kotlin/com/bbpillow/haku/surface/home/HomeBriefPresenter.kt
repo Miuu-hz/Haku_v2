@@ -1,5 +1,6 @@
 package com.bbpillow.haku.surface.home
 
+import com.bbpillow.haku.action.PendingOfferRepository
 import com.bbpillow.haku.capture.CaptureEventRepository
 import com.bbpillow.haku.capture.CaptureQueryInput
 import com.bbpillow.haku.capture.CaptureSource
@@ -17,6 +18,8 @@ import com.bbpillow.haku.capture.stats.StatsSummarizer
 import com.bbpillow.haku.language.ThaiDateFormat
 import com.bbpillow.haku.memory.MemoryFormat
 import com.bbpillow.haku.surface.stats.StatsPresenter
+import com.bbpillow.haku.task.TaskCounts
+import com.bbpillow.haku.task.TaskRepository
 import com.bbpillow.haku.thinking.summary.EveningSummaryRepository
 
 /** Part of the day the brief is shaped for (P3.1): morning looks back at yesterday, midday and evening at today. */
@@ -49,6 +52,12 @@ data class TodayAppointments(val rows: List<AppointmentRow>, val moreCount: Int)
 data class LearningCard(val title: String, val summary: String, val topic: String, val source: String)
 
 /**
+ * One row of "รอคุณตัดสิน". [id] goes back to the confirm and dismiss calls.
+ * [heading] "เจอนัดจาก LINE"; [detail] "ประชุมลูกค้า · พฤ 5 พ.ย. · 09:00–10:00"; [warning] a calendar conflict, or null.
+ */
+data class HomeDecisionRow(val id: String, val heading: String, val detail: String, val warning: String?)
+
+/**
  * Everything the Home Brief draws. [storySummary] = the stored evening summary of [storyDay] (P2.7, model or template),
  * shown instead of [storyLines] (the first rule-based diary lines, P2.6) when present; both empty = "no summary yet".
  * [weekly] is null until this week has a recorded day. [isDayOne] = nothing recorded yet at all (A6).
@@ -69,6 +78,10 @@ data class HomeBriefUiState(
   val isDayOne: Boolean = false,
   /** Null when today has no appointment (the card is hidden, never a zero). */
   val appointments: TodayAppointments? = null,
+  /** Offers waiting for the user's tap, soonest first. The card is hidden when empty. */
+  val decisions: List<HomeDecisionRow> = emptyList(),
+  /** Open tasks per box. All zero still draws the card: it is the way into the Tasks screen. */
+  val taskCounts: TaskCounts = TaskCounts(),
 )
 
 /**
@@ -82,6 +95,10 @@ class HomeBriefPresenter(
   private val tzOffsetMinutes: Int,
   private val summaries: EveningSummaryRepository,
   private val weekStats: StatsSummarizer,
+  /** Null only in tests that predate it. */
+  private val offers: PendingOfferRepository? = null,
+  /** Null only in tests that predate it. */
+  private val tasks: TaskRepository? = null,
 ) {
   fun load(nowUtcMs: Long, style: DiaryStyle = DiaryStyle()): HomeBriefUiState {
     val localMs = nowUtcMs + tzOffsetMinutes * MIN_MS

@@ -29,6 +29,7 @@ import com.bbpillow.haku.network.ConnectionRecord
 import com.bbpillow.haku.skill.McpClient
 import com.bbpillow.haku.skill.McpServerRecord
 import com.bbpillow.haku.skill.McpServerStore
+import com.bbpillow.haku.skill.McpToolSlots
 import com.bbpillow.haku.skill.SkillActions
 import com.bbpillow.haku.skill.SkillRecord
 import com.bbpillow.haku.skill.SkillSlot
@@ -270,10 +271,10 @@ class KtorMcpClient(
         SkillSlot(name = slotName, description = slotDesc, required = propName in requiredSet)
       }.distinctBy { it.name }
 
-      val tooManyProps = props.size > SkillRecord.MAX_SLOTS || stringSlots.size > SkillRecord.MAX_SLOTS
-      val slots = stringSlots.take(SkillRecord.MAX_SLOTS)
+      val readOnly = tool.annotations?.readOnlyHint == true
+      val choice = McpToolSlots.choose(stringSlots, props.size, props.keys.count { it in requiredSet }, readOnly)
       val baseDesc = tool.description.orEmpty().replace('\r', ' ').replace('\n', ' ').trim().ifEmpty { title }
-      val description = if (tooManyProps) {
+      val description = if (choice.tooMany) {
         "${McpServerStore.TOO_MANY_SLOTS_PREFIX}$baseDesc"
       } else {
         baseDesc
@@ -284,12 +285,12 @@ class KtorMcpClient(
         title = title,
         description = description,
         instructions = instructions,
-        slots = slots,
+        slots = choice.slots,
         action = SkillActions.MCP_ACTION,
         source = SkillSource.MCP,
         enabled = false,
         server = host,
-        readOnly = tool.annotations?.readOnlyHint == true,
+        readOnly = readOnly,
       )
     }
   }
