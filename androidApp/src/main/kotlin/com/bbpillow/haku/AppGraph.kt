@@ -12,6 +12,9 @@ import com.bbpillow.haku.surface.note.QuickNoteInput
 import com.bbpillow.haku.platform.mcp.KtorMcpClient
 import com.bbpillow.haku.platform.mcp.McpActionHandler
 import com.bbpillow.haku.platform.signals.CalendarActionHandler
+import com.bbpillow.haku.skill.McpKeyStore
+import com.bbpillow.haku.skill.McpKeys
+import com.bbpillow.haku.skill.McpServerRecord
 import com.bbpillow.haku.skill.McpServerStore
 import com.bbpillow.haku.skill.SkillActions
 import com.bbpillow.haku.skill.SkillRecord
@@ -19,6 +22,7 @@ import com.bbpillow.haku.skill.ToolMemory
 import com.bbpillow.haku.skill.ToolMemoryStore
 import com.bbpillow.haku.skill.ToolSource
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import android.app.ActivityManager
 import android.app.Application
@@ -139,6 +143,8 @@ class AppGraph(val app: Application) {
     val profile = ProfileStore(DataKeys.files, app.filesDir.resolve("profile.txt").path.toPath())
     /** MCP servers are settings (D11 encrypted), not personal memory: untouched by ForgetEverything. */
     val mcpServers = McpServerStore(DataKeys.files, app.filesDir.resolve("mcp").path.toPath())
+    /** Keys servers ask for: sealed like the server list, and like it not personal memory, so forget-everything leaves them. */
+    val mcpKeys = McpKeyStore(DataKeys.files, app.filesDir.resolve("mcp-keys").path.toPath())
     val events = CaptureEventStore(db)
     val places = PlaceStore(db)
     private val pipeline = TextPipeline(IcuWordSegmenter())
@@ -250,7 +256,7 @@ class AppGraph(val app: Application) {
     DefaultActionGate(
       handlers = listOf(
         CalendarActionHandler(app),
-        McpActionHandler({ host -> io { mcpServers.all().firstOrNull { it.host.equals(host, ignoreCase = true) }?.url } }, mcpClient),
+        McpActionHandler({ host -> io { mcpServers.all().firstOrNull { it.host.equals(host, ignoreCase = true) }?.url } }, mcpClient) { url -> io { mcpKeys.find(url) } },
       ),
       onAudit = { record -> scope.launch { io { audit.append(record) } } },
       clock = System::currentTimeMillis,
@@ -268,6 +274,29 @@ class AppGraph(val app: Application) {
     val appointment = CalendarAddArgs.toProposal(record) ?: return@also // not a calendar.add
     val note = "นัด ${appointment.title} ${appointment.dayLabel} ${appointment.timeLabel}"
     if (safeIo { quickNote.save(QuickNoteInput(note, System.currentTimeMillis())) } != null) HakuWidget.refresh(app)
+  }
+
+  /**
+   * Connects with [apiKey], then keeps the server and its key. Throws with a Thai message; it never holds the key.
+   * Adding the same service again may mean another account, so what it returned before goes.
+   */
+  suspend fun addMcpServer(url: String, apiKey: String?): McpServerRecord {
+    require(!McpKeys.urlHoldsSecret(url)) { "อย่าใส่กุญแจใน URL ให้ใส่ในช่องกุญแจแทน" }
+    require(apiKey == null || McpKeys.isUsable(apiKey)) { "กุญแจมีอักขระที่ใช้ไม่ได้" }
+    val described = withContext(Dispatchers.IO) { mcpClient.describe(url, System.currentTimeMillis(), apiKey) }
+    io {
+      toolMemory.deleteService(described.host)
+      if (apiKey != null) mcpKeys.put(described.url, apiKey) else mcpKeys.remove(described.url)
+      mcpServers.upsert(described)
+    }
+    return described
+  }
+
+  /** The server, its key and what it returned all go together. */
+  suspend fun removeMcpServer(url: String) = io {
+    mcpServers.all().firstOrNull { it.url == url }?.let { toolMemory.deleteService(it.host) }
+    mcpKeys.remove(url)
+    mcpServers.remove(url)
   }
 
   private suspend fun rememberToolResult(record: ActionProposalRecord) {

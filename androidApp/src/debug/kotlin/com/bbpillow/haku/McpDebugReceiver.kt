@@ -5,14 +5,12 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.bbpillow.haku.action.ActionStatus
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
  * MCP servers over adb, the same calls the Settings → ความสามารถเสริม screen and the chat card make. Logcat tag `HakuMcp`:
- * `-a com.bbpillow.haku.debug.MCP_ADD --es url https://…` describe → store (tools start disabled)
+ * `-a com.bbpillow.haku.debug.MCP_ADD --es url https://… [--es key test-value]` describe → store (tools start disabled)
  * `-a com.bbpillow.haku.debug.MCP_LIST` servers and tools as JSON
  * `-a com.bbpillow.haku.debug.MCP_REMOVE --es url https://…`
  * `-a com.bbpillow.haku.debug.MCP_ENABLE --es tool <skill-name> [--ez on false]`
@@ -28,19 +26,15 @@ class McpDebugReceiver : BroadcastReceiver() {
           ACTION_ADD -> {
             val url = intent.getStringExtra("url").orEmpty()
             val t0 = System.currentTimeMillis()
-            val described = withContext(Dispatchers.IO) { graph.mcpClient.describe(url, System.currentTimeMillis()) }
-            graph.io { mcpServers.upsert(described) }
+            // --es key: a throwaway value for a test server only, adb arguments are visible to the shell
+            val described = graph.addMcpServer(url, intent.getStringExtra("key"))
             Log.i(TAG, "added ${described.host} in ${System.currentTimeMillis() - t0} ms")
             logServers(graph)
           }
           ACTION_LIST -> logServers(graph)
           ACTION_REMOVE -> {
             val url = intent.getStringExtra("url").orEmpty()
-            // as the Settings remove button: what the service returned goes with it
-            graph.io {
-              mcpServers.all().firstOrNull { it.url == url }?.let { toolMemory.deleteService(it.host) }
-              mcpServers.remove(url)
-            }
+            graph.removeMcpServer(url)
             logServers(graph)
           }
           ACTION_ENABLE -> {

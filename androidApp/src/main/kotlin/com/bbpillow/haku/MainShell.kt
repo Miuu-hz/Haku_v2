@@ -108,6 +108,7 @@ import com.bbpillow.haku.surface.settings.ModelManagerPresenter
 import com.bbpillow.haku.surface.settings.ModelManagerScreen
 import com.bbpillow.haku.surface.settings.ModelManagerUiState
 import com.bbpillow.haku.surface.settings.ModelStatus
+import com.bbpillow.haku.surface.settings.LicensesScreen
 import com.bbpillow.haku.surface.settings.PrivacyNoticeScreen
 import com.bbpillow.haku.surface.settings.SettingsScreen
 import com.bbpillow.haku.surface.settings.SettingsUiState
@@ -340,6 +341,13 @@ private fun SettingsTab(
     SettingsPage.LLM -> return LlmSettingsHost(graph, onOpenModels, onLlmBack)
     SettingsPage.AUDIT -> return AuditTab(graph) { page = SettingsPage.MAIN }
     SettingsPage.PRIVACY -> return PrivacyNoticeScreen(onBack = { page = SettingsPage.MAIN }, contentPadding = TabPadding)
+    SettingsPage.LICENSES -> return LicensesScreen(
+      onBack = { page = SettingsPage.MAIN },
+      loadText = { asset ->
+        withContext(Dispatchers.IO) { runCatching { activity.assets.open("licenses/$asset").bufferedReader().use { it.readText() } }.getOrNull() }
+      },
+      contentPadding = TabPadding,
+    )
     SettingsPage.NOTIFICATION_APPS -> return NotificationAppsHost(activity, notifOn) { page = SettingsPage.MAIN }
     SettingsPage.MAIN -> Unit
   }
@@ -352,6 +360,7 @@ private fun SettingsTab(
     onOpenExtensions = { page = SettingsPage.EXTENSIONS },
     onOpenAudit = { page = SettingsPage.AUDIT },
     onOpenPrivacyNotice = { page = SettingsPage.PRIVACY },
+    onOpenLicenses = { page = SettingsPage.LICENSES },
     onBack = onClose,
     onOpenLlmSettings = { page = SettingsPage.LLM },
     onParticle = { p -> update { setParticle(p, it) } },
@@ -397,7 +406,7 @@ private fun SettingsTab(
   )
 }
 
-private enum class SettingsPage { MAIN, EXTENSIONS, AUDIT, PRIVACY, LLM, NOTIFICATION_APPS }
+private enum class SettingsPage { MAIN, EXTENSIONS, AUDIT, PRIVACY, LICENSES, LLM, NOTIFICATION_APPS }
 
 /** P5.8: one switch per chat app, each saved at once. The listener reads the same store. */
 @Composable
@@ -457,12 +466,18 @@ private fun LlmSettingsHost(graph: AppGraph, onOpenModels: () -> Unit, onBack: (
 private fun ExtensionsTab(graph: AppGraph, onBack: () -> Unit) {
   val scope = rememberCoroutineScope()
   var servers by remember { mutableStateOf<List<McpServerRecord>>(emptyList()) }
+  var serversWithKey by remember { mutableStateOf(emptySet<String>()) }
+  // re-read together: the screen only ever learns which servers have a key, never the key
+  suspend fun reload() {
+    graph.safeIo { mcpServers.all().let { list -> list to list.filter { mcpKeys.find(it.url) != null }.map { it.url }.toSet() } }
+      ?.let { (list, withKey) -> servers = list; serversWithKey = withKey }
+  }
   var adding by remember { mutableStateOf(false) }
   var addError by remember { mutableStateOf<String?>(null) }
   var addedServer by remember { mutableStateOf<McpServerRecord?>(null) }
   // ponytail: built-ins always on for now, show switch disabled with "เปิดอยู่เสมอ"
   val skills = BuiltInSkills.ALL
-  LaunchedEffect(Unit) { graph.safeIo { mcpServers.all() }?.let { servers = it } }
+  LaunchedEffect(Unit) { reload() }
   ExtensionsScreen(
     skills = skills,
     servers = servers,
@@ -480,27 +495,19 @@ private fun ExtensionsTab(graph: AppGraph, onBack: () -> Unit) {
     },
     onRemoveServer = { url ->
       scope.launch {
-        graph.safeIo {
-          mcpServers.all().firstOrNull { it.url == url }?.let { toolMemory.deleteService(it.host) }
-          mcpServers.remove(url)
-          mcpServers.all()
-        }?.let { servers = it }
+        runCatching { graph.removeMcpServer(url) }.onFailure { if (it is CancellationException) throw it else Log.e("HakuShell", "remove server failed: ${it::class.simpleName}") }
+        reload()
       }
     },
-    onConnectServer = { url ->
+    serversWithKey = serversWithKey,
+    onConnectServer = { url, apiKey ->
       adding = true
       addError = null
       addedServer = null
       scope.launch {
         try {
-          val described = withContext(Dispatchers.IO) {
-            graph.mcpClient.describe(url, System.currentTimeMillis())
-          }
-          graph.safeIo {
-            mcpServers.upsert(described)
-            mcpServers.all()
-          }?.let { servers = it }
-          addedServer = described
+          addedServer = graph.addMcpServer(url, apiKey)
+          reload()
         } catch (e: CancellationException) {
           throw e
         } catch (e: Exception) {
