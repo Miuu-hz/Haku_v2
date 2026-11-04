@@ -47,7 +47,7 @@ import com.bbpillow.haku.surface.theme.HakuTone
 fun SettingsScreen(
   state: SettingsUiState,
   onBack: () -> Unit,
-  onOpenModels: () -> Unit,
+  onOpenLlmSettings: () -> Unit,
   onParticle: (EndingParticle) -> Unit,
   onAddress: (AddressForm) -> Unit,
   onNickname: (String) -> Unit,
@@ -82,7 +82,7 @@ fun SettingsScreen(
     ScreenTitle("ตั้งค่า")
 
     SectionLabel("AI ในเครื่อง")
-    NavRow(HakuIcons.Box, HakuTone.Violet, "AI ในเครื่อง", state.activeModelLabel, onOpenModels)
+    NavRow(HakuIcons.Box, HakuTone.Violet, "AI ในเครื่อง", state.activeModelLabel, onOpenLlmSettings)
 
     SectionLabel("คำลงท้าย", Modifier.padding(top = 4.dp))
     SurfaceCard(Modifier.fillMaxWidth()) {
@@ -227,7 +227,7 @@ private fun BriefRow(
 }
 
 @Composable
-private fun <T> StyleSegmented(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+internal fun <T> StyleSegmented(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
   Row(
     Modifier
       .fillMaxWidth()
