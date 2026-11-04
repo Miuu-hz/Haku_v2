@@ -154,7 +154,7 @@ object ChatMarkdown {
     fun isMath(c: String, isDouble: Boolean): Boolean =
       c.isNotEmpty() &&
         // an operator right before the closing $ is two prices ("$5+$10"), not one formula
-        (isDouble || (!c.startsWith(' ') && !c.endsWith(' ') && c.last() !in "=^+_×÷")) &&
+        (isDouble || (!c.startsWith(' ') && !c.endsWith(' ') && c.last() !in "=^+_×÷/*")) &&
         (MATH_CMD.containsMatchIn(c) || c.any { it in "=^+_×÷" } || DIGIT_OP.containsMatchIn(c))
 
     fun cleanMath(expr: String): String =

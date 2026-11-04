@@ -1,5 +1,7 @@
 package com.bbpillow.haku
 
+import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.WindowManager
@@ -121,7 +123,9 @@ private fun AppRoot(graph: AppGraph, activity: FragmentActivity) {
       }
       LaunchedEffect(Unit) {
         (profile.model as? ActiveModel.Catalog)?.let { graph.downloader.resumeIfPartial(it.choice) }
-        if (AppStart.shouldStartCaptureOnMain(grantedKinds(activity), CaptureController.isEnabled(activity))) CaptureController.start(activity)
+        val lastExit = activity.getSystemService(ActivityManager::class.java).getHistoricalProcessExitReasons(null, 0, 1).firstOrNull()
+        val wasForceStopped = lastExit?.reason == ApplicationExitInfo.REASON_USER_REQUESTED
+        if (AppStart.shouldStartCaptureOnMain(grantedKinds(activity), CaptureController.isEnabled(activity), wasForceStopped)) CaptureController.start(activity)
         NightlyWorker.schedule(activity) // onboarded from here on; UPDATE keeps the timing, refreshes constraints
         // cheap check (row count + a directory list); the rebuild itself queues on the DB thread, the screen does not wait
         graph.scope.launch { graph.safeIo { rebuildIndexIfEmpty() }?.let { Log.i("HakuIndex", "index rebuilt: ${it.indexed} records") } }

@@ -128,7 +128,10 @@ fun OfflineDayMap(
           mapView.setOnTouchListener { _, _ -> true } // a card, not a map to explore; Google Maps is the pin
 
           val mapDataStore = try {
-            MapFile(mapFile)
+            // Thai first. A name with only a foreign form comes back as "enName": show the name, not the language code.
+            object : MapFile(mapFile, "th") {
+              override fun extractLocalized(s: String?): String? = super.extractLocalized(s)?.substringAfter('')
+            }
           } catch (_: Exception) {
             mapView.post { currentOnUnavailable() }
             return@AndroidView mapView

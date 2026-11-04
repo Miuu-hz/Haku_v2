@@ -20,10 +20,11 @@ object AppStart {
 
   /**
    * Onboarding is marked done before its last button, so MAIN also starts capture if it never got started. When it is
-   * already on, MAIN registers it again: a force stop drops the wake-ups and only boot or an update would bring them back.
+   * already on, MAIN registers it again only after a force stop, which drops the wake-ups until boot or an update. Not on
+   * every open: replacing the geofence can lose an exit Play services has not delivered yet.
    */
-  fun shouldStartCaptureOnMain(granted: Set<PermissionKind>, captureEnabled: Boolean): Boolean =
-    captureEnabled || shouldStartCapture(granted)
+  fun shouldStartCaptureOnMain(granted: Set<PermissionKind>, captureEnabled: Boolean, wasForceStopped: Boolean): Boolean =
+    if (captureEnabled) wasForceStopped else shouldStartCapture(granted)
 
   const val RELOCK_AFTER_MS = 60_000L
 

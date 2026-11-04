@@ -212,6 +212,7 @@ class ChatMarkdownTest {
   @Test
   fun testPricesJoinedByAnOperatorKeepTheirDollars() {
     assertEquals(listOf<MdBlock>(MdBlock.Paragraph(listOf(MdSpan("$5+$10")))), ChatMarkdown.parse("$5+$10"))
+    assertEquals(listOf<MdBlock>(MdBlock.Paragraph(listOf(MdSpan("$10/$20")))), ChatMarkdown.parse("$10/$20"))
   }
 
   @Test

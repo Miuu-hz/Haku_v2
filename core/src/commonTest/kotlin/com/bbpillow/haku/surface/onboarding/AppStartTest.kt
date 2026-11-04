@@ -20,11 +20,12 @@ class AppStartTest {
   }
 
   @Test
-  fun mainStartsCaptureWhenPermittedAndRegistersItAgainWhenAlreadyOn() {
+  fun mainStartsCaptureWhenPermittedAndAgainOnlyAfterAForceStop() {
     val both = setOf(PermissionKind.LOCATION, PermissionKind.ACTIVITY)
-    assertTrue(AppStart.shouldStartCaptureOnMain(both, captureEnabled = false)) // swiped away before the last button
-    assertTrue(AppStart.shouldStartCaptureOnMain(both, captureEnabled = true)) // a force stop dropped the wake-ups
-    assertFalse(AppStart.shouldStartCaptureOnMain(setOf(PermissionKind.LOCATION), captureEnabled = false))
+    assertTrue(AppStart.shouldStartCaptureOnMain(both, captureEnabled = false, wasForceStopped = false)) // swiped away before the last button
+    assertTrue(AppStart.shouldStartCaptureOnMain(both, captureEnabled = true, wasForceStopped = true)) // the wake-ups were dropped
+    assertFalse(AppStart.shouldStartCaptureOnMain(both, captureEnabled = true, wasForceStopped = false)) // a normal open keeps the live geofence
+    assertFalse(AppStart.shouldStartCaptureOnMain(setOf(PermissionKind.LOCATION), captureEnabled = false, wasForceStopped = false))
   }
 
   @Test
@@ -46,6 +47,6 @@ class AppStartTest {
 
   @Test
   fun mainStartsCalendarOnlyCaptureToo() {
-    assertTrue(AppStart.shouldStartCaptureOnMain(setOf(PermissionKind.CALENDAR), captureEnabled = false))
+    assertTrue(AppStart.shouldStartCaptureOnMain(setOf(PermissionKind.CALENDAR), captureEnabled = false, wasForceStopped = false))
   }
 }
