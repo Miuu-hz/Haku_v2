@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -51,6 +52,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.bbpillow.haku.skill.McpServerRecord
 import com.bbpillow.haku.skill.McpServerStore
@@ -81,8 +84,9 @@ fun ExtensionsScreen(
   onBack: () -> Unit,
   onToggleTool: (url: String, tool: String, enabled: Boolean) -> Unit,
   onRemoveServer: (url: String) -> Unit,
-  onConnectServer: (url: String) -> Unit,
+  onConnectServer: (url: String, apiKey: String?) -> Unit,
   modifier: Modifier = Modifier,
+  serversWithKey: Set<String> = emptySet(),
   adding: Boolean = false,
   addError: String? = null,
   addedServer: McpServerRecord? = null,
@@ -94,6 +98,7 @@ fun ExtensionsScreen(
   var deletingServer by remember { mutableStateOf<McpServerRecord?>(null) }
   var addStep by remember { mutableStateOf(AddStep.NONE) }
   var urlInput by remember { mutableStateOf("") }
+  var apiKeyInput by remember { mutableStateOf("") }
 
   Column(
     modifier
@@ -177,7 +182,20 @@ fun ExtensionsScreen(
           ) {
             IconTile(HakuIcons.Spark, HakuTone.Blue, size = 40.dp)
             Column(Modifier.weight(1f)) {
-              Text(server.name.ifBlank { server.host }, style = MaterialTheme.typography.titleSmall, color = HakuColors.Ink)
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+              ) {
+                Text(
+                  server.name.ifBlank { server.host },
+                  style = MaterialTheme.typography.titleSmall,
+                  color = HakuColors.Ink,
+                  modifier = Modifier.weight(1f, fill = false),
+                )
+                if (server.url in serversWithKey) {
+                  StatChip("มีกุญแจ")
+                }
+              }
               Text(
                 "@${server.host} · ${server.tools.size} เครื่องมือ",
                 style = MaterialTheme.typography.bodySmall,
@@ -241,6 +259,7 @@ fun ExtensionsScreen(
       onClick = {
         onDismissAdd()
         urlInput = ""
+        apiKeyInput = ""
         addStep = AddStep.DISCLAIMER
       },
       modifier = Modifier.fillMaxWidth(),
@@ -269,7 +288,10 @@ fun ExtensionsScreen(
         "Haku จะแสดงข้อมูลและถามให้คุณยืนยันทุกครั้งก่อนส่ง โปรดเพิ่มเฉพาะบริการที่คุณไว้ใจเท่านั้น",
       confirmText = "เข้าใจแล้ว",
       onConfirm = { addStep = AddStep.URL_FORM },
-      onDismiss = { addStep = AddStep.NONE },
+      onDismiss = {
+        apiKeyInput = ""
+        addStep = AddStep.NONE
+      },
     )
   }
 
@@ -277,15 +299,22 @@ fun ExtensionsScreen(
     AddMcpServerDialog(
       url = urlInput,
       onUrlChange = { urlInput = it },
+      apiKey = apiKeyInput,
+      onApiKeyChange = { apiKeyInput = it },
       adding = adding,
       error = addError,
       addedServer = addedServer,
       onConnect = {
         val trimmed = urlInput.trim()
-        if (trimmed.isNotEmpty() && !adding) onConnectServer(trimmed)
+        val key = apiKeyInput.trim().ifBlank { null }
+        if (trimmed.isNotEmpty() && !adding) {
+          apiKeyInput = ""
+          onConnectServer(trimmed, key)
+        }
       },
       onDismiss = {
         if (!adding) {
+          apiKeyInput = ""
           addStep = AddStep.NONE
           onDismissAdd()
         }
@@ -298,6 +327,8 @@ fun ExtensionsScreen(
 private fun AddMcpServerDialog(
   url: String,
   onUrlChange: (String) -> Unit,
+  apiKey: String,
+  onApiKeyChange: (String) -> Unit,
   adding: Boolean,
   error: String?,
   addedServer: McpServerRecord?,
@@ -323,6 +354,22 @@ private fun AddMcpServerDialog(
             singleLine = true,
             enabled = !adding,
             textStyle = MaterialTheme.typography.bodyMedium,
+          )
+          OutlinedTextField(
+            value = apiKey,
+            onValueChange = onApiKeyChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("กุญแจ API (ถ้าบริการต้องใช้)") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+            enabled = !adding,
+            textStyle = MaterialTheme.typography.bodyMedium,
+          )
+          Text(
+            "เก็บแบบเข้ารหัสในเครื่อง ส่งไปที่บริการนี้เท่านั้น ถ้าจะเปลี่ยนกุญแจให้ลบบริการแล้วเพิ่มใหม่",
+            style = MaterialTheme.typography.bodySmall,
+            color = HakuColors.Muted,
           )
           if (adding) {
             Row(
