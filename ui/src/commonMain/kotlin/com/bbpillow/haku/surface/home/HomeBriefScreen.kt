@@ -4,46 +4,44 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.bbpillow.haku.surface.components.CapsuleButton
-import com.bbpillow.haku.surface.components.DonutChart
 import com.bbpillow.haku.surface.components.HakuIcons
 import com.bbpillow.haku.surface.components.HighlightCard
 import com.bbpillow.haku.surface.components.IconTile
 import com.bbpillow.haku.surface.components.PastelBoard
-import com.bbpillow.haku.surface.components.ScreenTitle
 import com.bbpillow.haku.surface.components.StatChip
 import com.bbpillow.haku.surface.components.SurfaceCard
+import com.bbpillow.haku.surface.tasks.taskQuadrantColor
 import com.bbpillow.haku.surface.theme.HakuColors
 import com.bbpillow.haku.surface.theme.HakuRadius
 import com.bbpillow.haku.surface.theme.HakuTone
+import com.bbpillow.haku.task.TaskCounts
+import com.bbpillow.haku.task.TaskQuadrant
+import com.bbpillow.haku.task.TaskRules
 
-/**
- * Screen 1 of haku-mockup.html (asset A1-A6): greeting, the day's story, measured stats, the learning card slot, and
- * the day-one empty state. State-hoisted: [state] comes from HomeBriefPresenter; tapping the story opens that day's
- * timeline (where every line shows its source). [isCapturing] = location capture is running (system status, A6).
- */
-// ponytail: no pinned-skill shortcuts or model/charging-queue status yet; add with P4.x / P5.1.
 @Composable
 fun HomeBriefScreen(
   state: HomeBriefUiState,
@@ -57,19 +55,57 @@ fun HomeBriefScreen(
   /** The weekly card opens the stats screen (P2.8: week/month/year + comparison). */
   onOpenStats: () -> Unit = {},
   contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+  /** e.g. "Gemma E2B พร้อม · ย่อยความจำตอนชาร์จ"; null = line hidden. */
+  modelLine: String? = null,
+  onOpenTasks: () -> Unit = {},
+  onConfirmDecision: (String) -> Unit = {},
+  onDismissDecision: (String) -> Unit = {},
+  /** Result of the last tap on a decision, e.g. a calendar permission problem; null = nothing to say. */
+  decisionMessage: String? = null,
 ) {
   LazyColumn(modifier.fillMaxWidth(), contentPadding = contentPadding, verticalArrangement = Arrangement.spacedBy(16.dp)) {
     if (state.isDayOne) {
       item { DayOne(state, isCapturing) }
       return@LazyColumn
     }
-    item { ScreenTitle(state.headline, eyebrow = state.greeting) }
+    item { HomeHeader(state.greeting, state.headline, onOpenPlus) }
     item { StoryCard(state, onOpenDay) }
+    if (state.decisions.isNotEmpty()) {
+      item { DecisionsCard(state.decisions, decisionMessage, onConfirmDecision, onDismissDecision) }
+    }
+    item { HomeTasksCard(state.taskCounts, onOpenTasks) }
     state.appointments?.let { today -> item { AppointmentsCard(today) } }
-    state.stats?.let { stats -> item { StatsRow(stats) } }
-    state.weekly?.let { card -> item { WeeklyBoard(card, onOpenPlus, onOpenStats) } }
+    if (state.stats != null) {
+      item { StatsRow(state.stats, onOpenStats) }
+    } else if (state.weekly != null) {
+      item {
+        StatChip(
+          text = "ดูสถิติ",
+          modifier = Modifier.clip(HakuRadius.Pill).clickable(role = Role.Button, onClick = onOpenStats),
+        )
+      }
+    }
     state.learning?.let { card -> item { LearningBoard(card, onReadLearning, onDismissLearning) } }
+    modelLine?.let { line -> item { ModelLineStatus(line) } }
     item { CaptureStatus(isCapturing) }
+  }
+}
+
+@Composable
+private fun HomeHeader(greeting: String, headline: String, onOpenPlus: () -> Unit) {
+  Row(
+    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    Column(modifier = Modifier.weight(1f)) {
+      Text(greeting, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
+      Text(headline, style = MaterialTheme.typography.headlineMedium, color = HakuColors.Ink)
+    }
+    StatChip(
+      text = "Haku Plus",
+      modifier = Modifier.clip(HakuRadius.Pill).clickable(role = Role.Button, onClick = onOpenPlus),
+    )
   }
 }
 
@@ -98,6 +134,142 @@ private fun StoryCard(state: HomeBriefUiState, onOpenDay: (String) -> Unit) {
   }
 }
 
+@Composable
+private fun DecisionsCard(
+  decisions: List<HomeDecisionRow>,
+  decisionMessage: String?,
+  onConfirm: (String) -> Unit,
+  onDismiss: (String) -> Unit,
+) {
+  SurfaceCard(Modifier.fillMaxWidth()) {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text("รอคุณตัดสิน", style = MaterialTheme.typography.titleSmall)
+      Spacer(Modifier.weight(1f))
+      StatChip("${decisions.size}")
+    }
+    Spacer(Modifier.height(8.dp))
+    decisions.forEach { row ->
+      DecisionRowItem(row, onConfirm = { onConfirm(row.id) }, onDismiss = { onDismiss(row.id) })
+    }
+    decisionMessage?.let { msg ->
+      Text(
+        text = msg,
+        style = MaterialTheme.typography.bodySmall,
+        color = HakuColors.Muted,
+        modifier = Modifier.padding(top = 4.dp),
+      )
+    }
+  }
+}
+
+@Composable
+private fun DecisionRowItem(
+  row: HomeDecisionRow,
+  onConfirm: () -> Unit,
+  onDismiss: () -> Unit,
+) {
+  BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+    val stackButtons = maxWidth < 400.dp
+    if (stackButtons) {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(12.dp),
+          verticalAlignment = Alignment.Top,
+        ) {
+          IconTile(HakuIcons.Calendar, HakuTone.Blue, size = 36.dp)
+          Column(modifier = Modifier.weight(1f)) {
+            Text(row.heading, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text(row.detail, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
+            row.warning?.let {
+              Text(it, style = MaterialTheme.typography.bodySmall, color = HakuColors.Coral)
+            }
+          }
+        }
+        Row(
+          modifier = Modifier.padding(start = 48.dp),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          CapsuleButton("เพิ่ม", onConfirm)
+          CapsuleButton("ไม่ใช่", onDismiss, outline = true)
+        }
+      }
+    } else {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+      ) {
+        IconTile(HakuIcons.Calendar, HakuTone.Blue, size = 36.dp)
+        Column(modifier = Modifier.weight(1f)) {
+          Text(row.heading, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+          Text(row.detail, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
+          row.warning?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = HakuColors.Coral)
+          }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+          CapsuleButton("เพิ่ม", onConfirm)
+          CapsuleButton("ไม่ใช่", onDismiss, outline = true)
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun HomeTasksCard(taskCounts: TaskCounts, onOpenTasks: () -> Unit) {
+  SurfaceCard(
+    modifier = Modifier
+      .fillMaxWidth()
+      .clip(HakuRadius.Card)
+      .clickable(role = Role.Button, onClick = onOpenTasks),
+  ) {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text("งานวันนี้", style = MaterialTheme.typography.titleSmall)
+      Spacer(Modifier.weight(1f))
+      Icon(HakuIcons.Chevron, contentDescription = null, tint = HakuColors.Muted, modifier = Modifier.size(16.dp))
+    }
+    Spacer(Modifier.height(8.dp))
+    if (taskCounts.total == 0) {
+      Text("ยังไม่มีงาน แตะเพื่อเพิ่ม", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
+    } else {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        val boxes = listOf(
+          TaskQuadrant.IMPORTANT_URGENT to taskCounts.importantUrgent,
+          TaskQuadrant.IMPORTANT to taskCounts.important,
+          TaskQuadrant.URGENT to taskCounts.urgent,
+          TaskQuadrant.SOMEDAY to taskCounts.someday,
+        )
+        boxes.forEach { (quadrant, count) ->
+          Column(modifier = Modifier.weight(1f)) {
+            Text(
+              text = "$count",
+              style = MaterialTheme.typography.titleLarge,
+              fontWeight = FontWeight.Bold,
+              color = taskQuadrantColor(quadrant),
+            )
+            Text(
+              text = TaskRules.label(quadrant),
+              style = MaterialTheme.typography.labelSmall,
+              color = HakuColors.Muted,
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
 /** Today's calendar: past rows muted, the next one in violet with a chip, the rest as "อีก N นัด". */
 @Composable
 private fun AppointmentsCard(today: TodayAppointments) {
@@ -120,52 +292,56 @@ private fun AppointmentsCard(today: TodayAppointments) {
   }
 }
 
-/** Only cards backed by a number are drawn: no donut without a home, no steps without a step source. */
+/** Number tiles for measured stats. Whole row is tappable to open stats. */
 @Composable
-private fun StatsRow(stats: HomeStats) {
-  Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-    val fraction = stats.outOfHomeFraction
-    val minutes = stats.outOfHomeMinutes
-    if (fraction != null && minutes != null) {
-      SurfaceCard(Modifier.weight(1f).fillMaxHeight()) {
-        DonutChart(fraction, Modifier.align(Alignment.CenterHorizontally))
-        Text(
-          "เวลานอกบ้าน ${durationText(minutes)}",
-          style = MaterialTheme.typography.bodySmall,
-          color = HakuColors.Muted,
-          textAlign = TextAlign.Center,
-          modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 6.dp),
-        )
-      }
+private fun StatsRow(stats: HomeStats, onOpenStats: () -> Unit) {
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .clip(HakuRadius.Card)
+      .clickable(role = Role.Button, onClick = onOpenStats),
+    horizontalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    stats.outOfHomeMinutes?.let { minutes ->
+      StatNumberTile(
+        value = durationText(minutes),
+        label = "เวลานอกบ้าน",
+        background = HakuColors.Surface,
+        modifier = Modifier.weight(1f),
+      )
     }
-    PastelBoard(HakuColors.Sky, Modifier.weight(1f).fillMaxHeight()) {
-      IconTile(HakuIcons.Route, HakuTone.Blue)
-      Spacer(Modifier.weight(1f).height(10.dp))
-      Text("${stats.placeCount}", style = MaterialTheme.typography.titleLarge)
-      Text("สถานที่", style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
-    }
+    StatNumberTile(
+      value = "${stats.placeCount}",
+      label = "สถานที่",
+      background = HakuColors.Sky,
+      modifier = Modifier.weight(1f),
+    )
     stats.steps?.let { steps ->
-      PastelBoard(HakuColors.Butter, Modifier.weight(1f).fillMaxHeight()) {
-        IconTile(HakuIcons.Walk, HakuTone.Amber)
-        Spacer(Modifier.weight(1f).height(10.dp))
-        Text(formatThousands(steps), style = MaterialTheme.typography.titleLarge)
-        Text("ก้าว", style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
-      }
+      StatNumberTile(
+        value = formatThousands(steps),
+        label = "ก้าว",
+        background = HakuColors.Butter,
+        modifier = Modifier.weight(1f),
+      )
     }
   }
 }
 
-/** A5: this week's measured lines; FREE sees a quiet note that the week-over-week comparison is Plus. */
 @Composable
-private fun WeeklyBoard(card: WeeklyCard, onOpenPlus: () -> Unit, onOpenStats: () -> Unit) {
-  SurfaceCard(Modifier.fillMaxWidth().clip(HakuRadius.Card).clickable(role = Role.Button, onClick = onOpenStats)) {
-    Text("สรุปสัปดาห์นี้", style = MaterialTheme.typography.titleSmall)
-    Spacer(Modifier.height(6.dp))
-    card.lines.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted) }
-    if (card.comparisonLocked) {
-      StatChip("เทียบกับสัปดาห์ก่อนใน Haku Plus", Modifier.padding(top = 10.dp).clip(HakuRadius.Pill).clickable(role = Role.Button, onClick = onOpenPlus))
-    }
-    StatChip("ดูสถิติเดือนและปี", Modifier.padding(top = 10.dp))
+private fun StatNumberTile(
+  value: String,
+  label: String,
+  background: Color,
+  modifier: Modifier = Modifier,
+) {
+  SurfaceCard(
+    modifier = modifier,
+    color = background,
+    padding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+  ) {
+    Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HakuColors.Ink)
+    Spacer(Modifier.height(4.dp))
+    Text(label, style = MaterialTheme.typography.labelSmall, color = HakuColors.Muted)
   }
 }
 
@@ -185,6 +361,18 @@ private fun LearningBoard(card: LearningCard, onRead: (LearningCard) -> Unit, on
       CapsuleButton("ไม่สนใจเรื่องนี้", { onDismiss(card) }, outline = true)
     }
     Text("ที่มา: ${card.source}", style = MaterialTheme.typography.labelSmall, color = HakuColors.Muted, modifier = Modifier.padding(top = 8.dp))
+  }
+}
+
+@Composable
+private fun ModelLineStatus(line: String) {
+  Row(
+    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    Icon(HakuIcons.Box, contentDescription = null, tint = HakuColors.Green, modifier = Modifier.size(16.dp))
+    Text(line, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted)
   }
 }
 

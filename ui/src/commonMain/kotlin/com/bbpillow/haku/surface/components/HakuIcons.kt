@@ -43,6 +43,8 @@ object HakuIcons {
     circle(12f, 12f, 6.6f),
     "M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6",
   )
+  val Calendar = icon("Calendar", rect(4f, 5f, 16f, 15f, 3f), "M4 10h16M9 3v4M15 3v4")
+  val Check = icon("Check", "M5 12l5 5L19 7")
 }
 
 private fun icon(name: String, vararg paths: String): ImageVector {
