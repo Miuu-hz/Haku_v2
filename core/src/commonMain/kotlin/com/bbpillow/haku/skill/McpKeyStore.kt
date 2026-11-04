@@ -61,11 +61,12 @@ object McpKeys {
   }
 
   /**
-   * True when the query string has a parameter named key, api_key, apikey, token, access_token, secret or password,
-   * ignoring case. A url with no query is false. Must not throw on odd input.
+   * True when the url carries `user:password@`, or its query string has a parameter named key, api_key, apikey, token,
+   * access_token, secret or password, ignoring case. Must not throw on odd input.
    */
   fun urlHoldsSecret(url: String): Boolean = runCatching {
     val withoutFragment = url.substringBefore('#')
+    if ('@' in withoutFragment.substringAfter("://", "").substringBefore('/').substringBefore('?')) return true
     val question = withoutFragment.indexOf('?')
     if (question < 0) return false
     val query = withoutFragment.substring(question + 1)

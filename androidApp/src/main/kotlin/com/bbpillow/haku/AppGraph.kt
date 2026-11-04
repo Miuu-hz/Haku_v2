@@ -284,6 +284,11 @@ class AppGraph(val app: Application) {
     require(!McpKeys.urlHoldsSecret(url)) { "อย่าใส่กุญแจใน URL ให้ใส่ในช่องกุญแจแทน" }
     require(apiKey == null || McpKeys.isUsable(apiKey)) { "กุญแจมีอักขระที่ใช้ไม่ได้" }
     val described = withContext(Dispatchers.IO) { mcpClient.describe(url, System.currentTimeMillis(), apiKey) }
+    // ponytail: tools, kept results and the gate card all name a service by host, so two on one host would mix their data.
+    // Refused, not supported: address them by url if one person ever needs two.
+    require(io { mcpServers.all().none { it.url != described.url && it.host.equals(described.host, ignoreCase = true) } }) {
+      "มีบริการอื่นจากโฮสต์นี้อยู่แล้ว ลบบริการนั้นก่อนจึงเพิ่มได้"
+    }
     io {
       toolMemory.deleteService(described.host)
       if (apiKey != null) mcpKeys.put(described.url, apiKey) else mcpKeys.remove(described.url)

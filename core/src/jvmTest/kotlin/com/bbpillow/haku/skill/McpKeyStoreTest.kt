@@ -115,6 +115,10 @@ class McpKeyStoreTest {
     assertTrue(McpKeys.urlHoldsSecret("?key=a"))
     assertTrue(McpKeys.urlHoldsSecret("https://example.com/mcp?key=a"))
 
+    // user:password@
+    assertTrue(McpKeys.urlHoldsSecret("https://user:pw@example.com/mcp"))
+    assertFalse(McpKeys.urlHoldsSecret("https://example.com/mcp/a@b"))
+
     // ?API_KEY=a
     assertTrue(McpKeys.urlHoldsSecret("?API_KEY=a"))
     assertTrue(McpKeys.urlHoldsSecret("https://example.com/mcp?API_KEY=a"))
