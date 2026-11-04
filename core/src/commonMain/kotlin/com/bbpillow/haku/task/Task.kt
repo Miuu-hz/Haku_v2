@@ -51,6 +51,7 @@ object TaskRules {
   const val MAX_TITLE_CHARS = 200
   private const val MIN_MS = 60_000L
   private const val DAY_MS = 86_400_000L
+  private val LINE_BREAKS = Regex("[\\r\\n]+")
 
   /** Due within 48 hours, or already past. */
   fun isUrgent(task: TaskRecord, nowUtcMs: Long): Boolean =
@@ -83,7 +84,7 @@ object TaskRules {
 
   /** Trims, joins lines and caps; blank gives null. */
   fun cleanTitle(raw: String): String? =
-    raw.replace('\r', ' ').replace('\n', ' ').trim().take(MAX_TITLE_CHARS).trim().takeIf { it.isNotEmpty() }
+    raw.replace(LINE_BREAKS, " ").trim().take(MAX_TITLE_CHARS).trim().takeIf { it.isNotEmpty() }
 
   /**
    * The last millisecond of local [day] (`YYYY-MM-DD`).
