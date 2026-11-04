@@ -7,8 +7,11 @@ import com.bbpillow.haku.skill.MentionParser
 import com.bbpillow.haku.skill.SkillRecord
 import com.bbpillow.haku.surface.action.ActionCalendarIcon
 import com.bbpillow.haku.surface.action.ActionCard
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,13 +49,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.OffsetMapping
@@ -60,7 +67,9 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import com.bbpillow.haku.surface.components.HakuIcons
 import com.bbpillow.haku.surface.components.IconTile
 import com.bbpillow.haku.surface.components.ScreenTitle
@@ -86,12 +95,14 @@ val ChatSuggestions = listOf("ครั้งล่าสุดที่ไป�
  * (tap = open that day's timeline), and a pill input. [engineLabel] shows the active model's short name or
  * "ยังไม่มีโมเดล" when none is ready; tapping it opens the LLM settings page. State-hoisted: the caller runs ChatPresenter.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
   turns: List<ChatTurn>,
   engineLabel: String,
   onAsk: (String) -> Unit,
   onStop: () -> Unit = {},
+  onNewTopic: () -> Unit = {},
   onOpenDay: (String) -> Unit,
   mode: ChatMode = ChatMode.GENERAL,
   modeOptions: List<ChatModeOption> = ChatModes.options(LlmDefaults.AGENT_MIN_CONTEXT),
@@ -109,6 +120,7 @@ fun ChatScreen(
   modifier: Modifier = Modifier,
   contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
 ) {
+  val clipboard = LocalClipboardManager.current
   // TextFieldValue, not String: a picked mention must leave the cursor after it
   var draft by remember { mutableStateOf(TextFieldValue("")) }
   val busy = turns.lastOrNull()?.answer == null && turns.isNotEmpty()
@@ -127,8 +139,20 @@ fun ChatScreen(
     Box(Modifier.weight(1f).fillMaxWidth()) {
       LazyColumn(Modifier.fillMaxSize(), state = list, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-          Row(verticalAlignment = Alignment.CenterVertically) {
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
             ScreenTitle("ถาม Haku", Modifier.weight(1f), eyebrow = "ถามได้ทุกเรื่อง เรื่องของคุณตอบจากบันทึก")
+            if (turns.isNotEmpty() && !busy) {
+              StatChip(
+                "เรื่องใหม่",
+                Modifier
+                  .padding(top = 30.dp)
+                  .clip(HakuRadius.Pill)
+                  .clickable(role = Role.Button, onClickLabel = "เริ่มเรื่องใหม่", onClick = onNewTopic),
+              )
+            }
             StatChip(
               engineLabel,
               Modifier
@@ -149,7 +173,17 @@ fun ChatScreen(
                 turn.question,
                 style = MaterialTheme.typography.bodyMedium,
                 color = HakuColors.Surface,
-                modifier = Modifier.widthIn(max = 300.dp).background(HakuColors.Ink, UserBubble).padding(horizontal = 16.dp, vertical = 11.dp),
+                modifier = Modifier
+                  .widthIn(max = 300.dp)
+                  .background(HakuColors.Ink, UserBubble)
+                  .combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {},
+                    onLongClick = { clipboard.setText(AnnotatedString(turn.question)) },
+                    onLongClickLabel = "คัดลอก",
+                  )
+                  .padding(horizontal = 16.dp, vertical = 11.dp),
               )
             }
             val appointment = turn.answer?.appointment
@@ -167,6 +201,16 @@ fun ChatScreen(
               turn.answer?.actionId?.let(actions::get)?.let { p ->
                 ActionCard(p, onConfirm = { onConfirmAction(p.id) }, onDismiss = { onDismissAction(p.id) })
               }
+            }
+            if (i == turns.lastIndex && turn.answer != null && turn.answer.appointment == null && turn.answer.actionId == null) {
+              Text(
+                text = "ถามใหม่",
+                style = MaterialTheme.typography.labelMedium,
+                color = HakuColors.Muted,
+                modifier = Modifier
+                  .clickable(role = Role.Button, onClickLabel = "ถามใหม่") { onAsk(turn.question) }
+                  .padding(vertical = 8.dp),
+              )
             }
           }
         }
@@ -245,8 +289,18 @@ private fun Suggestions(onAsk: (String) -> Unit) {
   }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AnswerCard(answer: ChatAnswerOutput?, partial: String, onOpenDay: (String) -> Unit) {
+  val clipboard = LocalClipboardManager.current
+  var copied by remember { mutableStateOf(false) }
+  if (copied) {
+    LaunchedEffect(copied) {
+      delay(2000L)
+      copied = false
+    }
+  }
+
   Column(
     Modifier.widthIn(max = 340.dp).hakuShadow(AnswerBubble).background(HakuColors.Surface, AnswerBubble).padding(horizontal = 16.dp, vertical = 12.dp),
   ) {
@@ -254,16 +308,46 @@ private fun AnswerCard(answer: ChatAnswerOutput?, partial: String, onOpenDay: (S
       if (partial.isBlank()) {
         Text("กำลังหาคำตอบ…", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
       } else {
-        Text(partial, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Ink)
+        MarkdownText(
+          text = partial,
+          modifier = Modifier.combinedClickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            onClick = {},
+            onLongClick = {
+              clipboard.setText(AnnotatedString(partial.replace("**", "")))
+              copied = true
+            },
+            onLongClickLabel = "คัดลอก",
+          ),
+        )
+      }
+      if (copied) {
+        Text("คัดลอกแล้ว", style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted, modifier = Modifier.padding(top = 8.dp))
       }
       return@Column
     }
-    Text(answer.text, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Ink)
+    MarkdownText(
+      text = answer.text,
+      modifier = Modifier.combinedClickable(
+        interactionSource = remember { MutableInteractionSource() },
+        indication = null,
+        onClick = {},
+        onLongClick = {
+          clipboard.setText(AnnotatedString(answer.text.replace("**", "")))
+          copied = true
+        },
+        onLongClickLabel = "คัดลอก",
+      ),
+    )
     if (answer.stopped) {
       Text(ChatPresenter.STOPPED_LABEL, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted, modifier = Modifier.padding(top = 8.dp))
     }
     if (answer.source == ChatAnswerSource.GENERAL) {
       Text(ChatPresenter.GENERAL_LABEL, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted, modifier = Modifier.padding(top = 8.dp))
+    }
+    if (copied) {
+      Text("คัดลอกแล้ว", style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted, modifier = Modifier.padding(top = 8.dp))
     }
     answer.citations.forEachIndexed { i, c ->
       if (i == 0) HorizontalDivider(Modifier.padding(top = 10.dp), color = HakuColors.Line)
@@ -278,6 +362,74 @@ private fun AnswerCard(answer: ChatAnswerOutput?, partial: String, onOpenDay: (S
         StatChip(c.label)
       }
       if (i < answer.citations.lastIndex) HorizontalDivider(color = HakuColors.Line)
+    }
+  }
+}
+
+@Composable
+private fun MarkdownText(text: String, modifier: Modifier = Modifier) {
+  val blocks = remember(text) { ChatMarkdown.parse(text) }
+  Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    blocks.forEach { block ->
+      when (block) {
+        is MdBlock.Paragraph -> {
+          Text(
+            text = buildSpansAnnotatedString(block.spans),
+            style = MaterialTheme.typography.bodyMedium,
+            color = HakuColors.Ink,
+          )
+        }
+        is MdBlock.Heading -> {
+          Text(
+            text = buildSpansAnnotatedString(block.spans),
+            style = MaterialTheme.typography.titleMedium,
+            color = HakuColors.Ink,
+          )
+        }
+        is MdBlock.ListItem -> {
+          Row(
+            modifier = Modifier.padding(start = (block.depth * 16).dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+          ) {
+            Text(block.marker, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Ink)
+            Text(
+              text = buildSpansAnnotatedString(block.spans),
+              style = MaterialTheme.typography.bodyMedium,
+              color = HakuColors.Ink,
+              modifier = Modifier.weight(1f),
+            )
+          }
+        }
+        is MdBlock.Code -> {
+          Text(
+            text = block.text,
+            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            color = HakuColors.Ink,
+            modifier = Modifier
+              .fillMaxWidth()
+              .background(HakuColors.Line, RoundedCornerShape(8.dp))
+              .padding(10.dp),
+          )
+        }
+      }
+    }
+  }
+}
+
+private fun buildSpansAnnotatedString(spans: List<MdSpan>): AnnotatedString = buildAnnotatedString {
+  spans.forEach { span ->
+    if (span.bold || span.italic || span.code) {
+      val style = SpanStyle(
+        fontWeight = if (span.bold) FontWeight.SemiBold else null,
+        fontStyle = if (span.italic) FontStyle.Italic else null,
+        fontFamily = if (span.code) FontFamily.Monospace else null,
+        background = if (span.code) HakuColors.Line else Color.Unspecified,
+      )
+      withStyle(style) {
+        append(span.text)
+      }
+    } else {
+      append(span.text)
     }
   }
 }
