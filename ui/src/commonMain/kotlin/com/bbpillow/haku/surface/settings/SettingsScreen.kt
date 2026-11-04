@@ -60,6 +60,7 @@ fun SettingsScreen(
   onOpenNotificationAccess: () -> Unit = {},
   onOpenAudit: () -> Unit = {},
   onOpenPrivacyNotice: () -> Unit = {},
+  onOpenLicenses: () -> Unit = {},
   contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
 ) {
   Column(
@@ -164,6 +165,7 @@ fun SettingsScreen(
     )
     NavRow(HakuIcons.Grid, HakuTone.Mint, "ประวัติการทำงาน", "ทุกคำสั่งที่ Haku ทำแทนคุณ และปุ่มหยุดทั้งหมด", onOpenAudit)
     NavRow(HakuIcons.Lock, HakuTone.Blue, "ประกาศความเป็นส่วนตัว", "เก็บอะไร ไว้ที่ไหน นานเท่าไร และสิทธิ์ของคุณ", onOpenPrivacyNotice)
+    NavRow(HakuIcons.Grid, HakuTone.Blue, "สัญญาอนุญาตโอเพนซอร์ส", "ไลบรารีและข้อมูลแผนที่ที่ Haku ใช้", onOpenLicenses)
 
     state.message?.let { msg ->
       Text(
