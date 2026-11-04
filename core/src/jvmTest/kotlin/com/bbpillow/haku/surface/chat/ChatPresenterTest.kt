@@ -3,6 +3,8 @@ package com.bbpillow.haku.surface.chat
 import com.bbpillow.haku.capture.diary.DiaryStyle
 import com.bbpillow.haku.capture.diary.EndingParticle
 import com.bbpillow.haku.memory.Provenance
+import com.bbpillow.haku.thinking.ChatExchange
+import com.bbpillow.haku.thinking.ChatThread
 import com.bbpillow.haku.thinking.GenerateInput
 import com.bbpillow.haku.thinking.LocalModel
 import com.bbpillow.haku.thinking.LocalModelClient
@@ -22,8 +24,13 @@ import kotlinx.coroutines.test.runTest
 
 private class ReplyModel(private val reply: String) : LocalModel {
   val prompts = mutableListOf<String>()
+  val threads = mutableListOf<ChatThread?>()
   override suspend fun load(config: ModelConfig) {}
-  override fun generate(input: GenerateInput): Flow<String> = flow { prompts += input.prompt; emit(reply) }
+  override fun generate(input: GenerateInput): Flow<String> = flow {
+    prompts += input.prompt
+    threads += input.thread
+    emit(reply)
+  }
   override fun cancel() {}
   override suspend fun unload() {}
 }
@@ -333,5 +340,88 @@ class ChatPresenterTest {
     assertTrue(out.citations.isEmpty())
     assertEquals(ChatAnswerSource.RETRIEVAL, out.source)
     assertEquals(EndingParticle.KRAP.appendTo(ChatPresenter.ACKNOWLEDGEMENT), out.text)
+  }
+
+  @Test fun `general with session - thread holds earlier exchanges, bare question prompt, and system holds no diary text`() = runTest {
+    seed()
+    val session = ChatSessionState(
+      id = 1L,
+      general = listOf(ChatExchange("ก่อนหน้านี้", "ตอบแล้ว")),
+      turns = 1,
+      lastRoute = ChatRoute.GENERAL,
+    )
+    val model = ReplyModel("ต้มน้ำแล้วใส่กุ้ง")
+    val q = "สูตรต้มยำกุ้งทำยังไง"
+    val out = chat.answer(chat.retrieve(ChatQuestionInput(q, RecallRig.NOW, session = session)), LocalModelClient(model))
+    assertEquals(ChatAnswerSource.GENERAL, out.source)
+    val thread = model.threads.single()!!
+    assertEquals(session.general, thread.history)
+    assertEquals(q, model.prompts.single())
+    assertFalse("ร้านกาแฟ" in thread.system)
+    assertFalse("ข้อเท็จจริง:" in thread.system)
+  }
+
+  @Test fun `general follow-up with previous GENERAL gets source GENERAL with the history`() = runTest {
+    val session = ChatSessionState(
+      id = 1L,
+      general = listOf(ChatExchange("สูตรต้มยำกุ้งทำยังไง", "ต้มน้ำใส่กุ้ง")),
+      turns = 1,
+      lastRoute = ChatRoute.GENERAL,
+    )
+    val model = ReplyModel("อันนั้นก็ทำคล้ายกัน")
+    val q = "แล้วอันนั้นล่ะ"
+    val r = chat.retrieve(ChatQuestionInput(q, RecallRig.NOW, session = session))
+    assertEquals(ChatRoute.GENERAL, r.route)
+    val out = chat.answer(r, LocalModelClient(model))
+    assertEquals(ChatAnswerSource.GENERAL, out.source)
+    assertEquals(session.general, model.threads.single()?.history)
+    assertEquals(q, model.prompts.single())
+  }
+
+  @Test fun `diary with session that has general history has null thread and prompt holds no earlier exchange text`() = runTest {
+    seed()
+    val session = ChatSessionState(
+      id = 1L,
+      general = listOf(ChatExchange("สูตรต้มยำทำยังไง", "ต้มน้ำใส่กุ้ง")),
+      turns = 1,
+      lastRoute = ChatRoute.GENERAL,
+    )
+    val model = ReplyModel("ครั้งล่าสุดที่ไปร้านกาแฟคือวันอังคารที่ 29 กันยายน ตอน 12:00")
+    val out = chat.answer(chat.retrieve(ChatQuestionInput(coffee, RecallRig.NOW, session = session)), LocalModelClient(model))
+    assertEquals(ChatAnswerSource.MODEL, out.source)
+    assertEquals(null, model.threads.single())
+    assertFalse("สูตรต้มยำ" in model.prompts.single())
+    assertFalse("ต้มน้ำใส่กุ้ง" in model.prompts.single())
+  }
+
+  @Test fun `diary follow-up retrieves with previous question and passes model answer if checked`() = runTest {
+    seed()
+    val session = ChatSessionState(id = 1L, lastRoute = ChatRoute.DIARY, lastDiaryQuestion = coffee)
+    val q = "แล้วอันนั้นล่ะ"
+    val r = chat.retrieve(ChatQuestionInput(q, RecallRig.NOW, session = session))
+    assertEquals(coffee, r.followsUp)
+    assertEquals(listOf("12:00 ไปกินข้าวที่ร้านกาแฟ", "11:00 ไปร้านกาแฟ"), r.citations.map { it.text })
+    val model = ReplyModel("ไปร้านกาแฟ")
+    val out = chat.answer(r, LocalModelClient(model))
+    val prompt = model.prompts.single()
+    assertTrue("คำถามก่อนหน้า: $coffee" in prompt)
+    assertTrue("คำถาม: $q" in prompt)
+    assertEquals(ChatAnswerSource.MODEL, out.source, out.rejectedReasons.toString())
+    assertEquals("ไปร้านกาแฟ", out.text)
+  }
+
+  @Test fun `a follow-up naming its own day does not inherit`() {
+    val session = ChatSessionState(id = 1L, lastRoute = ChatRoute.DIARY, lastDiaryQuestion = coffee)
+    val r = chat.retrieve(ChatQuestionInput("แล้วเมื่อวานล่ะ", RecallRig.NOW, session = session))
+    assertEquals(null, r.followsUp)
+  }
+
+  @Test fun `session null general prompt still contains คำขอ as before`() = runTest {
+    val model = ReplyModel("ต้มน้ำแล้วใส่กุ้ง")
+    val q = "สูตรต้มยำกุ้งทำยังไง"
+    val r = chat.retrieve(ChatQuestionInput(q, RecallRig.NOW, session = null))
+    chat.answer(r, LocalModelClient(model))
+    assertTrue("คำขอ: $q" in model.prompts.single())
+    assertEquals(null, model.threads.single())
   }
 }
