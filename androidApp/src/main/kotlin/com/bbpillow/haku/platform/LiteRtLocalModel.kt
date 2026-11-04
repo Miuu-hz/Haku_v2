@@ -1,6 +1,7 @@
 package com.bbpillow.haku.platform
 
 import android.util.Log
+import com.bbpillow.haku.thinking.ChatThread
 import com.bbpillow.haku.thinking.GenerateInput
 import com.bbpillow.haku.thinking.LocalModel
 import com.bbpillow.haku.thinking.ModelBackend
@@ -35,24 +36,31 @@ import kotlinx.coroutines.withContext
 // Modelled on Google AI Edge Gallery LlmChatModelHelper (Apache 2.0): Engine -> Conversation -> sendMessageAsync.
 class LiteRtLocalModel : LocalModel {
   @Volatile private var engine: Engine? = null
-  @Volatile private var conversationConfig: ConversationConfig? = null
-  @Volatile private var conversation: Conversation? = null
+  @Volatile private var config: ModelConfig? = null
+  /** Stateless calls only, closed here. A thread's conversation belongs to its engine (see [SharedEngines.chat]). */
+  @Volatile private var owned: Conversation? = null
+  /** What [cancel] stops. */
+  @Volatile private var active: Conversation? = null
   /** load/unload one at a time, so a racing second load cannot drop the first engine reference. */
   private val loading = Mutex()
 
   override suspend fun load(config: ModelConfig) = loading.withLock {
     release()
     engine = SharedEngines.acquire(config)
-    conversationConfig = ConversationConfig(samplerConfig = samplerConfig(config), systemInstruction = null, tools = emptyList())
+    this.config = config
   }
 
-  // Stateless contract: a fresh Conversation per call so history never carries over
-  // (Gallery LlmChatModelHelper.resetConversation: close old, createConversation).
+  // No thread: a fresh Conversation per call so history never carries over (Gallery LlmChatModelHelper.resetConversation:
+  // close old, createConversation). A thread: the engine's chat conversation, which outlives this object.
   override fun generate(input: GenerateInput): Flow<String> = callbackFlow {
     val e = checkNotNull(engine) { "model not loaded" }
-    conversation?.let { runCatching { it.close() } }
-    val conv = e.createConversation(checkNotNull(conversationConfig))
-    conversation = conv
+    val cfg = checkNotNull(config)
+    owned?.let { runCatching { it.close() } }
+    owned = null
+    val chat = input.thread?.let { SharedEngines.chat(e, it, cfg) }
+    val conv = chat?.conversation ?: e.createConversation(statelessConfig(cfg)).also { owned = it }
+    active = conv
+    chat?.begin()
     val finished = AtomicBoolean(false)
     conv.sendMessageAsync(
       Contents.of(listOf(Content.Text(input.prompt))),
@@ -62,7 +70,7 @@ class LiteRtLocalModel : LocalModel {
           // As LiteRtAgentSession / Gallery: drop control tokens such as "<ctrl99>". trySend never fails: unlimited buffer below
           if (text.isNotEmpty() && !text.startsWith("<ctrl")) trySend(text)
         }
-        override fun onDone() { finished.set(true); close() }
+        override fun onDone() { chat?.finish(); finished.set(true); close() }
         override fun onError(throwable: Throwable) {
           finished.set(true)
           if (throwable is CancellationException) close() else close(throwable)
@@ -75,22 +83,47 @@ class LiteRtLocalModel : LocalModel {
   }.buffer(Channel.UNLIMITED).flowOn(Dispatchers.Default)
 
   override fun cancel() {
-    try { conversation?.cancelProcess() } catch (_: IllegalStateException) { /* conversation already closed */ }
+    try { active?.cancelProcess() } catch (_: IllegalStateException) { /* conversation already closed */ }
   }
 
   override suspend fun unload() = withContext(NonCancellable) { loading.withLock { release() } }
 
   // Native close blocks, so it runs off the caller's thread and is not skipped when the caller is cancelled.
   private suspend fun release() = withContext(Dispatchers.Default + NonCancellable) {
-    val conv = conversation
+    val conv = owned
     val e = engine
-    conversation = null
-    conversationConfig = null
+    owned = null
+    active = null
+    config = null
     engine = null
     runCatching { conv?.close() }
     e?.let { SharedEngines.release(it) }
     Unit
   }
+}
+
+private fun statelessConfig(config: ModelConfig) = ConversationConfig(samplerConfig = samplerConfig(config), systemInstruction = null, tools = emptyList())
+
+/**
+ * The conversation a chat continues in, and what it has been told. A stopped or failed answer leaves it [clean] = false:
+ * what it holds is then unknown, so the next turn rebuilds it from the kept history.
+ */
+internal class ChatSlot(val conversation: Conversation, thread: ChatThread, config: ModelConfig) {
+  private val id = thread.id
+  private val system = thread.system
+  private val sampler = samplerKey(config)
+  private var turns = thread.turnsBefore
+  private var historySize = thread.history.size
+  @Volatile private var clean = true
+
+  fun fits(thread: ChatThread, config: ModelConfig) = clean && id == thread.id && system == thread.system &&
+    turns == thread.turnsBefore && historySize == thread.history.size && sampler == samplerKey(config)
+
+  fun begin() { clean = false }
+
+  fun finish() { turns++; historySize++; clean = true }
+
+  private fun samplerKey(c: ModelConfig) = Triple(c.topK, c.topP, c.temperature)
 }
 
 /**
@@ -100,7 +133,7 @@ class LiteRtLocalModel : LocalModel {
  */
 internal object SharedEngines {
   private data class Key(val path: String, val backend: ModelBackend, val maxTokens: Int, val speculative: Boolean)
-  private class Entry(val key: Key, val engine: Engine, var refs: Int)
+  private class Entry(val key: Key, val engine: Engine, var refs: Int, var chat: ChatSlot? = null)
 
   private val lock = Mutex()
   private val open = mutableListOf<Entry>()
@@ -121,11 +154,33 @@ internal object SharedEngines {
     e
   }
 
+  /**
+   * [thread]'s conversation on [engine]: the live one if it still matches, else one rebuilt from the kept history. Lives as
+   * long as the engine, so a model loaded for one question does not lose it; a stateless call beside it is fine (Gallery's
+   * ephemeral inference does the same on 0.18.0).
+   */
+  suspend fun chat(engine: Engine, thread: ChatThread, config: ModelConfig): ChatSlot = lock.withLock {
+    val entry = open.first { it.engine === engine }
+    entry.chat?.takeIf { it.fits(thread, config) }?.let { return@withLock it }
+    entry.chat?.let { runCatching { it.conversation.close() } }
+    entry.chat = null
+    val conversation = engine.createConversation(
+      ConversationConfig(
+        samplerConfig = samplerConfig(config),
+        systemInstruction = Contents.of(thread.system),
+        tools = emptyList(),
+        initialMessages = thread.history.flatMap { listOf(Message.user(Contents.of(it.user)), Message.model(Contents.of(it.model))) },
+      )
+    )
+    ChatSlot(conversation, thread, config).also { entry.chat = it }
+  }
+
   suspend fun release(engine: Engine) = withContext(Dispatchers.Default + NonCancellable) {
     lock.withLock {
       val entry = open.firstOrNull { it.engine === engine } ?: return@withLock
       if (--entry.refs > 0) return@withLock
       open -= entry
+      runCatching { entry.chat?.conversation?.close() }
       runCatching { engine.close() }
     }
     Unit

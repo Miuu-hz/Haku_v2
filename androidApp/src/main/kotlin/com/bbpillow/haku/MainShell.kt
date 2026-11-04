@@ -63,6 +63,7 @@ import com.bbpillow.haku.surface.chat.ChatMode
 import com.bbpillow.haku.surface.chat.ChatModes
 import com.bbpillow.haku.surface.chat.ChatQuestionInput
 import com.bbpillow.haku.surface.chat.ChatScreen
+import com.bbpillow.haku.surface.chat.ChatSessionState
 import com.bbpillow.haku.surface.chat.ChatTurn
 import com.bbpillow.haku.surface.components.FloatingNav
 import com.bbpillow.haku.surface.components.FloatingNavHeight
@@ -161,6 +162,7 @@ fun MainShell(
   val closeSettings = { settingsOpen = false; llmFromChat = false; settingsPage.value = SettingsPage.MAIN }
   // the conversation lives as long as the shell, so switching tabs keeps it
   var chatTurns by remember { mutableStateOf(listOf<ChatTurn>()) }
+  var chatSession by remember { mutableStateOf(ChatSessionState(System.currentTimeMillis())) }
   val shellScope = rememberCoroutineScope() // an answer still lands if the user switches tabs while it is being written
   val dl by graph.downloader.state.collectAsState()
   val imp by graph.importer.state.collectAsState()
@@ -222,6 +224,8 @@ fun MainShell(
         shellScope,
         chatTurns,
         { chatTurns = it },
+        chatSession,
+        { chatSession = it },
         openDay,
         onOpenLlmSettings = { llmFromChat = true; settingsPage.value = SettingsPage.LLM; settingsOpen = true },
         mode = chatMode,
@@ -719,6 +723,8 @@ private fun ChatTab(
   scope: CoroutineScope,
   turns: List<ChatTurn>,
   onTurns: (List<ChatTurn>) -> Unit,
+  session: ChatSessionState,
+  onSession: (ChatSessionState) -> Unit,
   onOpenDay: (String) -> Unit,
   onOpenLlmSettings: () -> Unit,
   mode: ChatMode,
@@ -810,7 +816,9 @@ private fun ChatTab(
       val asked = turns + ChatTurn(q, null)
       onTurns(asked)
       scope.launch {
-        val answer = askHaku(graph, q, activeMode) ?: ChatAnswerOutput(q, "ค้นบันทึกไม่สำเร็จ ลองใหม่อีกครั้ง", emptyList(), ChatAnswerSource.RETRIEVAL)
+        val fitted = session.fitted(contextTokens)
+        val answer = askHaku(graph, q, activeMode, fitted) ?: ChatAnswerOutput(q, "ค้นบันทึกไม่สำเร็จ ลองใหม่อีกครั้ง", emptyList(), ChatAnswerSource.RETRIEVAL)
+        onSession(fitted.after(answer))
         onTurns(asked.dropLast(1) + ChatTurn(q, answer))
       }
     },
@@ -859,10 +867,10 @@ private fun ChatTab(
  * internal: the debug AskDebugReceiver ASK_FULL action drives this exact path over adb, in [ChatMode.AGENT] so it can
  * reach the skill picker.
  */
-internal suspend fun askHaku(graph: AppGraph, question: String, mode: ChatMode = ChatMode.AGENT): ChatAnswerOutput? {
+internal suspend fun askHaku(graph: AppGraph, question: String, mode: ChatMode = ChatMode.AGENT, session: ChatSessionState? = null): ChatAnswerOutput? {
   val skills = availableSkills(graph)
   val mention = MentionParser.parse(question, skills)
-  return answerWithoutModel(graph, question, mention) ?: graph.warmth.use { askOnce(graph, question, skills, mention, mode) }
+  return answerWithoutModel(graph, question, mention) ?: graph.warmth.use { askOnce(graph, question, skills, mention, mode, session) }
 }
 
 /**
@@ -883,7 +891,7 @@ private suspend fun answerWithoutModel(graph: AppGraph, question: String, mentio
 }
 
 /** Everything that needs a model, after [answerWithoutModel] found nothing. */
-private suspend fun askOnce(graph: AppGraph, question: String, skills: List<SkillRecord>, mention: Mention?, mode: ChatMode): ChatAnswerOutput? {
+private suspend fun askOnce(graph: AppGraph, question: String, skills: List<SkillRecord>, mention: Mention?, mode: ChatMode, session: ChatSessionState?): ChatAnswerOutput? {
   // "@ปฏิทิน …" / "@host …" (popup pick) = use exactly that, no picker; the gate card still asks before anything runs
   when (mention) {
     is Mention.Skill -> return runSkill(graph, question, mention.rest.ifBlank { question }, listOf(mention.skill), chosen = true)
@@ -894,7 +902,7 @@ private suspend fun askOnce(graph: AppGraph, question: String, skills: List<Skil
     graph.pickSkill(question, skills)?.let { if (BuildConfig.DEBUG) Log.d("HakuSkill", "picked ${it.name}"); return runSkill(graph, question, question, listOf(it)) }
   }
   val semantic = graph.questionSemantic(question) // words-only while the embedder is cold or absent
-  val (presenter, retrieval) = graph.safeIo { composeRecent(System.currentTimeMillis()); chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style), semantic) } ?: return null
+  val (presenter, retrieval) = graph.safeIo { composeRecent(System.currentTimeMillis()); chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style, session), semantic) } ?: return null
   val config = modelConfigOrNull(graph) ?: return retrieval.fallback
   val model = LiteRtLocalModel()
   return try {

@@ -10,7 +10,9 @@ import android.util.Log
 import com.bbpillow.haku.platform.LiteRtLocalModel
 import com.bbpillow.haku.surface.chat.ChatAnswerOutput
 import com.bbpillow.haku.surface.chat.ChatAnswerSource
+import com.bbpillow.haku.surface.chat.ChatMode
 import com.bbpillow.haku.surface.chat.ChatQuestionInput
+import com.bbpillow.haku.surface.chat.ChatSessionState
 import com.bbpillow.haku.thinking.GenerateEvent
 import com.bbpillow.haku.thinking.GenerateInput
 import com.bbpillow.haku.thinking.GenerateMetrics
@@ -69,7 +71,14 @@ class AskDebugReceiver : BroadcastReceiver() {
         DebugJob.start(context) {
           try {
             val t0 = System.currentTimeMillis()
-            val a = mutex.withLock { askHaku(app.graph, question) }
+            // --ez chat true continues one chat across broadcasts, in GENERAL as a tester would; --ez new_chat true starts it over
+            val chat = intent.getBooleanExtra("chat", false)
+            if (intent.getBooleanExtra("new_chat", false)) chatSession = null
+            val a = mutex.withLock {
+              if (!chat) return@withLock askHaku(app.graph, question)
+              val fitted = (chatSession ?: ChatSessionState(System.currentTimeMillis())).fitted(app.graph.llmSettings.load().contextTokens)
+              askHaku(app.graph, question, ChatMode.GENERAL, fitted).also { answer -> chatSession = answer?.let(fitted::after) ?: fitted }
+            }
             val p = a?.actionId?.let { id -> app.graph.actionGate.proposals.value.firstOrNull { it.id == id } }
             Log.i(TAG, org.json.JSONObject().put("q", question).put("ms", System.currentTimeMillis() - t0).put("text", a?.text)
               .put("source", a?.source?.name).put("citations", a?.citations?.size).put("appointment", a?.appointment?.let { "${it.title} ${it.dayLabel} ${it.timeLabel}" })
@@ -212,6 +221,8 @@ class AskDebugReceiver : BroadcastReceiver() {
   }
 
   private companion object {
+    @Volatile var chatSession: ChatSessionState? = null
+
     const val TAG = "HakuAsk"
     const val ACTION_ASK = "com.bbpillow.haku.debug.ASK"
     const val ACTION_UNLOAD = "com.bbpillow.haku.debug.ASK_UNLOAD"
