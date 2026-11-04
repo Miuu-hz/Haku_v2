@@ -156,6 +156,13 @@ class ChatPresenterTest {
     assertEquals(ChatRoute.DIARY, route("คุยเรื่องทริปญี่ปุ่นกับใคร"))
   }
 
+  // Found on Fold5: "สวัสดี" came back as just "ค่ะ"
+  @Test fun `a reply that starts like the message keeps its words when only a particle would remain`() {
+    assertEquals("สวัสดีค่ะ", ChatPresenter.cleanAnswer("สวัสดีค่ะ", "สวัสดี"))
+    assertEquals("สวัสดีครับ!", ChatPresenter.cleanAnswer("สวัสดีครับ!", "สวัสดี"))
+    assertEquals("ไปร้านกาแฟค่ะ", ChatPresenter.cleanAnswer("เมื่อวานไปไหน ไปร้านกาแฟค่ะ", "เมื่อวานไปไหน"))
+  }
+
   @Test fun `a particle the model repeats after its own is dropped, whichever form it is in`() {
     assertEquals("ทานได้นะคะ", ChatPresenter.cleanAnswer("ทานได้นะคะ ค่ะ"))
     assertEquals("ทานได้นะคะ", ChatPresenter.cleanAnswer("ทานได้นะคะ คะ"))
