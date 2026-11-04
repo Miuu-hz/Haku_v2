@@ -2,6 +2,8 @@ package com.bbpillow.haku.surface.chat
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ChatRouterTest {
   @Test
@@ -125,5 +127,47 @@ class ChatRouterTest {
     for (q in questions) {
       assertEquals(ChatRoute.DIARY, ChatRouter.route(q, isQuestion = false, hasTimeWord = false, hasWordHit = false), q)
     }
+  }
+
+  @Test
+  fun isFollowUp() {
+    val trueCases = listOf(
+      "แล้วอันนั้นล่ะ",
+      "ต่อสิ",
+      "ภาษาอังกฤษล่ะ",
+      "ขอสั้นกว่านี้หน่อย",
+      "แล้วเมื่อวานล่ะ",
+    )
+    for (q in trueCases) {
+      assertTrue(ChatRouter.isFollowUp(q), q)
+    }
+    val falseCases = listOf(
+      "สูตรต้มยำกุ้งทำยังไง",
+      "ขอบคุณนะ",
+      "เมื่อวานไปไหนมา",
+    )
+    for (q in falseCases) {
+      assertFalse(ChatRouter.isFollowUp(q), q)
+    }
+  }
+
+  @Test
+  fun routeWithPreviousGeneral() {
+    val questions = listOf("แล้วอันนั้นล่ะ", "ต่อสิ", "ขอสั้นกว่านี้หน่อย")
+    for (q in questions) {
+      assertEquals(ChatRoute.GENERAL, ChatRouter.route(q, isQuestion = true, hasTimeWord = false, hasWordHit = true, previous = ChatRoute.GENERAL), q)
+    }
+  }
+
+  @Test
+  fun routeWithPreviousDiary() {
+    assertEquals(ChatRoute.DIARY, ChatRouter.route("แล้วอันนั้นล่ะ", isQuestion = true, hasTimeWord = false, hasWordHit = false, previous = ChatRoute.DIARY))
+    assertEquals(ChatRoute.GENERAL, ChatRouter.route("แล้วสูตรต้มยำล่ะ", isQuestion = true, hasTimeWord = false, hasWordHit = false, previous = ChatRoute.DIARY))
+    assertEquals(ChatRoute.DIARY, ChatRouter.route("แล้วเมื่อวานล่ะ", isQuestion = true, hasTimeWord = true, hasWordHit = false, previous = ChatRoute.GENERAL))
+  }
+
+  @Test
+  fun routePreviousNullStaysDiaryWhenNotQuestion() {
+    assertEquals(ChatRoute.DIARY, ChatRouter.route("แล้วอันนั้นล่ะ", isQuestion = false, hasTimeWord = false, hasWordHit = false, previous = null))
   }
 }
