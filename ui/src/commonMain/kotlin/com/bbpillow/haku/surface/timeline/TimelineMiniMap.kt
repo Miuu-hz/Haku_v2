@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -27,6 +28,8 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawStyle
+import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
@@ -70,24 +73,37 @@ fun PlainDayMap(map: TimelineMapState, modifier: Modifier = Modifier) {
     }
 
     val r = 9.dp.toPx()
-    map.points.forEachIndexed { i, p ->
-      if (p.since != null) {
-        drawCircle(HakuColors.Green, r + 5.dp.toPx(), at[i], style = Stroke(2.dp.toPx()))
-      }
-      drawCircle(Color.White, r + 2.dp.toPx(), at[i])
-      drawCircle(mapDot(p.number), r, at[i])
-      val text = measurer.measure("${p.number}", numberStyle)
-      drawText(text, topLeft = at[i] - Offset(text.size.width / 2f, text.size.height / 2f))
-      val icon = when (p.category) {
+    val pins = TimelineMap.pinsOf(map.points)
+    pins.forEach { pin ->
+      val pinOffset = Offset(pin.x.toFloat() * size.width, pin.y.toFloat() * size.height)
+      val text = measurer.measure(pin.badge, numberStyle)
+      val icon = when (pin.category) {
         PlaceCategory.HOME -> home
         PlaceCategory.WORK -> work
         PlaceCategory.OTHER -> null
-      } ?: return@forEachIndexed
-      // a small white badge above-right of the dot, so the number stays readable
-      val s = 14.dp.toPx()
-      val badge = at[i] + Offset(r * 0.7f, -r * 0.7f - s)
-      drawCircle(Color.White, s * 0.62f, badge + Offset(s / 2, s / 2))
-      translate(badge.x, badge.y) { with(icon) { draw(Size(s, s), colorFilter = ColorFilter.tint(HakuColors.Ink)) } }
+      }
+
+      // a rounded rect this wide is a circle, so one number keeps its round dot
+      val halfW = if (pin.numbers.size == 1) r else maxOf(r, text.size.width / 2f + 6.dp.toPx())
+      fun pill(color: Color, grow: Float, style: DrawStyle = Fill) = drawRoundRect(
+        color = color,
+        topLeft = pinOffset - Offset(halfW + grow, r + grow),
+        size = Size((halfW + grow) * 2, (r + grow) * 2),
+        cornerRadius = CornerRadius(r + grow),
+        style = style,
+      )
+      if (pin.since != null) pill(HakuColors.Green, 5.dp.toPx(), Stroke(2.dp.toPx()))
+      pill(Color.White, 2.dp.toPx())
+      pill(mapDot(pin.numbers.first()), 0f)
+      drawText(text, topLeft = pinOffset - Offset(text.size.width / 2f, text.size.height / 2f))
+
+      if (icon != null) {
+        // a small white badge above-right of the dot, so the number stays readable
+        val s = 14.dp.toPx()
+        val badge = pinOffset + Offset(halfW - r * 0.3f, -r * 0.7f - s)
+        drawCircle(Color.White, s * 0.62f, badge + Offset(s / 2, s / 2))
+        translate(badge.x, badge.y) { with(icon) { draw(Size(s, s), colorFilter = ColorFilter.tint(HakuColors.Ink)) } }
+      }
     }
   }
 }
@@ -111,11 +127,14 @@ fun TimelineMiniMap(
       )
     }
     if (onOpenPin != null) {
+      val pins = TimelineMap.pinsOf(map.points)
+      val pointsByNumber = map.points.associateBy { it.number }
       LazyRow(
         modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
       ) {
-        items(map.points, key = { it.number }) { p ->
+        items(pins, key = { it.numbers.first() }) { pin ->
+          val firstPoint = pointsByNumber.getValue(pin.numbers.first())
           Row(
             modifier = Modifier
               .heightIn(min = 48.dp)
@@ -125,19 +144,19 @@ fun TimelineMiniMap(
               .clickable(
                 role = Role.Button,
                 onClickLabel = "เปิดใน Google Maps",
-                onClick = { onOpenPin(p) },
+                onClick = { onOpenPin(firstPoint) },
               )
               .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
           ) {
             Text(
-              "${p.number}",
+              pin.badge,
               style = MaterialTheme.typography.labelMedium,
-              color = mapDot(p.number),
+              color = mapDot(pin.numbers.first()),
             )
             Text(
-              p.label,
+              pin.label,
               style = MaterialTheme.typography.labelMedium,
               color = HakuColors.Ink,
               maxLines = 1,

@@ -29,6 +29,27 @@ data class TimelineMapPoint(
 
 data class TimelineMapState(val points: List<TimelineMapPoint>)
 
+/** One marker on the card: every stop of the day at one place. [numbers] ascending, same numbers the timeline rows show. */
+data class TimelineMapPin(
+  val numbers: List<Int>,
+  val x: Double,
+  val y: Double,
+  val label: String,
+  val category: PlaceCategory,
+  val lat: Double,
+  val lon: Double,
+  /** Non-null when the user is at this pin right now, taken from the member point whose since is set. */
+  val since: String? = null,
+) {
+  /** Text on the marker: "1", "1·3", "1·3·5", then "1·3·5+2" past three numbers. */
+  val badge: String
+    get() = if (numbers.size <= 3) {
+      numbers.joinToString("·")
+    } else {
+      numbers.take(3).joinToString("·") + "+${numbers.size - 3}"
+    }
+}
+
 /** Why the day has no map card to draw. */
 enum class TimelineMapEmpty { CAPTURE_OFF, NO_STAYS }
 
@@ -88,6 +109,36 @@ object TimelineMap {
       }
     }
     return TimelineMapState(points) to numberAt
+  }
+
+  fun pinsOf(points: List<TimelineMapPoint>): List<TimelineMapPin> {
+    val pins = mutableListOf<TimelineMapPin>()
+    for (p in points) {
+      val index = pins.indexOfFirst { pin ->
+        PlaceRecognizer.distanceMeters(pin.lat, pin.lon, p.lat, p.lon) <= PlaceThresholds.PLACE_RADIUS_M
+      }
+      if (index >= 0) {
+        val existing = pins[index]
+        pins[index] = existing.copy(
+          numbers = (existing.numbers + p.number).sorted(),
+          since = existing.since ?: p.since,
+        )
+      } else {
+        pins.add(
+          TimelineMapPin(
+            numbers = listOf(p.number),
+            x = p.x,
+            y = p.y,
+            label = p.label,
+            category = p.category,
+            lat = p.lat,
+            lon = p.lon,
+            since = p.since,
+          ),
+        )
+      }
+    }
+    return pins.sortedBy { it.numbers.first() }
   }
 
   /**

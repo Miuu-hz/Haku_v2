@@ -264,6 +264,83 @@ class TimelineMapTest {
     assertTrue(after.lines.filter { it.atEpochMs in victimTimes }.all { it.mapNumber == null })
   }
 
+  @Test fun homeOfficeHomeGivesTwoPinsWithNumbersOneThreeAndTwo() {
+    val (map, _) = assertNotNull(
+      TimelineMap.build(
+        listOf(10L, 20L, 30L),
+        out(visit(home, 0, 10), visit(office, 15, 20), visit(home, 25, 30)),
+      ),
+    )
+    val pins = TimelineMap.pinsOf(map.points)
+    assertEquals(2, pins.size)
+    assertEquals(listOf(1, 3), pins[0].numbers)
+    assertEquals(listOf(2), pins[1].numbers)
+    assertEquals("บ้าน", pins[0].label)
+    assertEquals("ออฟฟิศสีลม", pins[1].label)
+    assertEquals(PlaceCategory.HOME, pins[0].category)
+    assertEquals(PlaceCategory.WORK, pins[1].category)
+    assertEquals(home.lat, pins[0].lat)
+    assertEquals(home.lon, pins[0].lon)
+    assertEquals(office.lat, pins[1].lat)
+    assertEquals(office.lon, pins[1].lon)
+    assertEquals("1·3", pins[0].badge)
+    assertEquals("2", pins[1].badge)
+    assertNull(pins[0].since)
+    assertNull(pins[1].since)
+  }
+
+  @Test fun currentStayTwentyMetersFromHomeJoinsHomePinAndCarriesSince() {
+    // 20 m north of home (1 deg lat ~= 111,139 m, 20 m ~= 0.00018 deg)
+    val currentNearHome = OpenStay(100L, home.lat + 0.00018, home.lon)
+    val (map, _) = assertNotNull(
+      TimelineMap.build(listOf(10L), out(visit(home, 0, 10)), currentNearHome, "ตั้งแต่ 10:00"),
+    )
+    val pins = TimelineMap.pinsOf(map.points)
+    assertEquals(1, pins.size)
+    val pin = pins.single()
+    assertEquals(listOf(1, 2), pin.numbers)
+    assertEquals("บ้าน", pin.label)
+    assertEquals(PlaceCategory.HOME, pin.category)
+    assertEquals(home.lat, pin.lat)
+    assertEquals(home.lon, pin.lon)
+    assertEquals("ตั้งแต่ 10:00", pin.since)
+    assertEquals("1·2", pin.badge)
+  }
+
+  @Test fun currentStayFarAwayIsItsOwnPin() {
+    val farAway = OpenStay(100L, 14.0, 101.0)
+    val (map, _) = assertNotNull(
+      TimelineMap.build(listOf(10L), out(visit(home, 0, 10)), farAway, "ตั้งแต่ 10:00"),
+    )
+    val pins = TimelineMap.pinsOf(map.points)
+    assertEquals(2, pins.size)
+    assertEquals(listOf(1), pins[0].numbers)
+    assertNull(pins[0].since)
+    assertEquals("บ้าน", pins[0].label)
+    assertEquals(listOf(2), pins[1].numbers)
+    assertEquals("ตั้งแต่ 10:00", pins[1].since)
+    assertEquals(DiaryTemplates.UNKNOWN_PLACE, pins[1].label)
+    assertEquals(PlaceCategory.OTHER, pins[1].category)
+    assertEquals("1", pins[0].badge)
+    assertEquals("2", pins[1].badge)
+  }
+
+  @Test fun badgesFormatCorrectlyUpToThreeNumbersAndPastThreeNumbers() {
+    val p1 = TimelineMapPin(listOf(1), 0.0, 0.0, "", PlaceCategory.OTHER, 0.0, 0.0)
+    val p2 = TimelineMapPin(listOf(1, 3), 0.0, 0.0, "", PlaceCategory.OTHER, 0.0, 0.0)
+    val p3 = TimelineMapPin(listOf(1, 3, 5), 0.0, 0.0, "", PlaceCategory.OTHER, 0.0, 0.0)
+    val p5 = TimelineMapPin(listOf(1, 3, 5, 7, 9), 0.0, 0.0, "", PlaceCategory.OTHER, 0.0, 0.0)
+
+    assertEquals("1", p1.badge)
+    assertEquals("1·3", p2.badge)
+    assertEquals("1·3·5", p3.badge)
+    assertEquals("1·3·5+2", p5.badge)
+  }
+
+  @Test fun emptyInputGivesEmptyOutput() {
+    assertEquals(emptyList(), TimelineMap.pinsOf(emptyList()))
+  }
+
   private companion object {
     const val EPS = 1e-9
   }
