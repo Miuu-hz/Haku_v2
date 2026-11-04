@@ -55,7 +55,19 @@ fun TimelineScreen(
   LazyColumn(modifier.fillMaxWidth(), contentPadding = contentPadding, verticalArrangement = Arrangement.spacedBy(8.dp)) {
     item { ScreenTitle("ไทม์ไลน์", eyebrow = state.header) }
     item { DateStrip(state, onSelectDay) }
-    state.map?.let { item { TimelineMiniMap(it, Modifier.padding(top = 4.dp)) } }
+    if (state.map != null) {
+      item { TimelineMiniMap(state.map, Modifier.padding(top = 4.dp)) }
+    } else {
+      val message = when (state.mapEmpty) {
+        TimelineMapEmpty.CAPTURE_OFF -> "การบันทึกตำแหน่งปิดอยู่ แผนที่จึงยังไม่มีจุด"
+        TimelineMapEmpty.NO_STAYS, null -> if (state.day == state.today) "วันนี้ยังไม่มีการเดินทางที่บันทึกไว้" else "วันนั้นไม่มีการเดินทางที่บันทึกไว้"
+      }
+      item {
+        SurfaceCard(Modifier.fillMaxWidth()) {
+          Text(message, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
+        }
+      }
+    }
     if (state.lines.isNotEmpty()) {
       item {
         Text(
@@ -66,10 +78,16 @@ fun TimelineScreen(
         )
       }
     }
-    if (state.lines.isEmpty()) {
+    if (state.lines.isEmpty() && state.map != null) {
+      val hasCurrent = state.map.points.any { it.since != null }
+      val message = when {
+        state.day == state.today && hasCurrent -> "Haku จะเขียนบันทึกเมื่อคุณออกจากที่นี่"
+        state.day == state.today -> "วันนี้ยังไม่มีอะไรถูกบันทึก"
+        else -> "วันนั้นไม่มีอะไรถูกบันทึก"
+      }
       item {
         SurfaceCard(Modifier.fillMaxWidth()) {
-          Text("วันนี้ยังไม่มีอะไรถูกบันทึก", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
+          Text(message, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
         }
       }
     }

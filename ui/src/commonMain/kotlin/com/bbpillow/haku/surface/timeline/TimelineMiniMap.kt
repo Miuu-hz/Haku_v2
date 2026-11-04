@@ -2,9 +2,12 @@ package com.bbpillow.haku.surface.timeline
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,35 +37,52 @@ import com.bbpillow.haku.surface.theme.HakuRadius
  */
 @Composable
 fun TimelineMiniMap(map: TimelineMapState, modifier: Modifier = Modifier) {
+  val current = map.points.firstOrNull { it.since != null }
   val measurer = rememberTextMeasurer()
   val numberStyle = MaterialTheme.typography.labelSmall.copy(color = HakuColors.Surface)
   val home = rememberVectorPainter(HakuIcons.Home)
   val work = rememberVectorPainter(HakuIcons.Work)
-  val description = "แผนที่ย่อ " + map.points.joinToString(" · ") { "${it.number} ${it.label}" }
-  Canvas(
-    modifier.fillMaxWidth().aspectRatio(TimelineMap.ASPECT.toFloat()).clip(HakuRadius.Card).background(HakuColors.Track)
-      .semantics { contentDescription = description },
-  ) {
-    val at = map.points.map { Offset(it.x.toFloat() * size.width, it.y.toFloat() * size.height) }
-    val route = Path().apply { at.forEachIndexed { i, o -> if (i == 0) moveTo(o.x, o.y) else lineTo(o.x, o.y) } }
-    drawPath(route, HakuColors.Gradient, style = Stroke(4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+  val currentDesc = current?.let { " ตอนนี้อยู่ที่ ${it.label} ${it.since}" } ?: ""
+  val description = "แผนที่ย่อ " + map.points.joinToString(" · ") { "${it.number} ${it.label}" } + currentDesc
+  Column(modifier = modifier) {
+    Canvas(
+      Modifier.fillMaxWidth().aspectRatio(TimelineMap.ASPECT.toFloat()).clip(HakuRadius.Card).background(HakuColors.Track)
+        .semantics { contentDescription = description },
+    ) {
+      val at = map.points.map { Offset(it.x.toFloat() * size.width, it.y.toFloat() * size.height) }
+      if (at.size > 1) {
+        val route = Path().apply { at.forEachIndexed { i, o -> if (i == 0) moveTo(o.x, o.y) else lineTo(o.x, o.y) } }
+        drawPath(route, HakuColors.Gradient, style = Stroke(4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+      }
 
-    val r = 9.dp.toPx()
-    map.points.forEachIndexed { i, p ->
-      drawCircle(Color.White, r + 2.dp.toPx(), at[i])
-      drawCircle(mapDot(p.number), r, at[i])
-      val text = measurer.measure("${p.number}", numberStyle)
-      drawText(text, topLeft = at[i] - Offset(text.size.width / 2f, text.size.height / 2f))
-      val icon = when (p.category) {
-        PlaceCategory.HOME -> home
-        PlaceCategory.WORK -> work
-        PlaceCategory.OTHER -> null
-      } ?: return@forEachIndexed
-      // a small white badge above-right of the dot, so the number stays readable
-      val s = 14.dp.toPx()
-      val badge = at[i] + Offset(r * 0.7f, -r * 0.7f - s)
-      drawCircle(Color.White, s * 0.62f, badge + Offset(s / 2, s / 2))
-      translate(badge.x, badge.y) { with(icon) { draw(Size(s, s), colorFilter = ColorFilter.tint(HakuColors.Ink)) } }
+      val r = 9.dp.toPx()
+      map.points.forEachIndexed { i, p ->
+        if (p.since != null) {
+          drawCircle(HakuColors.Green, r + 5.dp.toPx(), at[i], style = Stroke(2.dp.toPx()))
+        }
+        drawCircle(Color.White, r + 2.dp.toPx(), at[i])
+        drawCircle(mapDot(p.number), r, at[i])
+        val text = measurer.measure("${p.number}", numberStyle)
+        drawText(text, topLeft = at[i] - Offset(text.size.width / 2f, text.size.height / 2f))
+        val icon = when (p.category) {
+          PlaceCategory.HOME -> home
+          PlaceCategory.WORK -> work
+          PlaceCategory.OTHER -> null
+        } ?: return@forEachIndexed
+        // a small white badge above-right of the dot, so the number stays readable
+        val s = 14.dp.toPx()
+        val badge = at[i] + Offset(r * 0.7f, -r * 0.7f - s)
+        drawCircle(Color.White, s * 0.62f, badge + Offset(s / 2, s / 2))
+        translate(badge.x, badge.y) { with(icon) { draw(Size(s, s), colorFilter = ColorFilter.tint(HakuColors.Ink)) } }
+      }
+    }
+    if (current != null) {
+      Text(
+        "ตอนนี้: ${current.label} · ${current.since}",
+        style = MaterialTheme.typography.labelSmall,
+        color = HakuColors.Muted,
+        modifier = Modifier.padding(start = 4.dp, top = 6.dp),
+      )
     }
   }
 }
