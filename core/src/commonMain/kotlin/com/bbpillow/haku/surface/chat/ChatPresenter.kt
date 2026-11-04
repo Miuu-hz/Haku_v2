@@ -57,6 +57,8 @@ data class ChatAnswerOutput(
   val actionId: String? = null,
   /** The answer ended early (the user pressed stop, or the time limit): [text] is what had arrived so far. */
   val stopped: Boolean = false,
+  /** Set when the answer came from a tool result; the UI shows when it was fetched and offers a refresh. */
+  val toolSource: com.bbpillow.haku.skill.ToolSource? = null,
 )
 
 /** What [ChatPresenter.retrieve] found: the model context, its citations and the no-model answer. */

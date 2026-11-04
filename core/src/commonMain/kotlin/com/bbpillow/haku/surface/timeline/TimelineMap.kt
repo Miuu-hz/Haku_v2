@@ -20,6 +20,9 @@ data class TimelineMapPoint(
   val y: Double,
   val label: String,
   val category: PlaceCategory,
+  /** The stop on the real map and the pin the user may send to Google Maps. Never logged and never in a string. */
+  val lat: Double,
+  val lon: Double,
   /** Non-null marks where the user is right now, worded for display ("ตั้งแต่ 19:12"). This stop has no timeline row yet. */
   val since: String? = null,
 )
@@ -60,7 +63,7 @@ object TimelineMap {
     val allCoords = stops.map { (_, p) -> p.lat to p.lon } + listOfNotNull(current?.let { it.lat to it.lon })
     if (allCoords.isEmpty()) return null
     val xy = project(allCoords)
-    val stopPoints = stops.mapIndexed { i, (_, p) -> TimelineMapPoint(i + 1, xy[i].first, xy[i].second, labelOf(p), categoryOf(p)) }
+    val stopPoints = stops.mapIndexed { i, (_, p) -> TimelineMapPoint(i + 1, xy[i].first, xy[i].second, labelOf(p), categoryOf(p), p.lat, p.lon) }
     val currentPoint = current?.let {
       val nearest = recognized.places
         .map { p -> p to PlaceRecognizer.distanceMeters(p.lat, p.lon, it.lat, it.lon) }
@@ -72,6 +75,8 @@ object TimelineMap {
         y = xy.last().second,
         label = nearest?.let(::labelOf) ?: DiaryTemplates.UNKNOWN_PLACE,
         category = nearest?.let(::categoryOf) ?: PlaceCategory.OTHER,
+        lat = it.lat,
+        lon = it.lon,
         since = currentSince,
       )
     }

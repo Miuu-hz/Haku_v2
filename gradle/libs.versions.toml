@@ -20,8 +20,14 @@ billing = "9.1.0"
 mcp = "0.8.0"
 ktor = "3.4.3"
 serializationJson = "1.7.3"
+mapsforge = "0.25.0"
+androidsvg = "1.4"
 
 [libraries]
+mapsforge-map-android = { module = "org.mapsforge:mapsforge-map-android", version.ref = "mapsforge" }
+mapsforge-map-reader = { module = "org.mapsforge:mapsforge-map-reader", version.ref = "mapsforge" }
+mapsforge-themes = { module = "org.mapsforge:mapsforge-themes", version.ref = "mapsforge" }
+androidsvg = { module = "com.caverock:androidsvg", version.ref = "androidsvg" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
