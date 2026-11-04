@@ -11,6 +11,7 @@ import com.bbpillow.haku.memory.MemoryFormat
 import com.bbpillow.haku.memory.MemoryRef
 import com.bbpillow.haku.memory.MemoryRepository
 import com.bbpillow.haku.memory.index.SearchRepository
+import com.bbpillow.haku.thinking.ChatExchange
 import com.bbpillow.haku.thinking.GenerateEvent
 import com.bbpillow.haku.thinking.GenerateInput
 import com.bbpillow.haku.thinking.GenerateOutput
@@ -219,6 +220,36 @@ class ChatPresenter(
   }
 
   /**
+   * P3.8 past half the context, what [ChatSessionState.fitted] would forget becomes one summary at the head of the history,
+   * so a long chat keeps its thread. A failed summary falls back to forgetting. The summary is a stateless call: it goes
+   * through the model on its own and never into the chat's conversation.
+   */
+  suspend fun compact(session: ChatSessionState, client: LocalModelClient, maxTokens: Int): ChatSessionState {
+    if (!session.needsFitting(maxTokens)) return session
+    val fitted = session.fitted(maxTokens)
+    val older = session.general.dropLast(fitted.general.size)
+    val summary = try {
+      withTimeoutOrNull(timeoutMillis) {
+        var out: GenerateOutput? = null
+        client.generate(GenerateInput(summaryPrompt(older))).collect { if (it is GenerateEvent.Finished) out = it.output }
+        out
+      }?.takeIf { !it.metrics.cancelled }?.text?.trim().orEmpty()
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      ""
+    }
+    if (summary.isBlank()) return fitted
+    return fitted.copy(general = listOf(ChatExchange(SUMMARY_TURN, summary.take(MAX_SUMMARY_CHARS))) + fitted.general, compactions = session.compactions + 1)
+  }
+
+  private fun summaryPrompt(older: List<ChatExchange>) = buildString {
+    appendLine("สรุปบทสนทนาด้านล่างเป็นภาษาไทยไม่เกิน 5 บรรทัด เก็บหัวข้อที่คุยและข้อสรุปสำคัญไว้ครบ ห้ามเพิ่มเรื่องที่ไม่มีในบทสนทนา")
+    older.forEach { appendLine("ผู้ใช้: ${it.user}"); appendLine("ผู้ช่วย: ${it.model}") }
+    append("สรุป:")
+  }
+
+  /**
    * The "ตอนนี้" line first (when sent), then diary lines and core facts (standing instructions are how to answer, not
    * sources). Date questions read in order, others best first.
    */
@@ -345,6 +376,9 @@ class ChatPresenter(
     /** The longest a general answer runs; past it the user keeps what arrived. */
     const val DEFAULT_GENERAL_TIMEOUT_MS = 120_000L
     const val GENERAL_LABEL = "ความรู้ทั่วไปจากโมเดล อาจผิด"
+    /** The user's side of the summary exchange the model reads in place of older history. */
+    const val SUMMARY_TURN = "สรุปเรื่องที่คุยกันก่อนหน้านี้ให้หน่อย"
+    private const val MAX_SUMMARY_CHARS = 800
     const val STOPPED_LABEL = "หยุดตอบแล้ว"
     const val STOPPED_NOTICE = "หยุดแล้ว ยังไม่ได้ตอบ"
     const val GENERAL_UNAVAILABLE = "ตอนนี้ตอบเรื่องทั่วไปไม่ได้ ตรวจโมเดลได้ในตั้งค่า AI ในเครื่อง แล้วลองอีกครั้ง"

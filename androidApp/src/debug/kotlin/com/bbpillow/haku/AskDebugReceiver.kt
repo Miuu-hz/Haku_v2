@@ -80,10 +80,13 @@ class AskDebugReceiver : BroadcastReceiver() {
             var streamedPieces = 0
             val a = mutex.withLock {
               if (!chat) return@withLock askHaku(app.graph, question)
-              val fitted = (chatSession ?: ChatSessionState(System.currentTimeMillis())).fitted(app.graph.llmSettings.load().contextTokens)
+              val fitted = compactChat(app.graph, chatSession ?: ChatSessionState(System.currentTimeMillis()), app.graph.llmSettings.load().contextTokens)
               askHaku(app.graph, question, ChatMode.GENERAL, fitted, stop) {
                 if (streamedPieces++ == 0 && stopMs > 0) android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(stop::stop, stopMs)
-              }.also { answer -> chatSession = answer?.let(fitted::after) ?: fitted }
+              }.also { answer ->
+                chatSession = answer?.let(fitted::after) ?: fitted
+                Log.i(TAG, "chat history: ${chatSession?.general?.map { it.user.take(24) to it.model.length }} turns=${chatSession?.turns} compactions=${chatSession?.compactions}")
+              }
             }
             val p = a?.actionId?.let { id -> app.graph.actionGate.proposals.value.firstOrNull { it.id == id } }
             Log.i(TAG, org.json.JSONObject().put("q", question).put("ms", System.currentTimeMillis() - t0)

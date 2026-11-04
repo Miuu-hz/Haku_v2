@@ -873,7 +873,7 @@ private fun ChatTab(
       // text. A smaller list means the screen has not caught up with `asked` yet (a rule answer can arrive within a frame).
       fun show(turn: ChatTurn) = onTurns((if (latestTurns.size == asked.size) latestTurns else asked).dropLast(1) + turn)
       scope.launch {
-        val fitted = session.fitted(contextTokens)
+        val fitted = compactChat(graph, session, contextTokens)
         val answer = askHaku(graph, q, activeMode, fitted, chatStop) { if (!chatStop.discarded) show(ChatTurn(q, null, it)) }
           ?: ChatAnswerOutput(q, "ค้นบันทึกไม่สำเร็จ ลองใหม่อีกครั้ง", emptyList(), ChatAnswerSource.RETRIEVAL)
         if (chatStop.discarded) return@launch // forget-everything ran meanwhile: this answer must not bring the chat back
@@ -945,6 +945,29 @@ internal suspend fun askHaku(
   val skills = availableSkills(graph)
   val mention = MentionParser.parse(question, skills)
   return answerWithoutModel(graph, question, mention) ?: graph.warmth.use { askOnce(graph, question, skills, mention, mode, session, stop, onPartial) }
+}
+
+/** Past half the context: the older part of [session] as a summary, or forgotten when there is no model to write one. */
+internal suspend fun compactChat(graph: AppGraph, session: ChatSessionState, maxTokens: Int): ChatSessionState {
+  if (!session.needsFitting(maxTokens)) return session
+  val forgotten = session.fitted(maxTokens)
+  val config = modelConfigOrNull(graph) ?: return forgotten
+  val presenter = graph.safeIo { chat } ?: return forgotten
+  return graph.warmth.use {
+    val model = LiteRtLocalModel()
+    try {
+      val client = LocalModelClient(model)
+      client.load(config)
+      presenter.compact(session, client, maxTokens)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Log.e("HakuShell", "chat summary failed, forgetting the older turns", e)
+      forgotten
+    } finally {
+      withContext(NonCancellable) { runCatching { model.unload() } }
+    }
+  }
 }
 
 /** Lets the stop button reach the answer being written: the button shows at once, the model's client exists only later in [askOnce]. */

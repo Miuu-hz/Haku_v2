@@ -221,6 +221,44 @@ class ChatPresenterTest {
     assertTrue(out.stopped)
   }
 
+  private val longChat = ChatSessionState(
+    id = 1L,
+    general = listOf(ChatExchange("เรื่องเก่า", "ก".repeat(400)), ChatExchange("เรื่องกลาง", "ข".repeat(400)), ChatExchange("เรื่องใหม่", "ค".repeat(50))),
+    turns = 3,
+  )
+
+  @Test fun `compacting a long chat replaces what would be forgotten with a summary`() = runTest {
+    val model = ReplyModel("คุยเรื่องเก่ากับเรื่องกลาง")
+    val out = chat.compact(longChat, LocalModelClient(model), maxTokens = 400)
+    assertEquals(listOf(ChatPresenter.SUMMARY_TURN, "เรื่องใหม่"), out.general.map { it.user })
+    assertEquals("คุยเรื่องเก่ากับเรื่องกลาง", out.general.first().model)
+    assertEquals(3, out.turns)
+    val prompt = model.prompts.single()
+    assertTrue("เรื่องเก่า" in prompt && "เรื่องกลาง" in prompt)
+    assertFalse("เรื่องใหม่" in prompt, "the kept turn goes to the model as itself")
+    assertEquals(null, model.threads.single(), "the summary must not enter the chat's conversation")
+    assertTrue(out.thread("s").id != longChat.thread("s").id, "the backend must rebuild")
+  }
+
+  @Test fun `a short chat is not compacted and the model is not called`() = runTest {
+    val model = ReplyModel("ไม่ควรถูกเรียก")
+    val short = longChat.copy(general = longChat.general.takeLast(1))
+    assertTrue(short === chat.compact(short, LocalModelClient(model), maxTokens = 400))
+    assertTrue(model.prompts.isEmpty())
+  }
+
+  @Test fun `a blank or failed summary falls back to forgetting the older turns`() = runTest {
+    val fitted = longChat.fitted(400)
+    assertEquals(fitted, chat.compact(longChat, LocalModelClient(ReplyModel("  ")), maxTokens = 400))
+    val broken = object : LocalModel {
+      override suspend fun load(config: ModelConfig) {}
+      override fun generate(input: GenerateInput): Flow<String> = flow { error("engine gone") }
+      override fun cancel() {}
+      override suspend fun unload() {}
+    }
+    assertEquals(fitted, chat.compact(longChat, LocalModelClient(broken), maxTokens = 400))
+  }
+
   // Found on Fold5: "สวัสดี" came back as just "ค่ะ"
   @Test fun `a reply that starts like the message keeps its words when only a particle would remain`() {
     assertEquals("สวัสดีค่ะ", ChatPresenter.cleanAnswer("สวัสดีค่ะ", "สวัสดี"))

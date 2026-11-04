@@ -64,7 +64,8 @@ class ForgetTest {
   private val connections = ConnectionStore(db)
   private val at = 1_790_121_600_000L
   private val audit = com.bbpillow.haku.action.AuditStore(db)
-  private val forgetAll = ForgetEverything(events, places, ledger, summaries, memory, profile, connections, audit)
+  private val chats = com.bbpillow.haku.surface.chat.ChatHistoryStore(db)
+  private val forgetAll = ForgetEverything(events, places, ledger, summaries, memory, profile, connections, audit, chats)
   private val presenter = TransparencyPresenter(memory, forgetAll, connections, tz) { at }
 
   @AfterTest fun close() = db.close()
@@ -131,6 +132,15 @@ class ForgetTest {
       assertTrue(diary.compose(DiaryComposeInput(day, tz)).written.isEmpty())
     }
     assertNothingLeft()
+  }
+
+  @Test fun forgetEverythingErasesSavedChatsEvenPinnedOnes() {
+    val answer = com.bbpillow.haku.surface.chat.ChatAnswerOutput("q", "a", emptyList(), com.bbpillow.haku.surface.chat.ChatAnswerSource.GENERAL)
+    chats.append(1L, at, answer)
+    chats.setPinned(1L, true)
+    forgetAll.run()
+    assertEquals(emptyList(), chats.sessions())
+    assertEquals(emptyList(), chats.answers(1L))
   }
 
   @Test fun forgetEverythingOnAnEmptyAppIsHarmless() {

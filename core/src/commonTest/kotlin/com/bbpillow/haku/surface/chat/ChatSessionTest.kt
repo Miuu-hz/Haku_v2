@@ -7,6 +7,14 @@ import kotlin.test.assertSame
 
 class ChatSessionTest {
   @Test
+  fun `a chat goes stale after 30 quiet minutes, and a new one never does`() {
+    val chat = ChatSessionState(id = 1L, lastAtMs = 1_000L)
+    assertEquals(false, chat.isStale(1_000L + ChatSessionState.IDLE_NEW_CHAT_MS))
+    assertEquals(true, chat.isStale(1_001L + ChatSessionState.IDLE_NEW_CHAT_MS))
+    assertEquals(false, ChatSessionState(id = 1L).isStale(Long.MAX_VALUE))
+  }
+
+  @Test
   fun `after a GENERAL answer appends the exchange, bumps turns, sets lastRoute GENERAL`() {
     val initial = ChatSessionState(id = 1L)
     val answer = ChatAnswerOutput(
