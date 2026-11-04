@@ -27,13 +27,24 @@ interface McpServerRepository {
 }
 
 /**
+ * The secret a server asks for, per server URL, kept apart from [McpServerRecord] so it never travels with a record that is
+ * listed, logged or shown. Sealed storage only (D11). A key is never logged, never part of an error, never shown again.
+ * Forget-everything leaves it, like the server list: it is a setting, removed with its server.
+ */
+interface McpKeyRepository {
+  fun find(url: String): String?
+  fun put(url: String, key: String)
+  fun remove(url: String)
+}
+
+/**
  * Talks to a server. Android implementation: `io.modelcontextprotocol:kotlin-sdk` (as Gallery), streamable HTTP.
- * Each connect/list/call is logged as a connection (E3) by the implementation.
+ * Each connect/list/call is logged as a connection (E3) by the implementation. [apiKey] goes as `Authorization: Bearer`.
  */
 interface McpClient {
   /** Connects, reads server info and tools. Throws with a Thai message on failure (shown in the add dialog). */
-  suspend fun describe(url: String, nowUtcMs: Long): McpServerRecord
+  suspend fun describe(url: String, nowUtcMs: Long, apiKey: String? = null): McpServerRecord
 
   /** Calls one tool with the validated slots; returns the tool's text result (trimmed to what the chat shows). */
-  suspend fun call(url: String, tool: String, arguments: Map<String, String>): String
+  suspend fun call(url: String, tool: String, arguments: Map<String, String>, apiKey: String? = null): String
 }

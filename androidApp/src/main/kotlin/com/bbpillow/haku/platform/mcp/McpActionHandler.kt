@@ -5,7 +5,6 @@ import com.bbpillow.haku.action.ActionHandler
 import com.bbpillow.haku.action.ActionResultOutput
 import com.bbpillow.haku.action.PermissionLevel
 import com.bbpillow.haku.skill.McpClient
-import com.bbpillow.haku.skill.McpServerRepository
 import com.bbpillow.haku.skill.SkillActions
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -16,15 +15,8 @@ import kotlin.coroutines.cancellation.CancellationException
 class McpActionHandler(
   private val findServerUrl: suspend (String) -> String?,
   private val client: McpClient,
+  private val findKey: suspend (url: String) -> String? = { null },
 ) : ActionHandler {
-
-  constructor(
-    servers: McpServerRepository,
-    client: McpClient,
-  ) : this(
-    findServerUrl = { host -> servers.all().firstOrNull { it.host.equals(host, ignoreCase = true) }?.url },
-    client = client,
-  )
 
   override val action: String = SkillActions.MCP_ACTION
   override val level: PermissionLevel = PermissionLevel.CONFIRM
@@ -39,12 +31,12 @@ class McpActionHandler(
     val url = findServerUrl(host)
       ?: return ActionResultOutput(ok = false, message = SERVER_NOT_FOUND_MESSAGE)
     return try {
-      val result = client.call(url, tool, toolArgs)
+      val result = client.call(url, tool, toolArgs, findKey(url))
       ActionResultOutput(ok = true, message = result)
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
-      Log.w("HakuMcp", "call $host/$tool failed: ${e.javaClass.simpleName}: ${e.message?.take(200)}")
+      Log.w("HakuMcp", "call failed: ${e.javaClass.simpleName}") // never the message: it is the server's text, maybe business data
       ActionResultOutput(ok = false, message = FAILED_MESSAGE)
     }
   }

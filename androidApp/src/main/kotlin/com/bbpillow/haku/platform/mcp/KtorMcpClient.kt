@@ -36,6 +36,7 @@ import com.bbpillow.haku.skill.SkillSource
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.android.Android
 import io.ktor.client.plugins.sse.SSE
+import io.ktor.client.request.bearerAuth
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpClientTransport
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
@@ -67,6 +68,7 @@ class KtorMcpClient(
 
   private val httpClient = HttpClient(Android) {
     install(SSE)
+    followRedirects = false // a server's key must reach that server only: a redirect fails instead of being followed
     engine {
       connectTimeout = TIMEOUT_MS
       // read timeout: an SSE tool answer can stay silent until the server finishes (DeepWiki ask ~16 s)
@@ -77,7 +79,7 @@ class KtorMcpClient(
   // Maps (serverUrl, sanitizedSkillName) -> original MCP tool name for servers that use underscores/caps.
   private val rawToolNames = ConcurrentHashMap<Pair<String, String>, String>()
 
-  override suspend fun describe(url: String, nowUtcMs: Long): McpServerRecord {
+  override suspend fun describe(url: String, nowUtcMs: Long, apiKey: String?): McpServerRecord {
     val uri = validateMcpUrl(url, allowLoopbackHttp)
     val cleanUrl = uri.toString()
     val host = uri.host.lowercase()
@@ -86,7 +88,7 @@ class KtorMcpClient(
     var result = FAILED
     return try {
       withTimeout(TIMEOUT_MS.toLong()) {
-        client.connect(StreamableHttpClientTransport(client = httpClient, url = cleanUrl))
+        client.connect(transport(cleanUrl, apiKey))
         val toolsResponse = client.listTools()
         val used = mutableSetOf<String>()
         val mapped = toolsResponse.tools.map { tool ->
@@ -136,7 +138,7 @@ class KtorMcpClient(
     }
   }
 
-  override suspend fun call(url: String, tool: String, arguments: Map<String, String>): String {
+  override suspend fun call(url: String, tool: String, arguments: Map<String, String>, apiKey: String?): String {
     val uri = validateMcpUrl(url, allowLoopbackHttp)
     val cleanUrl = uri.toString()
     val startedAt = System.currentTimeMillis()
@@ -148,7 +150,7 @@ class KtorMcpClient(
     var result = FAILED
     return try {
       withTimeout(CALL_TIMEOUT_MS.toLong()) {
-        client.connect(StreamableHttpClientTransport(client = httpClient, url = cleanUrl))
+        client.connect(transport(cleanUrl, apiKey))
         // the name map lives in RAM: after a restart, re-list once so "get_weather" is not called as "get-weather"
         val remoteName = rawToolNames[cleanUrl to tool]
           ?: client.listTools().tools.firstOrNull { sanitizeToolName(it.name) == tool.replace(Regex("-\\d+$"), "") }?.name
@@ -183,6 +185,12 @@ class KtorMcpClient(
       }
     }
   }
+
+  private fun transport(url: String, apiKey: String?) = StreamableHttpClientTransport(
+    client = httpClient,
+    url = url,
+    requestBuilder = { apiKey?.let { bearerAuth(it) } },
+  )
 
   private fun newSdkClient(): Client =
     Client(clientInfo = Implementation(name = "haku", version = BuildConfig.VERSION_NAME))
