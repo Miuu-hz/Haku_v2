@@ -5,20 +5,24 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationCompat
 import com.bbpillow.haku.capture.notification.NotificationAppointmentRule
+import com.bbpillow.haku.capture.notification.NotificationApps
 import com.bbpillow.haku.capture.notification.NotificationTextEvent
+import com.bbpillow.haku.platform.NotificationAppsPrefs
 import com.bbpillow.haku.platform.notify.AppointmentOfferHooks
 import java.util.TimeZone
 
 /**
- * P5.8: reads chat notifications of the allowlisted apps only, looks for an appointment, and hands any offer to
- * [AppointmentOfferHooks.onOffer]. Notification access is off until the user enables it in system settings (PDPA ม.19).
+ * P5.8: reads chat notifications only of the apps the user turned on one by one, looks for an appointment, and hands any
+ * offer to [AppointmentOfferHooks.onOffer]. Notification access is off until the user enables it in system settings (PDPA ม.19).
  *
  * Reads just EXTRA_TITLE + the last message (or EXTRA_TEXT). Nothing is stored and nothing is logged: no text, titles
  * or package names, in any build type.
  */
 class HakuNotificationListener : NotificationListenerService() {
+  private val apps by lazy { NotificationAppsPrefs(this) }
+
   override fun onNotificationPosted(sbn: StatusBarNotification) {
-    if (sbn.packageName !in NotificationAppointmentRule.CHAT_APPS) return // before touching any extras
+    if (!NotificationApps.mayRead(sbn.packageName, apps.enabled())) return // before touching any extras
     val n = sbn.notification ?: return
     if (sbn.isOngoing || (n.flags and (Notification.FLAG_GROUP_SUMMARY or Notification.FLAG_ONGOING_EVENT)) != 0) return
     val last = runCatching { NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n)?.messages?.lastOrNull() }.getOrNull()

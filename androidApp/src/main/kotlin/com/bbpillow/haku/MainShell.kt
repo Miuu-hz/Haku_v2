@@ -93,6 +93,9 @@ import com.bbpillow.haku.surface.settings.ExtensionsScreen
 import com.bbpillow.haku.surface.settings.InstalledModelRecord
 import com.bbpillow.haku.surface.settings.LlmSettingsPresenter
 import com.bbpillow.haku.surface.settings.LlmSettingsScreen
+import com.bbpillow.haku.surface.settings.NotificationAppsScreen
+import com.bbpillow.haku.capture.notification.NotificationApps
+import com.bbpillow.haku.platform.NotificationAppsPrefs
 import com.bbpillow.haku.surface.settings.ModelManagerPresenter
 import com.bbpillow.haku.surface.settings.ModelManagerScreen
 import com.bbpillow.haku.surface.settings.ModelManagerUiState
@@ -329,6 +332,7 @@ private fun SettingsTab(
     SettingsPage.LLM -> return LlmSettingsHost(graph, onOpenModels, onLlmBack)
     SettingsPage.AUDIT -> return AuditTab(graph) { page = SettingsPage.MAIN }
     SettingsPage.PRIVACY -> return PrivacyNoticeScreen(onBack = { page = SettingsPage.MAIN }, contentPadding = TabPadding)
+    SettingsPage.NOTIFICATION_APPS -> return NotificationAppsHost(activity, notifOn) { page = SettingsPage.MAIN }
     SettingsPage.MAIN -> Unit
   }
 
@@ -336,18 +340,7 @@ private fun SettingsTab(
   SettingsScreen(
     state = s,
     notificationAccessOn = notifOn,
-    onOpenNotificationAccess = {
-      // straight to Haku's own switch (API 30+); a skin without that page gets the full listener list
-      val detail = android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).putExtra(
-        android.provider.Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
-        android.content.ComponentName(activity, com.bbpillow.haku.platform.capture.HakuNotificationListener::class.java).flattenToString(),
-      )
-      try {
-        activity.startActivity(detail)
-      } catch (e: android.content.ActivityNotFoundException) {
-        activity.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-      }
-    },
+    onOpenNotificationAccess = { page = SettingsPage.NOTIFICATION_APPS },
     onOpenExtensions = { page = SettingsPage.EXTENSIONS },
     onOpenAudit = { page = SettingsPage.AUDIT },
     onOpenPrivacyNotice = { page = SettingsPage.PRIVACY },
@@ -396,7 +389,37 @@ private fun SettingsTab(
   )
 }
 
-private enum class SettingsPage { MAIN, EXTENSIONS, AUDIT, PRIVACY, LLM }
+private enum class SettingsPage { MAIN, EXTENSIONS, AUDIT, PRIVACY, LLM, NOTIFICATION_APPS }
+
+/** P5.8: one switch per chat app, each saved at once. The listener reads the same store. */
+@Composable
+private fun NotificationAppsHost(activity: FragmentActivity, systemAccessOn: Boolean, onBack: () -> Unit) {
+  val apps = remember { NotificationAppsPrefs(activity) }
+  var enabled by remember { mutableStateOf(apps.enabled()) }
+  NotificationAppsScreen(
+    apps = NotificationApps.ALL,
+    enabled = enabled,
+    systemAccessOn = systemAccessOn,
+    onToggle = { packageName, on ->
+      apps.setEnabled(packageName, on)
+      enabled = apps.enabled()
+    },
+    onOpenSystemAccess = {
+      // straight to Haku's own switch (API 30+); a skin without that page gets the full listener list
+      val detail = android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).putExtra(
+        android.provider.Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+        android.content.ComponentName(activity, com.bbpillow.haku.platform.capture.HakuNotificationListener::class.java).flattenToString(),
+      )
+      try {
+        activity.startActivity(detail)
+      } catch (e: android.content.ActivityNotFoundException) {
+        activity.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+      }
+    },
+    onBack = onBack,
+    contentPadding = TabPadding,
+  )
+}
 
 /** P3.8 step 0: the LLM settings page. Each change is saved at once through [AppGraph.applyLlmSettings]. */
 @Composable

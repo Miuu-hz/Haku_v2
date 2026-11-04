@@ -163,7 +163,7 @@ class AppGraph(val app: Application) {
         if (input.provenance == Provenance.USER_TYPED) fireIntents { intents.onNote(input.text, System.currentTimeMillis()) }
       }
     }
-    val timeline = TimelinePresenter(diary, notesWatched, summaries, tz)
+    val timeline = TimelinePresenter(diary, notesWatched, summaries, tz) { CaptureController.isEnabled(app) }
     /** P3.5 widget / lock-screen / notification-reply notes (write-only). */
     val quickNote = QuickNote(notesWatched, tz) // notesWatched: P5.3 a quick note can fire an intention
     val transparency = TransparencyPresenter(

@@ -158,8 +158,8 @@ fun SettingsScreen(
     // P5.8: the reason is on screen before the system page opens (Play prominent disclosure, PDPA s.23)
     NavRow(
       HakuIcons.File, HakuTone.Amber, "อ่านนัดจากแจ้งเตือนแชท",
-      (if (notificationAccessOn) "เปิดอยู่ · " else "ปิดอยู่ · ") +
-        "อ่านเฉพาะข้อความที่ดูเหมือนนัด กรองในเครื่อง ไม่เก็บข้อความแชท แตะเพื่อเปิดหรือปิดในตั้งค่าเครื่อง",
+      (if (notificationAccessOn) "สิทธิ์ระบบเปิดอยู่ · " else "สิทธิ์ระบบปิดอยู่ · ") +
+        "เลือกได้ทีละแอป อ่านเฉพาะข้อความที่ดูเหมือนนัด กรองในเครื่อง ไม่เก็บข้อความแชท",
       onOpenNotificationAccess,
     )
     NavRow(HakuIcons.Grid, HakuTone.Mint, "ประวัติการทำงาน", "ทุกคำสั่งที่ Haku ทำแทนคุณ และปุ่มหยุดทั้งหมด", onOpenAudit)

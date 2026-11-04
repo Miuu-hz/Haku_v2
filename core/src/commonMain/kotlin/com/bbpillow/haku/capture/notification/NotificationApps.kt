@@ -34,6 +34,11 @@ object NotificationApps {
     NotificationApp("com.kakao.talk", "KakaoTalk", "K", CHAT),
     NotificationApp("com.tencent.mm", "WeChat", "W", CHAT),
   )
+
+  private val KNOWN: Set<String> = ALL.map { it.packageName }.toSet()
+
+  /** The listener's first check, before any extras. Both must hold: stored switches are untrusted, so the list still limits them. */
+  fun mayRead(packageName: String, enabled: Set<String>): Boolean = packageName in KNOWN && packageName in enabled
 }
 
 /** Which apps the user turned on. An app that was never set is off. Must answer synchronously: the listener asks before touching any extras. */
