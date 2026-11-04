@@ -39,7 +39,7 @@ import com.bbpillow.haku.surface.theme.HakuColors
 import com.bbpillow.haku.surface.theme.HakuRadius
 import com.bbpillow.haku.surface.timeline.MapFit
 import com.bbpillow.haku.surface.timeline.TimelineMap
-import com.bbpillow.haku.surface.timeline.TimelineMapPoint
+import com.bbpillow.haku.surface.timeline.TimelineMapPin
 import com.bbpillow.haku.surface.timeline.TimelineMapState
 import java.io.File
 import kotlin.math.ceil
@@ -226,10 +226,11 @@ private fun updateMapContent(
     mapView.layerManager.layers.add(polyline)
   }
 
-  for (point in map.points) {
-    val markerBitmap = createMarkerBitmap(point, density, mapView.resources)
+  val pins = TimelineMap.pinsOf(map.points)
+  for (pin in pins) {
+    val markerBitmap = createMarkerBitmap(pin, density, mapView.resources)
     val marker = Marker(
-      LatLong(point.lat, point.lon),
+      LatLong(pin.lat, pin.lon),
       markerBitmap,
       -markerBitmap.width / 2,
       -markerBitmap.height / 2,
@@ -241,38 +242,41 @@ private fun updateMapContent(
   mapView.layerManager.redrawLayers()
 }
 
-private fun createMarkerBitmap(point: TimelineMapPoint, density: Float, resources: Resources): MfBitmap {
+private fun createMarkerBitmap(pin: TimelineMapPin, density: Float, resources: Resources): MfBitmap {
   val r = 10f * density
-  val sizePx = ceil((10f + 7f) * 2f * density).toInt()
-  val bitmap = AndroidBitmap.createBitmap(sizePx, sizePx, AndroidBitmap.Config.ARGB_8888)
-  val canvas = AndroidCanvas(bitmap)
-  val cx = sizePx / 2f
-  val cy = sizePx / 2f
-  val paint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG)
-
-  if (point.since != null) {
-    paint.style = AndroidPaint.Style.STROKE
-    paint.color = 0xFF2E9E6E.toInt()
-    paint.strokeWidth = 2f * density
-    canvas.drawCircle(cx, cy, r + 4.5f * density, paint)
-  }
-
-  paint.style = AndroidPaint.Style.FILL
-  paint.color = AndroidColor.WHITE
-  canvas.drawCircle(cx, cy, r + 2f * density, paint)
-
-  paint.color = StopColors[(point.number - 1).mod(StopColors.size)]
-  canvas.drawCircle(cx, cy, r, paint)
-
   val textPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
     color = AndroidColor.WHITE
     textSize = 11f * density
     textAlign = AndroidPaint.Align.CENTER
     typeface = Typeface.DEFAULT_BOLD
   }
-  val text = point.number.toString()
-  val textY = cy - ((textPaint.descent() + textPaint.ascent()) / 2f)
-  canvas.drawText(text, cx, textY, textPaint)
+  val badge = pin.badge
+  // a rounded rect this wide is a circle, so one number keeps its round marker
+  val halfW = if (pin.numbers.size == 1) r else maxOf(r, textPaint.measureText(badge) / 2f + 6f * density)
+  val margin = 7f * density
+  val bitmap = AndroidBitmap.createBitmap(ceil((halfW + margin) * 2f).toInt(), ceil((r + margin) * 2f).toInt(), AndroidBitmap.Config.ARGB_8888)
+  val canvas = AndroidCanvas(bitmap)
+  val cx = bitmap.width / 2f
+  val cy = bitmap.height / 2f
+  val paint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG)
+  fun pill(grow: Float) =
+    canvas.drawRoundRect(cx - halfW - grow, cy - r - grow, cx + halfW + grow, cy + r + grow, r + grow, r + grow, paint)
+
+  if (pin.since != null) {
+    paint.style = AndroidPaint.Style.STROKE
+    paint.color = 0xFF2E9E6E.toInt()
+    paint.strokeWidth = 2f * density
+    pill(4.5f * density)
+  }
+
+  paint.style = AndroidPaint.Style.FILL
+  paint.color = AndroidColor.WHITE
+  pill(2f * density)
+
+  paint.color = StopColors[(pin.numbers.first() - 1).mod(StopColors.size)]
+  pill(0f)
+
+  canvas.drawText(badge, cx, cy - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
   return AndroidGraphicFactory.convertToBitmap(BitmapDrawable(resources, bitmap))
 }
