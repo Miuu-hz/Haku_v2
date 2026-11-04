@@ -15,7 +15,7 @@ class ModelWarmthTest {
   private class Log { val steps = mutableListOf<String>() }
 
   private fun warmth(scope: CoroutineScope, log: Log) =
-    ModelWarmth(scope, IDLE, warmUp = { log.steps += "up" }, coolDown = { log.steps += "down" })
+    ModelWarmth(scope, { IDLE }, warmUp = { log.steps += "up" }, coolDown = { log.steps += "down" })
 
   @Test
   fun opensOnceAndCoolsAfterIdle() = runTest {
@@ -92,7 +92,7 @@ class ModelWarmthTest {
   @Test
   fun failedWarmUpStillCoolsAndKeepsRunning() = runTest {
     val log = Log()
-    val w = ModelWarmth(backgroundScope, IDLE, warmUp = { log.steps += "up"; error("no gpu") }, coolDown = { log.steps += "down" })
+    val w = ModelWarmth(backgroundScope, { IDLE }, warmUp = { log.steps += "up"; error("no gpu") }, coolDown = { log.steps += "down" })
     w.open(); runCurrent()
     w.stop(); runCurrent()
     w.open(); runCurrent()
@@ -103,7 +103,7 @@ class ModelWarmthTest {
   fun questionWaitsForTheRunningWarmUpEvenIfItFails() = runTest {
     val log = Log()
     val gate = CompletableDeferred<Unit>()
-    val w = ModelWarmth(backgroundScope, IDLE, warmUp = { log.steps += "up"; gate.await(); error("no gpu") }, coolDown = { log.steps += "down" })
+    val w = ModelWarmth(backgroundScope, { IDLE }, warmUp = { log.steps += "up"; gate.await(); error("no gpu") }, coolDown = { log.steps += "down" })
     w.open(); runCurrent()
     backgroundScope.launch { w.use { log.steps += "ask" } }
     runCurrent()

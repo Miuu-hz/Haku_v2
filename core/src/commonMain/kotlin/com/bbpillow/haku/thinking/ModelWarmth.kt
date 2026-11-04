@@ -10,8 +10,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * 5ข: keeps the chat's models loaded while the chat is in use, never for good. [open] (chat tab shown) and [use] (a
- * question) run [warmUp]; [stop] (tab gone, app in background, memory trim) and [idleMillis] with no question run
+ * 5ข: keeps the chat's models loaded while the chat is in use, never for good. [open] (per the load policy) and [use] (a
+ * question) run [warmUp]; [stop] (app in background, memory trim, policy) and [idleMillis] with no question run
  * [coolDown]. A stop or the timer never cools mid-question: a stop that arrives then waits for the last [use] to end.
  * Events run one at a time on [scope] in call order, so [warmUp]/[coolDown] never overlap and need no lock of their own.
  * [use] runs its block only after the warm-up it triggered or queued behind has finished (or failed): the block's own
@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
  */
 class ModelWarmth(
   scope: CoroutineScope,
-  private val idleMillis: Long,
+  private val idleMillis: () -> Long,
   private val warmUp: suspend () -> Unit,
   private val coolDown: suspend () -> Unit,
 ) {
@@ -46,7 +46,7 @@ class ModelWarmth(
       fun restartTimer() {
         timer?.cancel()
         val g = ++generation
-        timer = scope.launch { delay(idleMillis); events.send(Event.Idle(g)) }
+        timer = scope.launch { delay(idleMillis()); events.send(Event.Idle(g)) }
       }
       suspend fun warm() {
         if (isWarm) return

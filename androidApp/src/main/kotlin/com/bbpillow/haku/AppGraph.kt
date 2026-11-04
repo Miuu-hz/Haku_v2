@@ -392,7 +392,7 @@ class AppGraph(val app: Application) {
    */
   val warmth = ModelWarmth(
     scope,
-    WARM_IDLE_MS,
+    { WARM_IDLE_MS },
     warmUp = {
       try {
         embedder()?.load()
