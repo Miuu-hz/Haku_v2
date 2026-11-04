@@ -1,7 +1,10 @@
 package com.bbpillow.haku.surface.tasks
 
+import com.bbpillow.haku.language.ThaiDateFormat
 import com.bbpillow.haku.task.TaskQuadrant
+import com.bbpillow.haku.task.TaskRecord
 import com.bbpillow.haku.task.TaskRepository
+import com.bbpillow.haku.task.TaskRules
 
 /** One row in a box. [dueText] is Thai: "วันนี้", "พรุ่งนี้", "6 พ.ย."; null = no due day. */
 data class TaskRowUi(
@@ -31,19 +34,124 @@ class TasksPresenter(
   private val clock: () -> Long,
   private val newId: () -> String,
 ) {
-  fun load(): TasksUiState = TODO("agy: brief-home-tasks-store.md")
+  fun load(): TasksUiState {
+    val now = clock()
+    val todayDay = TaskRules.dayOf(now, tzOffsetMinutes)
+    val tomorrowDay = TaskRules.dayOf(TaskRules.dueOfDay(todayDay, tzOffsetMinutes) + 1L, tzOffsetMinutes)
+
+    val allTasks = tasks.all()
+    val byQuadrant = allTasks.groupBy { TaskRules.quadrantOf(it, now) }
+
+    val quadrantsUi = TaskQuadrant.entries.map { quadrant ->
+      val quadrantTasks = byQuadrant[quadrant] ?: emptyList()
+
+      val openRows = quadrantTasks
+        .filter { it.doneUtcMs == null }
+        .sortedWith { a, b ->
+          when {
+            a.dueUtcMs == null && b.dueUtcMs == null -> a.createdUtcMs.compareTo(b.createdUtcMs)
+            a.dueUtcMs == null -> 1
+            b.dueUtcMs == null -> -1
+            a.dueUtcMs != b.dueUtcMs -> a.dueUtcMs.compareTo(b.dueUtcMs)
+            else -> a.createdUtcMs.compareTo(b.createdUtcMs)
+          }
+        }
+        .map { toRowUi(it, now, todayDay, tomorrowDay) }
+
+      val doneRows = quadrantTasks
+        .filter { it.doneUtcMs != null && TaskRules.dayOf(it.doneUtcMs, tzOffsetMinutes) == todayDay }
+        .sortedBy { it.doneUtcMs }
+        .map { toRowUi(it, now, todayDay, tomorrowDay) }
+
+      TaskQuadrantUi(
+        quadrant = quadrant,
+        label = TaskRules.label(quadrant),
+        rows = openRows + doneRows,
+      )
+    }
+
+    return TasksUiState(quadrantsUi)
+  }
 
   /** The form's values for an existing task, or null. */
-  fun draftOf(id: String): TaskDraft? = TODO("agy: brief-home-tasks-store.md")
+  fun draftOf(id: String): TaskDraft? {
+    val record = tasks.find(id) ?: return null
+    return TaskDraft(
+      title = record.title,
+      dueDay = record.dueUtcMs?.let { TaskRules.dayOf(it, tzOffsetMinutes) },
+      important = record.important,
+    )
+  }
 
   /**
    * [id] null = new task; otherwise keeps that task's created and done times. Returns false, storing nothing, when the
    * title is blank or [id] no longer exists.
    */
-  fun save(id: String?, draft: TaskDraft): Boolean = TODO("agy: brief-home-tasks-store.md")
+  fun save(id: String?, draft: TaskDraft): Boolean {
+    val cleanTitle = TaskRules.cleanTitle(draft.title) ?: return false
+    val dueUtcMs = draft.dueDay?.let { TaskRules.dueOfDay(it, tzOffsetMinutes) }
+
+    if (id == null) {
+      tasks.put(
+        TaskRecord(
+          id = newId(),
+          title = cleanTitle,
+          dueUtcMs = dueUtcMs,
+          important = draft.important,
+          createdUtcMs = clock(),
+          doneUtcMs = null,
+        ),
+      )
+      return true
+    }
+
+    val existing = tasks.find(id) ?: return false
+    tasks.put(
+      existing.copy(
+        title = cleanTitle,
+        dueUtcMs = dueUtcMs,
+        important = draft.important,
+      ),
+    )
+    return true
+  }
 
   /** Open becomes done now; done becomes open. Unknown id does nothing. */
-  fun toggleDone(id: String): Unit = TODO("agy: brief-home-tasks-store.md")
+  fun toggleDone(id: String) {
+    val existing = tasks.find(id) ?: return
+    tasks.put(
+      existing.copy(
+        doneUtcMs = if (existing.doneUtcMs == null) clock() else null,
+      ),
+    )
+  }
 
-  fun delete(id: String): Unit = TODO("agy: brief-home-tasks-store.md")
+  fun delete(id: String) {
+    tasks.delete(id)
+  }
+
+  private fun toRowUi(
+    task: TaskRecord,
+    now: Long,
+    todayDay: String,
+    tomorrowDay: String,
+  ): TaskRowUi {
+    val isDone = task.doneUtcMs != null
+    val dueText = task.dueUtcMs?.let { dueMs ->
+      val day = TaskRules.dayOf(dueMs, tzOffsetMinutes)
+      when (day) {
+        todayDay -> "วันนี้"
+        tomorrowDay -> "พรุ่งนี้"
+        else -> ThaiDateFormat.shortDate(day)
+      }
+    }
+    val isOverdue = !isDone && task.dueUtcMs != null && task.dueUtcMs < now
+    return TaskRowUi(
+      id = task.id,
+      title = task.title,
+      dueText = dueText,
+      isOverdue = isOverdue,
+      isDone = isDone,
+    )
+  }
 }
