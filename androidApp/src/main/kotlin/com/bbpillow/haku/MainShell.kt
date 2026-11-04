@@ -54,10 +54,13 @@ import com.bbpillow.haku.platform.LiteRtLocalModel
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.platform.signals.CalendarWriter
 import com.bbpillow.haku.skill.McpServerRecord
+import com.bbpillow.haku.surface.chat.A2aIntroScreen
 import com.bbpillow.haku.surface.chat.AppointmentProposal
 import com.bbpillow.haku.surface.chat.AppointmentStatus
 import com.bbpillow.haku.surface.chat.ChatAnswerOutput
 import com.bbpillow.haku.surface.chat.ChatAnswerSource
+import com.bbpillow.haku.surface.chat.ChatMode
+import com.bbpillow.haku.surface.chat.ChatModes
 import com.bbpillow.haku.surface.chat.ChatQuestionInput
 import com.bbpillow.haku.surface.chat.ChatScreen
 import com.bbpillow.haku.surface.chat.ChatTurn
@@ -122,6 +125,7 @@ private val NavItems = listOf(
 private const val TAB_HOME = 0
 private const val TAB_TIMELINE = 1
 private const val TAB_CHAT = 2
+private const val PAIRING_NOT_READY = "รุ่นทดสอบนี้ยังจับคู่กับคอมไม่ได้ จะเปิดให้ใช้ในรุ่นถัดไป"
 
 private const val DAY_MS = 86_400_000L
 
@@ -149,6 +153,12 @@ fun MainShell(
   val settingsPage = rememberSaveable { mutableStateOf(SettingsPage.MAIN) }
   var modelsOpen by rememberSaveable { mutableStateOf(false) }
   var statsOpen by rememberSaveable { mutableStateOf(false) }
+  var chatMode by rememberSaveable { mutableStateOf(ChatMode.GENERAL) }
+  var a2aOpen by rememberSaveable { mutableStateOf(false) }
+  var pairingNotice by rememberSaveable { mutableStateOf<String?>(null) }
+  // the chat's model chip lands on the LLM page: back from there returns to the chat, not to the settings list
+  var llmFromChat by rememberSaveable { mutableStateOf(false) }
+  val closeSettings = { settingsOpen = false; llmFromChat = false; settingsPage.value = SettingsPage.MAIN }
   // the conversation lives as long as the shell, so switching tabs keeps it
   var chatTurns by remember { mutableStateOf(listOf<ChatTurn>()) }
   val shellScope = rememberCoroutineScope() // an answer still lands if the user switches tabs while it is being written
@@ -167,7 +177,8 @@ fun MainShell(
   }
   BackHandler(enabled = plusOpen) { plusOpen = false }
   BackHandler(enabled = !plusOpen && modelsOpen) { modelsOpen = false }
-  BackHandler(enabled = !plusOpen && !modelsOpen && settingsOpen) { settingsOpen = false }
+  BackHandler(enabled = !plusOpen && !modelsOpen && settingsOpen) { closeSettings() }
+  BackHandler(enabled = !plusOpen && !modelsOpen && !settingsOpen && a2aOpen) { a2aOpen = false }
   BackHandler(enabled = !plusOpen && !modelsOpen && !settingsOpen && nodeOpen && tab == NavItems.lastIndex) { nodeOpen = false }
   BackHandler(enabled = !plusOpen && !modelsOpen && !settingsOpen && statsOpen && tab == TAB_HOME) { statsOpen = false }
   Box(Modifier.fillMaxSize()) {
@@ -180,7 +191,25 @@ fun MainShell(
       return@Box
     }
     if (settingsOpen) {
-      SettingsTab(settingsPage, graph, activity, { modelsOpen = true }, onProfileChanged) { settingsOpen = false; settingsPage.value = SettingsPage.MAIN }
+      SettingsTab(
+        settingsPage,
+        graph,
+        activity,
+        { modelsOpen = true },
+        onProfileChanged,
+        onLlmBack = { if (llmFromChat) closeSettings() else settingsPage.value = SettingsPage.MAIN },
+        onClose = closeSettings,
+      )
+      return@Box
+    }
+    if (a2aOpen) {
+      // ponytail: no pairing in the app yet (P7.0 comes after the closed beta), so the button says so instead of pretending
+      A2aIntroScreen(
+        onBack = { a2aOpen = false },
+        onStartPairing = { pairingNotice = PAIRING_NOT_READY },
+        pairingNotice = pairingNotice,
+        contentPadding = TabPadding,
+      )
       return@Box
     }
     val openDay = { d: String -> day = d; tab = TAB_TIMELINE }
@@ -188,7 +217,17 @@ fun MainShell(
       TAB_HOME -> if (statsOpen) StatsTab(graph, { plusOpen = true }) { statsOpen = false }
       else HomeTab(graph, CaptureController.isEnabled(activity), openDay, { plusOpen = true }) { statsOpen = true }
       TAB_TIMELINE -> TimelineTab(graph, day) { day = it }
-      TAB_CHAT -> ChatTab(graph, shellScope, chatTurns, { chatTurns = it }, openDay, { modelsOpen = true })
+      TAB_CHAT -> ChatTab(
+        graph,
+        shellScope,
+        chatTurns,
+        { chatTurns = it },
+        openDay,
+        onOpenLlmSettings = { llmFromChat = true; settingsPage.value = SettingsPage.LLM; settingsOpen = true },
+        mode = chatMode,
+        // A2A has nowhere to send work until a PC is paired, so it explains itself and the chat keeps its mode
+        onSelectMode = { if (it == ChatMode.A2A) { pairingNotice = null; a2aOpen = true } else chatMode = it },
+      )
       else -> if (nodeOpen) HomeNodeScreen(onBack = { nodeOpen = false }, contentPadding = TabPadding)
       else MemoryTab(graph, { plusOpen = true }, { nodeOpen = true }, { settingsOpen = true })
     }
@@ -217,6 +256,7 @@ private fun SettingsTab(
   activity: FragmentActivity,
   onOpenModels: () -> Unit,
   onProfileChanged: (ProfileRecord) -> Unit,
+  onLlmBack: () -> Unit,
   onClose: () -> Unit,
 ) {
   val scope = rememberCoroutineScope()
@@ -267,10 +307,10 @@ private fun SettingsTab(
     onDispose { lifecycle.removeObserver(observer) }
   }
   var page by pageState
-  BackHandler(enabled = page != SettingsPage.MAIN) { page = SettingsPage.MAIN }
+  BackHandler(enabled = page != SettingsPage.MAIN) { if (page == SettingsPage.LLM) onLlmBack() else page = SettingsPage.MAIN }
   when (page) {
     SettingsPage.EXTENSIONS -> return ExtensionsTab(graph) { page = SettingsPage.MAIN }
-    SettingsPage.LLM -> return LlmSettingsHost(graph, onOpenModels) { page = SettingsPage.MAIN }
+    SettingsPage.LLM -> return LlmSettingsHost(graph, onOpenModels, onLlmBack)
     SettingsPage.AUDIT -> return AuditTab(graph) { page = SettingsPage.MAIN }
     SettingsPage.PRIVACY -> return PrivacyNoticeScreen(onBack = { page = SettingsPage.MAIN }, contentPadding = TabPadding)
     SettingsPage.MAIN -> Unit
@@ -680,9 +720,14 @@ private fun ChatTab(
   turns: List<ChatTurn>,
   onTurns: (List<ChatTurn>) -> Unit,
   onOpenDay: (String) -> Unit,
-  onOpenModels: () -> Unit,
+  onOpenLlmSettings: () -> Unit,
+  mode: ChatMode,
+  onSelectMode: (ChatMode) -> Unit,
 ) {
   val context = LocalContext.current
+  // read once per visit: the LLM page replaces this tab, so a changed context size re-reads on the way back
+  val contextTokens = remember { graph.llmSettings.load().contextTokens }
+  val activeMode = ChatModes.effective(mode, contextTokens)
   var modelLabel by remember { mutableStateOf(ModelManagerPresenter.NO_MODEL_LABEL) }
   // 5ข + P3.8: models load while the user types (unless ON_ASK), and go when the tab is left (ON_CHAT_OPEN only), the app is left, or the idle time passes
   val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -765,12 +810,15 @@ private fun ChatTab(
       val asked = turns + ChatTurn(q, null)
       onTurns(asked)
       scope.launch {
-        val answer = askHaku(graph, q) ?: ChatAnswerOutput(q, "ค้นบันทึกไม่สำเร็จ ลองใหม่อีกครั้ง", emptyList(), ChatAnswerSource.RETRIEVAL)
+        val answer = askHaku(graph, q, activeMode) ?: ChatAnswerOutput(q, "ค้นบันทึกไม่สำเร็จ ลองใหม่อีกครั้ง", emptyList(), ChatAnswerSource.RETRIEVAL)
         onTurns(asked.dropLast(1) + ChatTurn(q, answer))
       }
     },
     onOpenDay = onOpenDay,
-    onOpenModels = onOpenModels,
+    mode = activeMode,
+    modeOptions = ChatModes.options(contextTokens),
+    onSelectMode = onSelectMode,
+    onOpenLlmSettings = onOpenLlmSettings,
     onAddAppointment = { index ->
       val turn = turns.getOrNull(index) ?: return@ChatScreen
       val appointment = turn.answer?.appointment ?: return@ChatScreen
@@ -808,12 +856,13 @@ private fun ChatTab(
 /**
  * Retrieval on the DB thread, then the downloaded model if there is one. The engine comes from [AppGraph.warmth] when the
  * chat tab warmed it (the per-question load/unload below then only moves a reference); otherwise this question warms it.
- * internal: the debug AskDebugReceiver ASK_FULL action drives this exact path over adb.
+ * internal: the debug AskDebugReceiver ASK_FULL action drives this exact path over adb, in [ChatMode.AGENT] so it can
+ * reach the skill picker.
  */
-internal suspend fun askHaku(graph: AppGraph, question: String): ChatAnswerOutput? {
+internal suspend fun askHaku(graph: AppGraph, question: String, mode: ChatMode = ChatMode.AGENT): ChatAnswerOutput? {
   val skills = availableSkills(graph)
   val mention = MentionParser.parse(question, skills)
-  return answerWithoutModel(graph, question, mention) ?: graph.warmth.use { askOnce(graph, question, skills, mention) }
+  return answerWithoutModel(graph, question, mention) ?: graph.warmth.use { askOnce(graph, question, skills, mention, mode) }
 }
 
 /**
@@ -834,14 +883,16 @@ private suspend fun answerWithoutModel(graph: AppGraph, question: String, mentio
 }
 
 /** Everything that needs a model, after [answerWithoutModel] found nothing. */
-private suspend fun askOnce(graph: AppGraph, question: String, skills: List<SkillRecord>, mention: Mention?): ChatAnswerOutput? {
+private suspend fun askOnce(graph: AppGraph, question: String, skills: List<SkillRecord>, mention: Mention?, mode: ChatMode): ChatAnswerOutput? {
   // "@ปฏิทิน …" / "@host …" (popup pick) = use exactly that, no picker; the gate card still asks before anything runs
   when (mention) {
     is Mention.Skill -> return runSkill(graph, question, mention.rest.ifBlank { question }, listOf(mention.skill), chosen = true)
     is Mention.Service -> return runSkill(graph, question, mention.rest.ifBlank { question }, mention.tools.take(MAX_SERVICE_TOOLS), chosen = true)
     is Mention.NotFound, null -> Unit
   }
-  graph.pickSkill(question, skills)?.let { if (BuildConfig.DEBUG) Log.d("HakuSkill", "picked ${it.name}"); return runSkill(graph, question, question, listOf(it)) }
+  if (ChatModes.picksToolsByItself(mode)) {
+    graph.pickSkill(question, skills)?.let { if (BuildConfig.DEBUG) Log.d("HakuSkill", "picked ${it.name}"); return runSkill(graph, question, question, listOf(it)) }
+  }
   val semantic = graph.questionSemantic(question) // words-only while the embedder is cold or absent
   val (presenter, retrieval) = graph.safeIo { composeRecent(System.currentTimeMillis()); chat to chat.retrieve(ChatQuestionInput(question, System.currentTimeMillis(), profile.load().style), semantic) } ?: return null
   val config = modelConfigOrNull(graph) ?: return retrieval.fallback
