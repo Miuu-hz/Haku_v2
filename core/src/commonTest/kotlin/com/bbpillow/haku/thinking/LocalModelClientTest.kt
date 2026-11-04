@@ -146,4 +146,17 @@ class LocalModelClientTest {
     val events = client.generate(input).take(2).toList()
     assertTrue(events.all { it is GenerateEvent.Token })
   }
+
+  @Test fun onFinishedGetsEachOutputOnceAndNothingOnError() = runTest {
+    val time = TestTimeSource()
+    val seen = mutableListOf<GenerateOutput>()
+    val ok = LocalModelClient(FakeLocalModel(time, listOf("a", "b"), gap = 100.milliseconds), time) { seen += it }
+    ok.load(config)
+    val out = (ok.generate(input).toList().last() as GenerateEvent.Finished).output
+    assertEquals(listOf(out), seen)
+    val failing = LocalModelClient(FakeLocalModel(time, listOf("a"), failAfterChunks = RuntimeException("oom")), time) { seen += it }
+    failing.load(config)
+    assertFailsWith<RuntimeException> { failing.generate(input).toList() }
+    assertEquals(1, seen.size)
+  }
 }

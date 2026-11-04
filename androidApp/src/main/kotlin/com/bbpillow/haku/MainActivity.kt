@@ -40,6 +40,7 @@ import com.bbpillow.haku.surface.onboarding.AppStart
 import com.bbpillow.haku.surface.onboarding.ProfileRecord
 import com.bbpillow.haku.surface.onboarding.StartScreen
 import com.bbpillow.haku.surface.theme.HakuTheme
+import com.bbpillow.haku.thinking.ModelLoadPolicy
 import androidx.compose.material3.Text
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -109,6 +110,15 @@ private fun AppRoot(graph: AppGraph, activity: FragmentActivity) {
     }
     StartScreen.LOCKED -> LockGate(activity) { unlocked = true }
     StartScreen.MAIN -> {
+      // P3.8 load policy, only once onboarded and unlocked: ON_APP_OPEN warms on start; leaving the app frees the models under every policy
+      DisposableEffect(activity) {
+        val observer = LifecycleEventObserver { _, e ->
+          if (e == Lifecycle.Event.ON_START && graph.llmSettings.load().loadPolicy == ModelLoadPolicy.ON_APP_OPEN) graph.warmth.open()
+          if (e == Lifecycle.Event.ON_STOP) graph.warmth.stop()
+        }
+        activity.lifecycle.addObserver(observer) // replays ON_START when the app is already in front
+        onDispose { activity.lifecycle.removeObserver(observer) }
+      }
       LaunchedEffect(Unit) {
         (profile.model as? ActiveModel.Catalog)?.let { graph.downloader.resumeIfPartial(it.choice) }
         if (AppStart.shouldStartCaptureOnMain(grantedKinds(activity), CaptureController.isEnabled(activity))) CaptureController.start(activity)

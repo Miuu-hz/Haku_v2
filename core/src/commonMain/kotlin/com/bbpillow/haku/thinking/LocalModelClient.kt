@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.takeWhile
 class LocalModelClient(
   private val model: LocalModel,
   private val clock: TimeSource = TimeSource.Monotonic,
+  /** Each generation's output, once it completes without error, before its Finished event (a collector stopping there still triggers it). */
+  private val onFinished: (GenerateOutput) -> Unit = {},
 ) {
   /** Set by [cancel] (even before collection starts), consumed and cleared by the generation it applies to. */
   @Volatile private var cancelRequested = false
@@ -56,7 +58,9 @@ class LocalModelClient(
       tokensPerSecond = tps,
       cancelled = cancelRequested,
     )
-    emit(GenerateEvent.Finished(GenerateOutput(text.toString(), metrics)))
+    val output = GenerateOutput(text.toString(), metrics)
+    onFinished(output)
+    emit(GenerateEvent.Finished(output))
   }
 
   fun cancel() {

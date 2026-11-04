@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -81,6 +82,8 @@ import com.bbpillow.haku.surface.plus.PlusScreen
 import com.bbpillow.haku.surface.settings.DownloadProgressInput
 import com.bbpillow.haku.surface.settings.ExtensionsScreen
 import com.bbpillow.haku.surface.settings.InstalledModelRecord
+import com.bbpillow.haku.surface.settings.LlmSettingsPresenter
+import com.bbpillow.haku.surface.settings.LlmSettingsScreen
 import com.bbpillow.haku.surface.settings.ModelManagerPresenter
 import com.bbpillow.haku.surface.settings.ModelManagerScreen
 import com.bbpillow.haku.surface.settings.ModelManagerUiState
@@ -94,7 +97,11 @@ import com.bbpillow.haku.surface.timeline.TimelineScreen
 import com.bbpillow.haku.surface.timeline.TimelineUiState
 import com.bbpillow.haku.thinking.GenerateEvent
 import com.bbpillow.haku.thinking.GenerateInput
+import com.bbpillow.haku.thinking.GenerateOutput
+import com.bbpillow.haku.thinking.LlmDefaults
+import com.bbpillow.haku.thinking.LlmSettings
 import com.bbpillow.haku.thinking.LocalModelClient
+import com.bbpillow.haku.thinking.ModelLoadPolicy
 import com.bbpillow.haku.thinking.ModelConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -103,6 +110,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
 private val NavItems = listOf(
@@ -137,6 +145,8 @@ fun MainShell(
   var plusOpen by rememberSaveable { mutableStateOf(false) }
   var nodeOpen by rememberSaveable { mutableStateOf(false) }
   var settingsOpen by rememberSaveable { mutableStateOf(false) }
+  // here, not in SettingsTab: the models page replaces SettingsTab, and back from it must land on the LLM page again
+  val settingsPage = rememberSaveable { mutableStateOf(SettingsPage.MAIN) }
   var modelsOpen by rememberSaveable { mutableStateOf(false) }
   var statsOpen by rememberSaveable { mutableStateOf(false) }
   // the conversation lives as long as the shell, so switching tabs keeps it
@@ -170,7 +180,7 @@ fun MainShell(
       return@Box
     }
     if (settingsOpen) {
-      SettingsTab(graph, activity, { modelsOpen = true }, onProfileChanged) { settingsOpen = false }
+      SettingsTab(settingsPage, graph, activity, { modelsOpen = true }, onProfileChanged) { settingsOpen = false; settingsPage.value = SettingsPage.MAIN }
       return@Box
     }
     val openDay = { d: String -> day = d; tab = TAB_TIMELINE }
@@ -202,6 +212,7 @@ private fun PlusTab(graph: AppGraph, activity: FragmentActivity, onClose: () -> 
 
 @Composable
 private fun SettingsTab(
+  pageState: MutableState<SettingsPage>,
   graph: AppGraph,
   activity: FragmentActivity,
   onOpenModels: () -> Unit,
@@ -255,10 +266,11 @@ private fun SettingsTab(
     lifecycle.addObserver(observer)
     onDispose { lifecycle.removeObserver(observer) }
   }
-  var page by remember { mutableStateOf(SettingsPage.MAIN) }
+  var page by pageState
   BackHandler(enabled = page != SettingsPage.MAIN) { page = SettingsPage.MAIN }
   when (page) {
     SettingsPage.EXTENSIONS -> return ExtensionsTab(graph) { page = SettingsPage.MAIN }
+    SettingsPage.LLM -> return LlmSettingsHost(graph, onOpenModels) { page = SettingsPage.MAIN }
     SettingsPage.AUDIT -> return AuditTab(graph) { page = SettingsPage.MAIN }
     SettingsPage.PRIVACY -> return PrivacyNoticeScreen(onBack = { page = SettingsPage.MAIN }, contentPadding = TabPadding)
     SettingsPage.MAIN -> Unit
@@ -284,7 +296,7 @@ private fun SettingsTab(
     onOpenAudit = { page = SettingsPage.AUDIT },
     onOpenPrivacyNotice = { page = SettingsPage.PRIVACY },
     onBack = onClose,
-    onOpenModels = onOpenModels,
+    onOpenLlmSettings = { page = SettingsPage.LLM },
     onParticle = { p -> update { setParticle(p, it) } },
     onAddress = { a -> update { setAddress(a, it) } },
     onNickname = { n ->
@@ -328,7 +340,31 @@ private fun SettingsTab(
   )
 }
 
-private enum class SettingsPage { MAIN, EXTENSIONS, AUDIT, PRIVACY }
+private enum class SettingsPage { MAIN, EXTENSIONS, AUDIT, PRIVACY, LLM }
+
+/** P3.8 step 0: the LLM settings page. Each change is saved at once through [AppGraph.applyLlmSettings]. */
+@Composable
+private fun LlmSettingsHost(graph: AppGraph, onOpenModels: () -> Unit, onBack: () -> Unit) {
+  var settings by remember { mutableStateOf(graph.llmSettings.load()) }
+  val metrics by graph.llmMetrics.collectAsState()
+  val notice by graph.llmNotice.collectAsState()
+  // a step-down saves a smaller context behind the screen's back: re-read whenever a notice comes
+  LaunchedEffect(notice) { settings = graph.llmSettings.load() }
+  var modelLabel by remember { mutableStateOf(ModelManagerPresenter.NO_MODEL_LABEL) }
+  LaunchedEffect(Unit) {
+    val installed = withContext(Dispatchers.IO) { graph.installedModels() }
+    modelLabel = graph.safeIo { modelManager.activeModelLabel(installed) } ?: ModelManagerPresenter.NO_MODEL_LABEL
+  }
+  val apply = { new: LlmSettings -> settings = new; graph.applyLlmSettings(new) }
+  LlmSettingsScreen(
+    state = LlmSettingsPresenter.state(settings, graph.llmSettings.totalMemBytes, modelLabel, metrics, notice),
+    onBack = onBack,
+    onOpenModels = onOpenModels,
+    onChange = apply,
+    onResetDefaults = { apply(LlmDefaults.forDevice(graph.llmSettings.totalMemBytes)) },
+    contentPadding = TabPadding,
+  )
+}
 
 @Composable
 private fun ExtensionsTab(graph: AppGraph, onBack: () -> Unit) {
@@ -648,15 +684,18 @@ private fun ChatTab(
 ) {
   val context = LocalContext.current
   var modelLabel by remember { mutableStateOf(ModelManagerPresenter.NO_MODEL_LABEL) }
-  // 5ข: models load while the user types, and go when the tab or the app is left (or 60 s pass with no question)
+  // 5ข + P3.8: models load while the user types (unless ON_ASK), and go when the tab is left (ON_CHAT_OPEN only), the app is left, or the idle time passes
   val lifecycle = LocalLifecycleOwner.current.lifecycle
   DisposableEffect(lifecycle) {
     val observer = LifecycleEventObserver { _, e ->
-      if (e == Lifecycle.Event.ON_START) graph.warmth.open()
-      if (e == Lifecycle.Event.ON_STOP) graph.warmth.stop()
+      if (e == Lifecycle.Event.ON_START && graph.llmSettings.load().loadPolicy != ModelLoadPolicy.ON_ASK) graph.warmth.open()
+      // no ON_STOP: AppRoot's app-level observer frees the models when the app is left, under every policy
     }
     lifecycle.addObserver(observer) // replays ON_START when the app is already in front
-    onDispose { lifecycle.removeObserver(observer); graph.warmth.stop() }
+    onDispose {
+      lifecycle.removeObserver(observer)
+      if (graph.llmSettings.load().loadPolicy == ModelLoadPolicy.ON_CHAT_OPEN) graph.warmth.stop()
+    }
   }
   val dl by graph.downloader.state.collectAsState()
   val imp by graph.importer.state.collectAsState()
@@ -808,7 +847,7 @@ private suspend fun askOnce(graph: AppGraph, question: String, skills: List<Skil
   val config = modelConfigOrNull(graph) ?: return retrieval.fallback
   val model = LiteRtLocalModel()
   return try {
-    val client = LocalModelClient(model)
+    val client = LocalModelClient(model, onFinished = graph::recordAnswerMetrics)
     client.load(config)
     presenter.answer(retrieval, client)
   } catch (e: CancellationException) {
@@ -819,6 +858,13 @@ private suspend fun askOnce(graph: AppGraph, question: String, skills: List<Skil
   } finally {
     withContext(NonCancellable) { runCatching { model.unload() } }
   }
+}
+
+/** P3.8: a chat answer's speed for the LLM settings band. Characters, not tokens: MTP chunks hold several tokens. */
+private fun AppGraph.recordAnswerMetrics(out: GenerateOutput) {
+  val first = out.metrics.timeToFirstTokenMillis
+  val decodeMs = first?.let { out.metrics.totalMillis - it }?.takeIf { it > 0 }
+  llmMetrics.update { it.copy(firstTokenMillis = first, charsPerSecond = decodeMs?.let { ms -> out.text.length * 1000.0 / ms }, ramMb = pssMb()) }
 }
 
 /** The rule parser's appointment card for [text] with its calendar clash line, or null when [text] holds no appointment. */

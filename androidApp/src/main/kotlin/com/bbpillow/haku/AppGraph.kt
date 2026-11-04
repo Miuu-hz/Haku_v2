@@ -44,6 +44,7 @@ import com.bbpillow.haku.network.ConnectionStore
 import com.bbpillow.haku.platform.DataKeys
 import com.bbpillow.haku.platform.IcuWordSegmenter
 import com.bbpillow.haku.platform.LiteRtTextEmbedder
+import com.bbpillow.haku.platform.LlmSettingsPrefs
 import com.bbpillow.haku.platform.SharedEngines
 import com.google.ai.edge.litertlm.Engine
 import com.bbpillow.haku.platform.ModelDownloader
@@ -68,9 +69,13 @@ import com.bbpillow.haku.surface.onboarding.OnboardingPresenter
 import com.bbpillow.haku.surface.onboarding.ProfileStore
 import com.bbpillow.haku.surface.plus.EntitlementStore
 import com.bbpillow.haku.surface.settings.InstalledModelRecord
+import com.bbpillow.haku.surface.settings.LlmMetrics
+import com.bbpillow.haku.surface.settings.LlmSettingsPresenter
 import com.bbpillow.haku.surface.settings.ModelManagerPresenter
 import com.bbpillow.haku.surface.timeline.TimelinePresenter
-import com.bbpillow.haku.thinking.ModelBackend
+import com.bbpillow.haku.thinking.LlmDefaults
+import com.bbpillow.haku.thinking.LlmSettings
+import com.bbpillow.haku.thinking.ModelLoadPolicy
 import com.bbpillow.haku.thinking.ModelConfig
 import com.bbpillow.haku.thinking.ModelWarmth
 import com.bbpillow.haku.thinking.context.SemanticTier
@@ -81,10 +86,14 @@ import com.bbpillow.haku.thinking.summary.EveningSummaryStore
 import java.io.File
 import java.util.TimeZone
 import kotlin.math.ceil
+import android.os.Debug
+import android.os.SystemClock
 import android.util.Log
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -274,6 +283,18 @@ class AppGraph(val app: Application) {
     catalog + importer.listInstalled()
   }.getOrDefault(emptyList())
 
+  /** P3.8 step 0: the one source of [modelConfig]'s engine and sampler values and of [warmth]'s idle time. */
+  val llmSettings = LlmSettingsPrefs(app)
+
+  /** The LLM settings screen's figures: the last warm-up's load and the last chat answer's speed, this process only. */
+  val llmMetrics = MutableStateFlow(LlmMetrics())
+
+  /** A step-down or reload for the LLM settings screen to show; null when there is none. */
+  val llmNotice = MutableStateFlow<String?>(null)
+
+  /** This process's PSS in MB (the model's native and GPU-mapped memory included as far as Android counts it). */
+  fun pssMb(): Int = Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }.totalPss / 1024
+
   /** Where a LiteRtLocalModel loads from (debug spikes, NightlyWorker, Chat), once the active model is on disk; null before that. */
   suspend fun modelConfig(): ModelConfig? {
     val file = when (val active = io { profile.load().model }) {
@@ -281,8 +302,8 @@ class AppGraph(val app: Application) {
       is ActiveModel.Imported -> importer.file(active.fileName)
       ActiveModel.None -> null
     }?.takeIf { it.exists() && it.length() > 0L } ?: return null
-    // ponytail: GPU as in the P0.4 spike; fall back to CPU when the Fold5 numbers say so
-    return ModelConfig(file.path, ModelBackend.Gpu, cacheDir = app.cacheDir.path)
+    // P3.8: context, backend and sampler from the LLM settings screen
+    return llmSettings.load().toModelConfig(file.path, app.cacheDir.path)
   }
 
   /** EmbeddingGemma for the semantic tier: the model manager's download; debug builds also take the adb-pushed spike copy. */
@@ -392,7 +413,7 @@ class AppGraph(val app: Application) {
    */
   val warmth = ModelWarmth(
     scope,
-    { WARM_IDLE_MS },
+    { llmSettings.load().idleReleaseSeconds * 1000L },
     warmUp = {
       try {
         embedder()?.load()
@@ -402,7 +423,7 @@ class AppGraph(val app: Application) {
         Log.e(EMBED_TAG, "embedder load failed: ${e::class.simpleName}")
       }
       try {
-        modelConfig()?.let { warmEngine = SharedEngines.acquire(it) }
+        if (warmLlm()) llmNotice.compareAndSet(RELOADING_NOTICE, null) // a step-down message stays
       } catch (e: CancellationException) {
         throw e
       } catch (e: Exception) {
@@ -415,9 +436,57 @@ class AppGraph(val app: Application) {
     },
   )
 
+  /**
+   * [warmth]'s LLM half, after the embedder: [SharedEngines.acquire] timed into [llmMetrics]. A thrown load failure steps
+   * the context down one size, saves it, says so in [llmNotice] and retries; false when even the smallest size failed.
+   * True with no model file (nothing failed). A [modelConfig] failure propagates to warmUp's own catch.
+   * ponytail: a native abort inside LiteRT kills the process before any catch here, so it cannot step down; the next
+   * warm-up tries the same size again. Upgrade path: a "loading" flag saved before acquire, read at start.
+   */
+  private suspend fun warmLlm(): Boolean {
+    while (true) {
+      val config = modelConfig() ?: return true
+      try {
+        val start = SystemClock.elapsedRealtime()
+        warmEngine = SharedEngines.acquire(config)
+        llmMetrics.update { it.copy(loadMillis = SystemClock.elapsedRealtime() - start, ramMb = pssMb()) }
+        return true
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        Log.e("HakuModel", "warm-up failed at ${config.maxTokens} tokens: ${e::class.simpleName}")
+        val smaller = LlmDefaults.stepDown(config.maxTokens)
+        if (smaller == null) {
+          llmNotice.value = LOAD_FAILED_NOTICE
+          return false
+        }
+        llmSettings.save(llmSettings.load().copy(contextTokens = smaller))
+        llmNotice.value = "โหลดบริบท ${LlmSettingsPresenter.label(config.maxTokens)} ไม่สำเร็จ ลดเหลือ ${LlmSettingsPresenter.label(smaller)} ให้แล้ว"
+      }
+    }
+  }
+
+  /**
+   * The LLM settings screen's one write. Sampler and idle changes apply from the next conversation / timer; an engine
+   * change drops the warm engine and, unless the policy is [ModelLoadPolicy.ON_ASK], loads the new one now. [warmth]
+   * runs events in order, so the stop lands before the open.
+   * ponytail: an open that arrives while a question still runs cancels that question's pending stop (ModelWarmth.Open
+   * clears stopWhenDone), so the old engine stays until the next cool-down and [RELOADING_NOTICE] shows until the next warm-up.
+   */
+  fun applyLlmSettings(new: LlmSettings) {
+    val old = llmSettings.load()
+    llmSettings.save(new)
+    if (!old.needsReload(new)) return
+    warmth.stop()
+    val loadsNow = new.loadPolicy != ModelLoadPolicy.ON_ASK
+    llmNotice.value = if (loadsNow) RELOADING_NOTICE else null // the user's own choice replaces an older step-down message
+    if (loadsNow) warmth.open()
+  }
+
   private companion object {
     const val SEMANTIC_CHAT = true
-    const val WARM_IDLE_MS = 60_000L
+    const val RELOADING_NOTICE = "กำลังโหลดโมเดลใหม่"
+    const val LOAD_FAILED_NOTICE = "โหลดโมเดลไม่สำเร็จ ลองเปลี่ยนตัวประมวลผลหรือโมเดล"
     const val GUESS_WINDOW_MS = 14 * 86_400_000L
     const val DAY_MS = 86_400_000L
     const val RECENT_COMPOSE_MS = 5 * 60_000L
