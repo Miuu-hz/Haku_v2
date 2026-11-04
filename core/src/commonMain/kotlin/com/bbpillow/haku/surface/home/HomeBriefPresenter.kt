@@ -1,6 +1,7 @@
 package com.bbpillow.haku.surface.home
 
 import com.bbpillow.haku.action.PendingOfferRepository
+import com.bbpillow.haku.capture.CaptureEvent
 import com.bbpillow.haku.capture.CaptureEventRepository
 import com.bbpillow.haku.capture.CaptureQueryInput
 import com.bbpillow.haku.capture.CaptureSource
@@ -20,6 +21,7 @@ import com.bbpillow.haku.memory.MemoryFormat
 import com.bbpillow.haku.surface.stats.StatsPresenter
 import com.bbpillow.haku.task.TaskCounts
 import com.bbpillow.haku.task.TaskRepository
+import com.bbpillow.haku.task.TaskRules
 import com.bbpillow.haku.thinking.summary.EveningSummaryRepository
 
 /** Part of the day the brief is shaped for (P3.1): morning looks back at yesterday, midday and evening at today. */
@@ -108,32 +110,46 @@ class HomeBriefPresenter(
     // before dawn the evening brief still talks about the day that just ended
     val storyDay = if (period == BriefPeriod.MORNING || hour < MORNING_START_HOUR) plusDays(today, -1) else today
     val lines = diary.readDay(storyDay, tzOffsetMinutes)
-
     val storyStart = dayStartUtc(storyDay)
-    val storyEnd = minOf(storyStart + DAY_MS, nowUtcMs)
-    val stats = statsFor(storyStart, storyEnd)
-    val isDayOne = lines.isEmpty() && stats == null && diary.readDay(today, tzOffsetMinutes).isEmpty() &&
-      events.query(CaptureQueryInput(dayStartUtc(today) - DAY_MS, nowUtcMs)).isEmpty()
+    val stats = statsFor(storyStart, minOf(storyStart + DAY_MS, nowUtcMs))
 
+    offers?.deleteExpired(nowUtcMs)
+    val decisions = offers?.active(nowUtcMs).orEmpty().map {
+      val heading = if (it.appName != null) "เจอนัดจาก ${it.appName}" else "เจอนัดจากข้อความที่เลือก"
+      HomeDecisionRow(it.id, heading, "${it.title} · ${it.detail}", it.warning)
+    }
+    val taskCounts = TaskRules.counts(tasks?.all().orEmpty(), nowUtcMs)
+    val isDayOne = lines.isEmpty() && stats == null && diary.readDay(today, tzOffsetMinutes).isEmpty() &&
+      events.query(CaptureQueryInput(dayStartUtc(today) - DAY_MS, nowUtcMs)).isEmpty() &&
+      decisions.isEmpty() && taskCounts.total == 0
+
+    val todayEvents = todayAppointments(today)
+    val left = todayEvents.count { (it.endUtcMs ?: it.timeUtcMs) > nowUtcMs }
+    val all = todayEvents.size
+    val headline = when {
+      isDayOne -> "Haku กำลังเรียนรู้วันของคุณ"
+      left == 0 && period == BriefPeriod.MORNING -> "เมื่อวานเป็นยังไงบ้าง"
+      left == 0 && period == BriefPeriod.MIDDAY -> "บ่ายนี้มีอะไรบ้าง"
+      left == 0 -> "วันนี้เป็นยังไงบ้าง"
+      left == all -> "วันนี้มี $all นัด"
+      else -> "วันนี้เหลืออีก $left นัด"
+    }
     val name = style.addressName?.let { " $it" }.orEmpty()
+    val greeting = when (period) {
+      BriefPeriod.MORNING -> "อรุณสวัสดิ์$name"
+      BriefPeriod.MIDDAY -> "สวัสดีตอนบ่าย$name"
+      BriefPeriod.EVENING -> "สวัสดีตอนเย็น$name"
+    }
+    val storyTitle = when {
+      storyDay != today -> "เมื่อวานของคุณ"
+      period == BriefPeriod.MIDDAY -> "วันนี้จนถึงตอนนี้"
+      else -> "เรื่องของวันนี้"
+    }
     return HomeBriefUiState(
       period = period,
-      greeting = when (period) {
-        BriefPeriod.MORNING -> "อรุณสวัสดิ์$name"
-        BriefPeriod.MIDDAY -> "สวัสดีตอนบ่าย$name"
-        BriefPeriod.EVENING -> "สวัสดีตอนเย็น$name"
-      },
-      headline = when {
-        isDayOne -> "Haku กำลังเรียนรู้วันของคุณ"
-        period == BriefPeriod.MORNING -> "เมื่อวานเป็นยังไงบ้าง"
-        period == BriefPeriod.MIDDAY -> "บ่ายนี้มีอะไรบ้าง"
-        else -> "วันนี้เป็นยังไงบ้าง"
-      },
-      storyTitle = when {
-        storyDay != today -> "เมื่อวาน"
-        period == BriefPeriod.MIDDAY -> "วันนี้จนถึงตอนนี้"
-        else -> "เรื่องของวันนี้"
-      },
+      greeting = greeting,
+      headline = headline,
+      storyTitle = storyTitle,
       storyDay = storyDay,
       storyHeader = ThaiDateFormat.dayHeader(storyDay),
       storyLines = lines.take(STORY_LINES).map { it.text },
@@ -143,8 +159,16 @@ class HomeBriefPresenter(
       storySummary = if (lines.isEmpty()) null else summaries.find(storyDay)?.text,
       weekly = if (isDayOne) null else weekly(nowUtcMs, style),
       isDayOne = isDayOne,
-      appointments = appointments(today, nowUtcMs),
+      appointments = appointments(todayEvents, nowUtcMs),
+      decisions = decisions,
+      taskCounts = taskCounts,
     )
+  }
+
+  private fun todayAppointments(today: String): List<CaptureEvent> {
+    val start = dayStartUtc(today)
+    return events.query(CaptureQueryInput(start, start + DAY_MS, setOf(CaptureTypes.CALENDAR)))
+      .filter { it.source is CaptureSource.CalendarEntry }
   }
 
   /**
@@ -152,10 +176,7 @@ class HomeBriefPresenter(
    * more than [APPOINTMENT_ROWS], past ones drop first so the next appointment stays on screen.
    * ponytail: an appointment that started yesterday and runs into today is not listed; add an overlap query if users ask.
    */
-  private fun appointments(today: String, nowUtcMs: Long): TodayAppointments? {
-    val start = dayStartUtc(today)
-    val all = events.query(CaptureQueryInput(start, start + DAY_MS, setOf(CaptureTypes.CALENDAR)))
-      .filter { it.source is CaptureSource.CalendarEntry }
+  private fun appointments(all: List<CaptureEvent>, nowUtcMs: Long): TodayAppointments? {
     if (all.isEmpty()) return null
     val nextIdx = all.indexOfFirst { (it.endUtcMs ?: it.timeUtcMs) > nowUtcMs }.takeIf { it >= 0 } ?: all.size
     val from = minOf(nextIdx, all.size - APPOINTMENT_ROWS).coerceAtLeast(0)

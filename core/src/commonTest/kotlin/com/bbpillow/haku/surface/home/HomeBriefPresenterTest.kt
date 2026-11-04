@@ -1,5 +1,8 @@
 package com.bbpillow.haku.surface.home
 
+import com.bbpillow.haku.action.ActionOrigin
+import com.bbpillow.haku.action.PendingOfferRecord
+import com.bbpillow.haku.action.PendingOfferRepository
 import com.bbpillow.haku.capture.CaptureEvent
 import com.bbpillow.haku.capture.CaptureSource
 import com.bbpillow.haku.capture.PlaceCategory
@@ -19,6 +22,8 @@ import com.bbpillow.haku.capture.stats.Entitlements
 import com.bbpillow.haku.capture.stats.Plan
 import com.bbpillow.haku.capture.stats.StatsSummarizer
 import com.bbpillow.haku.memory.MemoryStore
+import com.bbpillow.haku.task.TaskRecord
+import com.bbpillow.haku.task.TaskRepository
 import com.bbpillow.haku.thinking.summary.EveningSummaryRecord
 import com.bbpillow.haku.thinking.summary.EveningSummaryRepository
 import com.bbpillow.haku.thinking.summary.SummarySource
@@ -39,6 +44,77 @@ private class MemSummaries(vararg records: EveningSummaryRecord) : EveningSummar
   override fun clear() = byDay.clear()
 }
 
+private class FakePendingOffers(records: List<PendingOfferRecord> = emptyList()) : PendingOfferRepository {
+  val rows = records.toMutableList()
+  override fun active(nowUtcMs: Long): List<PendingOfferRecord> = rows.filter { it.expiresUtcMs > nowUtcMs }
+  override fun find(id: String): PendingOfferRecord? = rows.firstOrNull { it.id == id }
+  override fun put(record: PendingOfferRecord) {
+    rows.removeAll { it.dedupeKey == record.dedupeKey }
+    rows.add(record)
+  }
+  override fun delete(id: String) { rows.removeAll { it.id == id } }
+  override fun deleteExpired(nowUtcMs: Long): Int {
+    val before = rows.size
+    rows.removeAll { it.expiresUtcMs <= nowUtcMs }
+    return before - rows.size
+  }
+  override fun clear() { rows.clear() }
+}
+
+private class FakeTasks(records: List<TaskRecord> = emptyList()) : TaskRepository {
+  val rows = records.toMutableList()
+  override fun all(): List<TaskRecord> = rows.toList()
+  override fun find(id: String): TaskRecord? = rows.firstOrNull { it.id == id }
+  override fun put(record: TaskRecord) {
+    rows.removeAll { it.id == record.id }
+    rows.add(record)
+  }
+  override fun delete(id: String) { rows.removeAll { it.id == id } }
+  override fun deleteDoneBefore(cutoffUtcMs: Long): Int {
+    val before = rows.size
+    rows.removeAll { it.doneUtcMs != null && it.doneUtcMs < cutoffUtcMs }
+    return before - rows.size
+  }
+  override fun clear() { rows.clear() }
+}
+
+private fun offer(
+  id: String,
+  title: String,
+  detail: String = "detail",
+  appName: String? = null,
+  warning: String? = null,
+  expiresUtcMs: Long = Long.MAX_VALUE,
+) = PendingOfferRecord(
+  id = id,
+  dedupeKey = id,
+  title = title,
+  detail = detail,
+  startUtcMs = 0L,
+  endUtcMs = expiresUtcMs,
+  allDay = false,
+  origin = ActionOrigin.CHAT_RULE,
+  appName = appName,
+  warning = warning,
+  createdUtcMs = 0L,
+  expiresUtcMs = expiresUtcMs,
+)
+
+private fun task(
+  id: String,
+  title: String = "task",
+  dueUtcMs: Long? = null,
+  important: Boolean = false,
+  doneUtcMs: Long? = null,
+) = TaskRecord(
+  id = id,
+  title = title,
+  dueUtcMs = dueUtcMs,
+  important = important,
+  createdUtcMs = 0L,
+  doneUtcMs = doneUtcMs,
+)
+
 class HomeBriefPresenterTest {
   private val tz = SyntheticWeek.TZ_OFFSET_MIN
   private val tuesday = "2026-09-08"
@@ -54,11 +130,13 @@ class HomeBriefPresenterTest {
     compose: Boolean = true,
     summaries: EveningSummaryRepository = MemSummaries(),
     plan: Plan = Plan.FREE,
+    offers: PendingOfferRepository? = null,
+    tasks: TaskRepository? = null,
   ): HomeBriefPresenter {
     val composer = DiaryComposer(events, FakePlaces(places), memory, FakeLedger())
     if (compose) composer.compose(DiaryComposeInput(tuesday, tz))
     val entitlements = object : Entitlements { override val plan = plan }
-    return HomeBriefPresenter(composer, events, FakePlaces(places), tz, summaries, StatsSummarizer(entitlements))
+    return HomeBriefPresenter(composer, events, FakePlaces(places), tz, summaries, StatsSummarizer(entitlements), offers, tasks)
   }
 
   private fun withConfirmedHome(): List<PlaceRecord> {
@@ -83,7 +161,7 @@ class HomeBriefPresenterTest {
   @Test fun morningLooksBackAtYesterday() {
     val s = presenter().load(at(2, 8))
     assertEquals(BriefPeriod.MORNING, s.period)
-    assertEquals("เมื่อวาน", s.storyTitle)
+    assertEquals("เมื่อวานของคุณ", s.storyTitle)
     assertEquals(tuesday, s.storyDay)
     assertTrue(s.greeting.startsWith("อรุณสวัสดิ์"))
     assertEquals(8, s.storyLineCount)
@@ -101,7 +179,7 @@ class HomeBriefPresenterTest {
     val s = presenter().load(at(2, 1))
     assertEquals(BriefPeriod.EVENING, s.period)
     assertEquals(tuesday, s.storyDay)
-    assertEquals("เมื่อวาน", s.storyTitle)
+    assertEquals("เมื่อวานของคุณ", s.storyTitle)
   }
 
   @Test fun greetingUsesTheChosenAddress() {
@@ -240,5 +318,61 @@ class HomeBriefPresenterTest {
     val rows = assertNotNull(presenter(events = events, compose = false).load(at(1, 12)).appointments).rows
     assertEquals(listOf("midnight", "lastMinute"), rows.map { it.title })
     assertEquals(listOf("00:00–00:30", "23:59"), rows.map { it.timeText })
+  }
+
+  @Test fun decisionsUseAppNameOrSelectedTextWording() {
+    val o1 = offer("o1", "Meeting", "10:00", appName = "ChatApp")
+    val o2 = offer("o2", "Lunch", "12:00", appName = null, warning = "conflict")
+    val state = presenter(offers = FakePendingOffers(listOf(o1, o2))).load(at(1, 12))
+    assertEquals(2, state.decisions.size)
+    assertEquals("o1", state.decisions[0].id)
+    assertEquals("เจอนัดจาก ChatApp", state.decisions[0].heading)
+    assertEquals("Meeting · 10:00", state.decisions[0].detail)
+    assertNull(state.decisions[0].warning)
+    assertEquals("o2", state.decisions[1].id)
+    assertEquals("เจอนัดจากข้อความที่เลือก", state.decisions[1].heading)
+    assertEquals("Lunch · 12:00", state.decisions[1].detail)
+    assertEquals("conflict", state.decisions[1].warning)
+  }
+
+  @Test fun expiredOfferIsDeletedAndNotShown() {
+    val now = at(1, 12)
+    val expired = offer("o1", "Old", expiresUtcMs = now - 1000L)
+    val active = offer("o2", "Active", expiresUtcMs = now + 10_000L)
+    val store = FakePendingOffers(listOf(expired, active))
+    val state = presenter(offers = store).load(now)
+    assertEquals(listOf("o2"), state.decisions.map { it.id })
+    assertEquals(listOf("o2"), store.rows.map { it.id })
+  }
+
+  @Test fun taskCountsIgnoresDoneTasks() {
+    val now = at(1, 12)
+    val openUrgent = task("t1", dueUtcMs = now + 1000L, important = true)
+    val openImportant = task("t2", dueUtcMs = null, important = true)
+    val doneUrgent = task("t3", dueUtcMs = now + 1000L, important = true, doneUtcMs = now - 1000L)
+    val doneSomeday = task("t4", dueUtcMs = null, important = false, doneUtcMs = now - 1000L)
+    val state = presenter(tasks = FakeTasks(listOf(openUrgent, openImportant, doneUrgent, doneSomeday))).load(now)
+    assertEquals(1, state.taskCounts.importantUrgent)
+    assertEquals(1, state.taskCounts.important)
+    assertEquals(0, state.taskCounts.urgent)
+    assertEquals(0, state.taskCounts.someday)
+    assertEquals(2, state.taskCounts.total)
+  }
+
+  @Test fun isDayOneIsFalseWithOneOpenTaskOrOneOffer() {
+    val withTask = presenter(emptyList(), FakeEvents(emptyList()), compose = false, tasks = FakeTasks(listOf(task("t1")))).load(at(1, 20))
+    assertFalse(withTask.isDayOne)
+
+    val withOffer = presenter(emptyList(), FakeEvents(emptyList()), compose = false, offers = FakePendingOffers(listOf(offer("o1", "Sync")))).load(at(1, 20))
+    assertFalse(withOffer.isDayOne)
+  }
+
+  @Test fun headlineShowsRemainingAppointmentsOrPeriodHeadline() {
+    val events = withAppointments(appt("a", at(1, 9), at(1, 10)), appt("b", at(1, 14), at(1, 15)))
+    val p = presenter(events = events, compose = false)
+    assertEquals("วันนี้มี 2 นัด", p.load(at(1, 8)).headline)
+    assertEquals("วันนี้เหลืออีก 1 นัด", p.load(at(1, 12)).headline)
+    assertEquals("บ่ายนี้มีอะไรบ้าง", p.load(at(1, 16)).headline)
+    assertEquals("บ่ายนี้มีอะไรบ้าง", presenter(compose = false).load(at(1, 12)).headline)
   }
 }

@@ -2,6 +2,9 @@ package com.bbpillow.haku.surface.memory
 
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import com.bbpillow.haku.action.ActionOrigin
+import com.bbpillow.haku.action.PendingOfferRecord
+import com.bbpillow.haku.action.PendingOfferRepository
 import com.bbpillow.haku.capture.CaptureEvent
 import com.bbpillow.haku.capture.CaptureEventStore
 import com.bbpillow.haku.capture.CaptureQueryInput
@@ -12,21 +15,17 @@ import com.bbpillow.haku.capture.SyntheticWeek
 import com.bbpillow.haku.capture.diary.DiaryComposeInput
 import com.bbpillow.haku.capture.diary.DiaryComposer
 import com.bbpillow.haku.capture.diary.DiaryLedgerStore
+import com.bbpillow.haku.capture.diary.DiaryStyle
+import com.bbpillow.haku.capture.diary.EndingParticle
 import com.bbpillow.haku.language.TextPipeline
 import com.bbpillow.haku.memory.CoreCategories
 import com.bbpillow.haku.memory.CoreFactInput
+import com.bbpillow.haku.memory.DREAM_LEDGER_DAY
 import com.bbpillow.haku.memory.DailyEventInput
 import com.bbpillow.haku.memory.MemoryLevel
 import com.bbpillow.haku.memory.MemoryStore
 import com.bbpillow.haku.memory.NoteInput
 import com.bbpillow.haku.memory.Provenance
-import com.bbpillow.haku.memory.DREAM_LEDGER_DAY
-import com.bbpillow.haku.capture.diary.DiaryStyle
-import com.bbpillow.haku.capture.diary.EndingParticle
-import com.bbpillow.haku.surface.onboarding.ActiveModel
-import com.bbpillow.haku.surface.onboarding.ModelChoice
-import com.bbpillow.haku.surface.onboarding.ProfileRecord
-import com.bbpillow.haku.surface.onboarding.ProfileStore
 import com.bbpillow.haku.memory.index.DictionarySegmenter
 import com.bbpillow.haku.memory.index.IndexedMemoryRepository
 import com.bbpillow.haku.memory.index.SearchIndexStore
@@ -34,6 +33,12 @@ import com.bbpillow.haku.memory.index.SearchQueryInput
 import com.bbpillow.haku.network.ConnectionPurpose
 import com.bbpillow.haku.network.ConnectionRecord
 import com.bbpillow.haku.network.ConnectionStore
+import com.bbpillow.haku.surface.onboarding.ActiveModel
+import com.bbpillow.haku.surface.onboarding.ModelChoice
+import com.bbpillow.haku.surface.onboarding.ProfileRecord
+import com.bbpillow.haku.surface.onboarding.ProfileStore
+import com.bbpillow.haku.task.TaskRecord
+import com.bbpillow.haku.task.TaskRepository
 import com.bbpillow.haku.thinking.summary.EveningSummaryRecord
 import com.bbpillow.haku.thinking.summary.EveningSummaryStore
 import com.bbpillow.haku.thinking.summary.SummarySource
@@ -45,6 +50,40 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
+
+private class MemOffers(records: List<PendingOfferRecord> = emptyList()) : PendingOfferRepository {
+  val rows = records.toMutableList()
+  override fun active(nowUtcMs: Long): List<PendingOfferRecord> = rows.filter { it.expiresUtcMs > nowUtcMs }
+  override fun find(id: String): PendingOfferRecord? = rows.firstOrNull { it.id == id }
+  override fun put(record: PendingOfferRecord) {
+    rows.removeAll { it.dedupeKey == record.dedupeKey }
+    rows.add(record)
+  }
+  override fun delete(id: String) { rows.removeAll { it.id == id } }
+  override fun deleteExpired(nowUtcMs: Long): Int {
+    val before = rows.size
+    rows.removeAll { it.expiresUtcMs <= nowUtcMs }
+    return before - rows.size
+  }
+  override fun clear() { rows.clear() }
+}
+
+private class MemTasks(records: List<TaskRecord> = emptyList()) : TaskRepository {
+  val rows = records.toMutableList()
+  override fun all(): List<TaskRecord> = rows.toList()
+  override fun find(id: String): TaskRecord? = rows.firstOrNull { it.id == id }
+  override fun put(record: TaskRecord) {
+    rows.removeAll { it.id == record.id }
+    rows.add(record)
+  }
+  override fun delete(id: String) { rows.removeAll { it.id == id } }
+  override fun deleteDoneBefore(cutoffUtcMs: Long): Int {
+    val before = rows.size
+    rows.removeAll { it.doneUtcMs != null && it.doneUtcMs < cutoffUtcMs }
+    return before - rows.size
+  }
+  override fun clear() { rows.clear() }
+}
 
 /** P3.4 against the real stores (SQLite + files): forget a category, forget everything, nothing comes back. */
 class ForgetTest {
@@ -148,6 +187,42 @@ class ForgetTest {
     toolMemory.put(com.bbpillow.haku.skill.ToolResultRecord("k", "erp.example", "sales", emptyMap(), "ยอด 100", at, at + 1))
     forgetAll.run()
     assertNull(toolMemory.find("k"))
+  }
+
+  @Test fun forgetEverythingClearsOffersAndTasks() {
+    val testOffers = MemOffers(listOf(
+      PendingOfferRecord(
+        id = "off-1",
+        dedupeKey = "k-1",
+        title = "Sync",
+        detail = "10:00",
+        startUtcMs = at,
+        endUtcMs = at + 3600_000L,
+        allDay = false,
+        origin = ActionOrigin.CHAT_RULE,
+        appName = "ChatApp",
+        warning = null,
+        createdUtcMs = at,
+        expiresUtcMs = at + 3600_000L,
+      ),
+    ))
+    val testTasks = MemTasks(listOf(
+      TaskRecord(id = "t-1", title = "Task item", dueUtcMs = null, important = false, createdUtcMs = at),
+    ))
+    val forget = ForgetEverything(
+      events = events,
+      places = places,
+      ledger = ledger,
+      summaries = summaries,
+      memory = memory,
+      profile = profile,
+      connections = connections,
+      offers = testOffers,
+      tasks = testTasks,
+    )
+    forget.run()
+    assertTrue(testOffers.rows.isEmpty())
+    assertTrue(testTasks.rows.isEmpty())
   }
 
   @Test fun forgetEverythingOnAnEmptyAppIsHarmless() {
