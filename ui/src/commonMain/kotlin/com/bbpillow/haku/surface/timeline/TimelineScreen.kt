@@ -46,6 +46,8 @@ fun TimelineScreen(
   onSelectDay: (String) -> Unit,
   onEdit: (TimelineLine, String) -> Unit,
   onDelete: (TimelineLine) -> Unit,
+  mapDrawing: @Composable (TimelineMapState, Modifier) -> Unit = { m, mod -> PlainDayMap(m, mod) },
+  onOpenPin: ((TimelineMapPoint) -> Unit)? = null,
   modifier: Modifier = Modifier,
   contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
 ) {
@@ -57,7 +59,7 @@ fun TimelineScreen(
     item { DateStrip(state, onSelectDay) }
     val map = state.map
     if (map != null) {
-      item { TimelineMiniMap(map, Modifier.padding(top = 4.dp)) }
+      item { TimelineMiniMap(map, Modifier.padding(top = 4.dp), mapDrawing, onOpenPin) }
     } else {
       val message = when (state.mapEmpty) {
         TimelineMapEmpty.CAPTURE_OFF -> "การบันทึกตำแหน่งปิดอยู่ แผนที่จึงยังไม่มีจุด"
