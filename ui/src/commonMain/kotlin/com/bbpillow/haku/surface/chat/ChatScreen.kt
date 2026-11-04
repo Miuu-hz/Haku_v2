@@ -11,6 +11,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -132,11 +134,19 @@ fun ChatScreen(
   val send = { if (draft.text.isNotBlank() && !busy) { onAsk(draft.text.trim()); draft = TextFieldValue("") } }
   val mentions = remember(draft.text, mentionSkills, mentionServiceNames) { MentionParser.options(draft.text, mentionSkills, mentionServiceNames) }
   val list = rememberLazyListState()
-  LaunchedEffect(turns.size) { if (turns.isNotEmpty()) list.animateScrollToItem(turns.size) }
-  LaunchedEffect(turns.lastOrNull()?.partial, turns.lastOrNull()?.answer) {
-    if (turns.isNotEmpty() && list.layoutInfo.visibleItemsInfo.lastOrNull()?.index == turns.size) {
-      list.scrollToItem(turns.size, Int.MAX_VALUE)
+  // Follow the answer until the user scrolls away; reaching the end again, or asking again, resumes it. A long answer is
+  // one list item, so "the last item is visible" stays true while reading it and cannot tell the two apart.
+  var following by remember { mutableStateOf(true) }
+  LaunchedEffect(list) { list.interactionSource.interactions.collect { if (it is DragInteraction.Start) following = false } }
+  LaunchedEffect(list) { snapshotFlow { list.canScrollForward }.collect { if (!it) following = true } }
+  LaunchedEffect(turns.size) {
+    if (turns.isNotEmpty()) {
+      following = true
+      list.animateScrollToItem(turns.size)
     }
+  }
+  LaunchedEffect(turns.lastOrNull()?.partial, turns.lastOrNull()?.answer) {
+    if (turns.isNotEmpty() && following) list.scrollToItem(turns.size, Int.MAX_VALUE)
   }
 
   // Keyboard open: lift the input above it; the nav padding counts as already-consumed space so there is no double gap.
