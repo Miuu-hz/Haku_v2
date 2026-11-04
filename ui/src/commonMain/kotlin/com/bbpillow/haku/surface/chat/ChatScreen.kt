@@ -121,7 +121,7 @@ fun ChatScreen(
       LazyColumn(Modifier.fillMaxSize(), state = list, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
           Row(verticalAlignment = Alignment.CenterVertically) {
-            ScreenTitle("ถาม Haku", Modifier.weight(1f), eyebrow = "ตอบจากบันทึกของคุณ พร้อมวันที่อ้างอิง")
+            ScreenTitle("ถาม Haku", Modifier.weight(1f), eyebrow = "ถามได้ทุกเรื่อง เรื่องของคุณตอบจากบันทึก")
             StatChip(
               engineLabel,
               Modifier
@@ -244,10 +244,13 @@ private fun AnswerCard(answer: ChatAnswerOutput?, onOpenDay: (String) -> Unit) {
     Modifier.widthIn(max = 340.dp).hakuShadow(AnswerBubble).background(HakuColors.Surface, AnswerBubble).padding(horizontal = 16.dp, vertical = 12.dp),
   ) {
     if (answer == null) {
-      Text("กำลังค้นในบันทึก…", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
+      Text("กำลังหาคำตอบ…", style = MaterialTheme.typography.bodyMedium, color = HakuColors.Muted)
       return@Column
     }
     Text(answer.text, style = MaterialTheme.typography.bodyMedium, color = HakuColors.Ink)
+    if (answer.source == ChatAnswerSource.GENERAL) {
+      Text(ChatPresenter.GENERAL_LABEL, style = MaterialTheme.typography.bodySmall, color = HakuColors.Muted, modifier = Modifier.padding(top = 8.dp))
+    }
     answer.citations.forEachIndexed { i, c ->
       if (i == 0) HorizontalDivider(Modifier.padding(top = 10.dp), color = HakuColors.Line)
       Row(

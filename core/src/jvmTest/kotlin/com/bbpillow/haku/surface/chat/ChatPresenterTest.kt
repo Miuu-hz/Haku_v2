@@ -8,6 +8,7 @@ import com.bbpillow.haku.thinking.LocalModel
 import com.bbpillow.haku.thinking.LocalModelClient
 import com.bbpillow.haku.thinking.ModelConfig
 import com.bbpillow.haku.thinking.context.ContextAssembler
+import com.bbpillow.haku.thinking.context.JdkWordSegmenter
 import com.bbpillow.haku.thinking.context.NowStateInput
 import com.bbpillow.haku.thinking.context.RecallRig
 import kotlin.test.AfterTest
@@ -27,6 +28,9 @@ private class ReplyModel(private val reply: String) : LocalModel {
   override suspend fun unload() {}
 }
 
+/** Questions in scripts/stress/questions_th.txt that are not about the user's life, so general is the right path. */
+private val STRESS_SET_ALLOWED_GENERAL = setOf("คุณชื่ออะไร", "ช่วยแนะนำตัวหน่อย")
+
 class ChatPresenterTest {
   private val rig = RecallRig()
   private val chat = ChatPresenter(rig.memory, rig.index, rig.pipeline, RecallRig.OFFSET_MIN)
@@ -42,6 +46,77 @@ class ChatPresenterTest {
   }
 
   private fun ask(q: String, style: DiaryStyle = DiaryStyle()) = chat.retrieve(ChatQuestionInput(q, RecallRig.NOW, style))
+
+  @Test fun `general knowledge gets the model's own long answer with no records and the general source`() = runTest {
+    seed()
+    val reply = "ต้มน้ำ 3 ถ้วย ใส่ข่า 5 แว่น ตะไคร้ 2 ต้น แล้วเติมกุ้ง 12 ตัว ".repeat(20).trim()
+    val model = ReplyModel(reply)
+    val out = chat.answer(ask("สูตรต้มยำกุ้งทำยังไง"), LocalModelClient(model))
+    assertEquals(ChatAnswerSource.GENERAL, out.source)
+    assertEquals(reply, out.text) // longer than MAX_CHAT_CHARS and full of numbers: neither cut nor refused
+    assertTrue(out.text.length > ChatPresenter.MAX_CHAT_CHARS)
+    assertTrue(out.citations.isEmpty())
+    assertFalse("ร้านกาแฟ" in model.prompts.single(), "general path must not see the diary")
+  }
+
+  @Test fun `a question about right now stays on the diary path`() {
+    val withNow = ChatPresenter(rig.memory, rig.index, rig.pipeline, RecallRig.OFFSET_MIN, nowState = { NowStateInput(placeName = "ร้านกาแฟ") })
+    assertEquals(ChatRoute.DIARY, withNow.retrieve(ChatQuestionInput("ตอนนี้อยู่ไหน", RecallRig.NOW)).route)
+  }
+
+  @Test fun `a knowledge question that shares a word with the diary stays general`() = runTest {
+    seed()
+    assertEquals(ChatRoute.GENERAL, ask("กาแฟกับชาต่างกันยังไง").route)
+  }
+
+  @Test fun `a question about the user's own life stays on the checked diary path`() = runTest {
+    seed()
+    val out = chat.answer(ask("ฉันไปร้านกาแฟกี่ครั้ง"), LocalModelClient(ReplyModel("ไปสนามบินเวลา 09:45")))
+    assertEquals(ChatRoute.DIARY, ask("ฉันไปร้านกาแฟกี่ครั้ง").route)
+    assertEquals(ChatAnswerSource.RETRIEVAL, out.source) // invented place and time refused, as before
+    assertTrue(out.citations.isNotEmpty())
+  }
+
+  @Test fun `general question without a model says so instead of not found in the diary`() = runTest {
+    val out = chat.answer(ask("คอมพิวเตอร์ควอนตัมคืออะไร", DiaryStyle(EndingParticle.KA)), client = null)
+    assertEquals(EndingParticle.KA.appendTo(ChatPresenter.GENERAL_UNAVAILABLE), out.text)
+    assertEquals(ChatAnswerSource.RETRIEVAL, out.source)
+  }
+
+  @Test fun `general question with blank model output falls back to the unavailable line`() = runTest {
+    val out = chat.answer(ask("คอมพิวเตอร์ควอนตัมคืออะไร"), LocalModelClient(ReplyModel("  \n ")))
+    assertEquals(ChatPresenter.GENERAL_UNAVAILABLE, out.text)
+    assertEquals(listOf("blank"), out.rejectedReasons)
+  }
+
+  // P3.8 pass criterion: these use the real TimeWords and search, which a router unit test does not
+  @Test fun `general set routes general through real retrieval`() {
+    seed()
+    val general = listOf(
+      "สูตรต้มยำกุ้งทำยังไง", "วิธีหุงข้าวด้วยหม้อหุงข้าว", "15 คูณ 12 เท่ากับเท่าไหร่", "2+2 ได้เท่าไร", "อธิบายแรงโน้มถ่วงให้เข้าใจง่าย",
+      "คอมพิวเตอร์ควอนตัมคืออะไร", "แปลคำว่า good morning เป็นภาษาไทย", "hello แปลว่าอะไร", "ช่วยเขียนอีเมลลาป่วยให้หน่อย",
+      "เล่านิทานสั้น ๆ ให้ฟังหน่อย", "ทำไมท้องฟ้าถึงเป็นสีฟ้า", "ประเทศไทยมีกี่จังหวัด", "เมืองหลวงของญี่ปุ่นคือที่ไหน",
+      "แนะนำหนังสือสำหรับคนเริ่มอ่านหน่อย", "ผมร่วงแก้ยังไง", "เราเตอร์คืออะไร", "ข้อดีของการวิ่งมีอะไรบ้าง", "กาแฟกับชาต่างกันยังไง",
+      "เขียนโค้ด python บวกเลขให้หน่อย", "ปวดหัวควรทำยังไง", "ดวงอาทิตย์คืออะไร", "ปีแสงคืออะไร",
+    )
+    assertEquals(emptyList(), general.filter { ask(it).route != ChatRoute.GENERAL })
+  }
+
+  @Test fun `the stress set about the user's life stays on the diary path`() = RecallRig(JdkWordSegmenter).use { real ->
+    // a real Thai word breaker: a dropped subject reaches the diary only through its word hit
+    val realChat = ChatPresenter(real.memory, real.index, real.pipeline, RecallRig.OFFSET_MIN)
+    val p = Provenance.INFERRED_FROM_USER_DATA
+    real.daily("12:00 ไปกินข้าวที่ร้านกาแฟ", "2026-09-29T05:00:00.000Z", p)
+    real.daily("09:00 ส่งใบเสนอราคาใหม่ให้ลูกค้า", "2026-09-28T02:00:00.000Z", p)
+    real.daily("10:00 จองตั๋วเครื่องบินไปเชียงใหม่", "2026-09-28T03:00:00.000Z", p)
+    real.daily("07:00 วิ่งที่สวนลุมพินี 3 รอบ", "2026-09-27T00:00:00.000Z", p)
+    real.daily("18:00 ประชุมทีมขาย", "2026-09-27T11:00:00.000Z", p)
+    real.daily("22:00 ตั้งใจเข้านอนก่อนห้าทุ่ม", "2026-09-27T15:00:00.000Z", p)
+    real.daily("11:00 เบอร์โทรศัพท์หมอฟัน 02-000-0000", "2026-09-26T04:00:00.000Z", p)
+    val questions = java.io.File("../scripts/stress/questions_th.txt").readLines().map { it.trim() }.filter { it.isNotEmpty() }
+    val general = questions.filter { realChat.retrieve(ChatQuestionInput(it, RecallRig.NOW, DiaryStyle())).route == ChatRoute.GENERAL }
+    assertEquals(emptyList(), general - STRESS_SET_ALLOWED_GENERAL)
+  }
 
   @Test fun `without a model the answer is the retrieved lines with date citations`() = runTest {
     seed()
@@ -84,7 +159,7 @@ class ChatPresenterTest {
   }
 
   @Test fun `no citations with blank model output falls back`() = runTest {
-    val out = chat.answer(ask("ทดสอบไหม", DiaryStyle(EndingParticle.KRAP)), LocalModelClient(ReplyModel("   \n  ")))
+    val out = chat.answer(ask("ไปหาหมอฟันครั้งล่าสุดเมื่อไร", DiaryStyle(EndingParticle.KRAP)), LocalModelClient(ReplyModel("   \n  ")))
     assertTrue(out.citations.isEmpty())
     assertEquals(ChatAnswerSource.RETRIEVAL, out.source)
     assertEquals(EndingParticle.KRAP.appendTo(ChatPresenter.NOT_FOUND), out.text)

@@ -76,6 +76,25 @@ class ChatRouterTest {
   }
 
   @Test
+  fun droppedSubjectStaysOnTheDiaryEvenWithKnowledgeCue() {
+    val questions = listOf(
+      "ไปเซ็นทรัลเวิลด์ทำไม",
+      "ไปที่ทำงานใช้วิธีเดินทางยังไง",
+      "ไปคลินิกทันตกรรมวันไหน",
+      "เพื่อนชวนไปเที่ยวเชียงใหม่เดือนไหน",
+      "เดือนที่แล้วบินไปเที่ยวญี่ปุ่นกับใคร",
+    )
+    for (q in questions) {
+      assertEquals(ChatRoute.DIARY, ChatRouter.route(q, isQuestion = true, hasTimeWord = false, hasWordHit = false), q)
+    }
+  }
+
+  @Test
+  fun aWordThatOnlyStartsLikeGoingIsNotAboutTheUser() {
+    assertEquals(ChatRoute.GENERAL, ChatRouter.route("ไปรษณีย์ปิดกี่โมง", isQuestion = true, hasTimeWord = false, hasWordHit = false))
+  }
+
+  @Test
   fun diaryWhenHasTimeWordEvenWithKnowledgeCue() {
     val questions = listOf(
       "เมื่อวานไปหาหมอฟันมากี่โมง",

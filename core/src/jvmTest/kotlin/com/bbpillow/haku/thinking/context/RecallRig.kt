@@ -3,6 +3,7 @@ package com.bbpillow.haku.thinking.context
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.bbpillow.haku.language.TextPipeline
+import com.bbpillow.haku.language.WordSegmenter
 import com.bbpillow.haku.language.thaiSynonyms
 import com.bbpillow.haku.memory.DailyEventInput
 import com.bbpillow.haku.memory.MemoryFormat
@@ -18,13 +19,13 @@ import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
 
 /** Files (fake fs) + real SQLite index + indexed repository + assembler, wired the way the app will. */
-class RecallRig : AutoCloseable {
+class RecallRig(segmenter: WordSegmenter = DictionarySegmenter(VOCAB)) : AutoCloseable {
   val root = "/memory".toPath()
   val fs = FakeFileSystem()
   private var counter = 0
   val store = MemoryStore(fs, root) { "id${++counter}" }
   private val db: SQLiteConnection = BundledSQLiteDriver().open(":memory:")
-  val pipeline = TextPipeline(DictionarySegmenter(VOCAB))
+  val pipeline = TextPipeline(segmenter)
   val index = SearchIndexStore(db, pipeline, thaiSynonyms)
   val vectors = VectorStore(db)
   val memory = IndexedMemoryRepository(store, index, vectors)

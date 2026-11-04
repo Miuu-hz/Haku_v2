@@ -81,7 +81,7 @@ class DemoRecallTest {
 }
 
 /** JDK's dictionary word breaker, the JVM stand-in for the device's ICU segmenter. */
-private object JdkWordSegmenter : WordSegmenter {
+internal object JdkWordSegmenter : WordSegmenter {
   override fun segment(text: String, languageCode: String): List<WordToken> {
     val it = BreakIterator.getWordInstance(Locale.forLanguageTag(languageCode)).apply { setText(text) }
     val out = mutableListOf<WordToken>()

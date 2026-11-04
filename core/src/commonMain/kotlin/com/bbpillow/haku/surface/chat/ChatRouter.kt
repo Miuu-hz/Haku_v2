@@ -4,7 +4,10 @@ package com.bbpillow.haku.surface.chat
 enum class ChatRoute { DIARY, GENERAL }
 
 object ChatRouter {
-  private val STRONG_LIFE = listOf("ฉัน", "ตัวเอง", "ล่าสุด", "ครั้งก่อน", "ไปไหน", "ไปที่ไหน", "นัด", "บันทึก", "จำได้")
+  private val STRONG_LIFE = listOf("ฉัน", "ตัวเอง", "ล่าสุด", "ครั้งก่อน", "ไปไหน", "ไปที่ไหน", "นัด", "บันทึก", "จำได้", "วันไหน", "เดือนไหน", "ที่แล้ว")
+
+  // Thai drops the subject: "ไปเซ็นทรัลเวิลด์ทำไม" is about the user even with a knowledge cue. Not ไปรษณีย์.
+  private val STARTS_WITH_GOING = Regex("""^ไป(?!ร)""")
 
   // Evaluated after KNOWLEDGE because pronouns appear inside ordinary words such as ผมร่วง and เราเตอร์.
   private val WEAK_PRONOUN = listOf("ผม", "เรา", "หนู")
@@ -19,14 +22,14 @@ object ChatRouter {
 
   /**
    * @param isQuestion the message asks something (ChatPresenter.isQuestion)
-   * @param hasTimeWord the message names a date or period the diary can look up (TimeWords.find found one)
+   * @param hasTimeWord the message names a date or period the diary can look up, or asks about right now
    * @param hasWordHit the word search found a record or core fact for this message
    */
   fun route(question: String, isQuestion: Boolean, hasTimeWord: Boolean, hasWordHit: Boolean): ChatRoute {
     val trimmed = question.trim()
 
     // 1. hasTimeWord or any STRONG_LIFE cue -> DIARY
-    if (hasTimeWord || STRONG_LIFE.any { trimmed.contains(it) }) {
+    if (hasTimeWord || STRONG_LIFE.any { trimmed.contains(it) } || STARTS_WITH_GOING.containsMatchIn(trimmed)) {
       return ChatRoute.DIARY
     }
 
