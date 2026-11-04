@@ -163,6 +163,7 @@ fun MainShell(
   // the conversation lives as long as the shell, so switching tabs keeps it
   var chatTurns by remember { mutableStateOf(listOf<ChatTurn>()) }
   var chatSession by remember { mutableStateOf(ChatSessionState(System.currentTimeMillis())) }
+  val chatStop = remember { ChatStop() }
   val shellScope = rememberCoroutineScope() // an answer still lands if the user switches tabs while it is being written
   val dl by graph.downloader.state.collectAsState()
   val imp by graph.importer.state.collectAsState()
@@ -226,6 +227,7 @@ fun MainShell(
         { chatTurns = it },
         chatSession,
         { chatSession = it },
+        chatStop,
         openDay,
         onOpenLlmSettings = { llmFromChat = true; settingsPage.value = SettingsPage.LLM; settingsOpen = true },
         mode = chatMode,
@@ -725,6 +727,7 @@ private fun ChatTab(
   onTurns: (List<ChatTurn>) -> Unit,
   session: ChatSessionState,
   onSession: (ChatSessionState) -> Unit,
+  chatStop: ChatStop,
   onOpenDay: (String) -> Unit,
   onOpenLlmSettings: () -> Unit,
   mode: ChatMode,
@@ -815,13 +818,19 @@ private fun ChatTab(
     onAsk = { q ->
       val asked = turns + ChatTurn(q, null)
       onTurns(asked)
+      chatStop.reset()
+      // re-read each time: an appointment card tapped during a long answer must not be overwritten by the next piece of
+      // text. A smaller list means the screen has not caught up with `asked` yet (a rule answer can arrive within a frame).
+      fun show(turn: ChatTurn) = onTurns((if (latestTurns.size == asked.size) latestTurns else asked).dropLast(1) + turn)
       scope.launch {
         val fitted = session.fitted(contextTokens)
-        val answer = askHaku(graph, q, activeMode, fitted) ?: ChatAnswerOutput(q, "ค้นบันทึกไม่สำเร็จ ลองใหม่อีกครั้ง", emptyList(), ChatAnswerSource.RETRIEVAL)
+        val answer = askHaku(graph, q, activeMode, fitted, chatStop) { show(ChatTurn(q, null, it)) }
+          ?: ChatAnswerOutput(q, "ค้นบันทึกไม่สำเร็จ ลองใหม่อีกครั้ง", emptyList(), ChatAnswerSource.RETRIEVAL)
         onSession(fitted.after(answer))
-        onTurns(asked.dropLast(1) + ChatTurn(q, answer))
+        show(ChatTurn(q, answer))
       }
     },
+    onStop = chatStop::stop,
     onOpenDay = onOpenDay,
     mode = activeMode,
     modeOptions = ChatModes.options(contextTokens),
@@ -867,10 +876,29 @@ private fun ChatTab(
  * internal: the debug AskDebugReceiver ASK_FULL action drives this exact path over adb, in [ChatMode.AGENT] so it can
  * reach the skill picker.
  */
-internal suspend fun askHaku(graph: AppGraph, question: String, mode: ChatMode = ChatMode.AGENT, session: ChatSessionState? = null): ChatAnswerOutput? {
+internal suspend fun askHaku(
+  graph: AppGraph,
+  question: String,
+  mode: ChatMode = ChatMode.AGENT,
+  session: ChatSessionState? = null,
+  stop: ChatStop? = null,
+  onPartial: (String) -> Unit = {},
+): ChatAnswerOutput? {
   val skills = availableSkills(graph)
   val mention = MentionParser.parse(question, skills)
-  return answerWithoutModel(graph, question, mention) ?: graph.warmth.use { askOnce(graph, question, skills, mention, mode, session) }
+  return answerWithoutModel(graph, question, mention) ?: graph.warmth.use { askOnce(graph, question, skills, mention, mode, session, stop, onPartial) }
+}
+
+/** Lets the stop button reach the answer being written: the button shows at once, the model's client exists only later in [askOnce]. */
+internal class ChatStop {
+  @Volatile private var client: LocalModelClient? = null
+  @Volatile private var stopped = false
+
+  fun reset() { client = null; stopped = false }
+
+  fun attach(c: LocalModelClient) { client = c; if (stopped) c.cancel() }
+
+  fun stop() { stopped = true; client?.cancel() }
 }
 
 /**
@@ -891,7 +919,16 @@ private suspend fun answerWithoutModel(graph: AppGraph, question: String, mentio
 }
 
 /** Everything that needs a model, after [answerWithoutModel] found nothing. */
-private suspend fun askOnce(graph: AppGraph, question: String, skills: List<SkillRecord>, mention: Mention?, mode: ChatMode, session: ChatSessionState?): ChatAnswerOutput? {
+private suspend fun askOnce(
+  graph: AppGraph,
+  question: String,
+  skills: List<SkillRecord>,
+  mention: Mention?,
+  mode: ChatMode,
+  session: ChatSessionState?,
+  stop: ChatStop?,
+  onPartial: (String) -> Unit,
+): ChatAnswerOutput? {
   // "@ปฏิทิน …" / "@host …" (popup pick) = use exactly that, no picker; the gate card still asks before anything runs
   when (mention) {
     is Mention.Skill -> return runSkill(graph, question, mention.rest.ifBlank { question }, listOf(mention.skill), chosen = true)
@@ -908,7 +945,8 @@ private suspend fun askOnce(graph: AppGraph, question: String, skills: List<Skil
   return try {
     val client = LocalModelClient(model, onFinished = graph::recordAnswerMetrics)
     client.load(config)
-    presenter.answer(retrieval, client)
+    stop?.attach(client)
+    presenter.answer(retrieval, client, onPartial)
   } catch (e: CancellationException) {
     throw e
   } catch (e: Exception) {

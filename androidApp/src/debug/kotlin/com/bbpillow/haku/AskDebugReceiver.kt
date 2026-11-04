@@ -74,13 +74,20 @@ class AskDebugReceiver : BroadcastReceiver() {
             // --ez chat true continues one chat across broadcasts, in GENERAL as a tester would; --ez new_chat true starts it over
             val chat = intent.getBooleanExtra("chat", false)
             if (intent.getBooleanExtra("new_chat", false)) chatSession = null
+            // --ei stop_ms N presses stop that long after the first text
+            val stopMs = intent.getIntExtra("stop_ms", 0).toLong()
+            val stop = ChatStop()
+            var streamedPieces = 0
             val a = mutex.withLock {
               if (!chat) return@withLock askHaku(app.graph, question)
               val fitted = (chatSession ?: ChatSessionState(System.currentTimeMillis())).fitted(app.graph.llmSettings.load().contextTokens)
-              askHaku(app.graph, question, ChatMode.GENERAL, fitted).also { answer -> chatSession = answer?.let(fitted::after) ?: fitted }
+              askHaku(app.graph, question, ChatMode.GENERAL, fitted, stop) {
+                if (streamedPieces++ == 0 && stopMs > 0) android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(stop::stop, stopMs)
+              }.also { answer -> chatSession = answer?.let(fitted::after) ?: fitted }
             }
             val p = a?.actionId?.let { id -> app.graph.actionGate.proposals.value.firstOrNull { it.id == id } }
-            Log.i(TAG, org.json.JSONObject().put("q", question).put("ms", System.currentTimeMillis() - t0).put("text", a?.text)
+            Log.i(TAG, org.json.JSONObject().put("q", question).put("ms", System.currentTimeMillis() - t0)
+              .put("first", app.graph.llmMetrics.value.firstTokenMillis).put("pieces", streamedPieces).put("stopped", a?.stopped).put("text", a?.text)
               .put("source", a?.source?.name).put("citations", a?.citations?.size).put("appointment", a?.appointment?.let { "${it.title} ${it.dayLabel} ${it.timeLabel}" })
               .put("card", p?.let { "${it.request.action} | ${it.request.title} | ${it.request.detail} | ${it.request.origin} | ${it.status}" })
               .toString())
