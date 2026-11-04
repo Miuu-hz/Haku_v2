@@ -11,10 +11,10 @@ import androidx.work.WorkManager
 import com.bbpillow.haku.capture.CaptureQueryInput
 import com.bbpillow.haku.capture.CaptureSource
 import com.bbpillow.haku.capture.PlaceNames
+import com.bbpillow.haku.platform.NotificationAppsPrefs
 import com.bbpillow.haku.platform.capture.CaptureController
 import com.bbpillow.haku.surface.onboarding.ActiveModel
 import com.bbpillow.haku.surface.onboarding.ModelChoice
-import com.bbpillow.haku.surface.timeline.TimelineMap
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
@@ -74,6 +74,7 @@ class PipelineReportReceiver : BroadcastReceiver() {
         put("calendar_write", app.checkSelfPermission(Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED)
         put("post_notifications", app.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
         put("notification_listener", listeners.contains(app.packageName))
+        put("notification_apps_on", NotificationAppsPrefs(app).enabled().size) // count only, never which apps
       }
     })
 
@@ -129,7 +130,11 @@ class PipelineReportReceiver : BroadcastReceiver() {
             put("stays_seen", seen.visits.size)
             put("stays_matched", matched.size)
             put("distinct_places", matched.mapNotNull { byId[it.placeId] }.map { it.lat to it.lon }.distinct().size)
-            put("map_shown", TimelineMap.build(rowTimes, seen) != null)
+            // what the screen draws: the presenter's state, not a re-derivation of it
+            val screen = timeline.load(day, app.graph.today(now))
+            put("map_points", screen.map?.points?.size ?: 0)
+            put("map_has_current", screen.map?.points?.any { it.since != null } == true)
+            put("map_empty", screen.mapEmpty?.name ?: JSONObject.NULL)
           })
         }
       }

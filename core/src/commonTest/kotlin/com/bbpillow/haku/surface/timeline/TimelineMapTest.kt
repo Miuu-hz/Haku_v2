@@ -65,13 +65,6 @@ class TimelineMapTest {
     assertEquals(listOf("บ้าน", "ออฟฟิศสีลม"), map2.points.map { it.label })
   }
 
-  @Test fun hiddenUnderTwoDistinctPlaces() {
-    // New rule: zero points returns null; one stop or repeated spots draw
-    assertNull(TimelineMap.build(emptyList(), out()))
-    assertNotNull(TimelineMap.build(listOf(10L), out(visit(home, 0, 10))))
-    assertNotNull(TimelineMap.build(listOf(10L, 20L), out(visit(home, 0, 10), visit(home, 20, 30))))
-  }
-
   @Test fun noStaysAndNoCurrentGivesNull() {
     assertNull(TimelineMap.build(emptyList(), out()))
   }

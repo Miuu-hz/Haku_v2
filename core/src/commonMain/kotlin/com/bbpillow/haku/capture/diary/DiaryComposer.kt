@@ -199,8 +199,8 @@ class DiaryComposer(
     return start to start + DAY_MS
   }
 
-  companion object {
+  private companion object {
     const val OPEN_STAY_LOOKBACK_DAYS = 30
-    private const val DAY_MS = 86_400_000L
+    const val DAY_MS = 86_400_000L
   }
 }
